@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Новый сюжет — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="mb-4">
+    <h1 class="h3 mb-1">Новый сюжет</h1>
+    <p class="text-muted">Выберите проект и посты, укажите заголовок и комментарий для рерайта.</p>
+  </div>
+
+  <form method="post" class="card card-body shadow-sm">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="row g-4">
+      <div class="col-md-4">
+        <div class="mb-3">
+          {{ form.project.label_tag }}
+          {{ form.project }}
+          {% if form.project.errors %}
+            <div class="text-danger small">{{ form.project.errors|join:", " }}</div>
+          {% endif %}
+        </div>
+        <div class="mb-3">
+          {{ form.title.label_tag }}
+          {{ form.title }}
+          {% if form.title.errors %}
+            <div class="text-danger small">{{ form.title.errors|join:", " }}</div>
+          {% endif %}
+        </div>
+        <div class="mb-3">
+          {{ form.editor_comment.label_tag }}
+          {{ form.editor_comment }}
+          <div class="form-text">{{ form.editor_comment.help_text }}</div>
+          {% if form.editor_comment.errors %}
+            <div class="text-danger small">{{ form.editor_comment.errors|join:", " }}</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="col-md-8">
+        <label class="form-label">{{ form.posts.label }}</label>
+        {{ form.posts }}
+        <div class="form-text">{{ form.posts.help_text }}</div>
+        {% if form.posts.errors %}
+          <div class="text-danger small mt-1">{{ form.posts.errors|join:", " }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="mt-4 d-flex gap-2">
+      <button type="submit" class="btn btn-primary">Сохранить сюжет</button>
+      <a class="btn btn-outline-secondary" href="{% url 'stories:list' %}">Отмена</a>
+    </div>
+  </form>
+{% endblock %}

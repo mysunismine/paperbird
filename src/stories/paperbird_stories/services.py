@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol, Sequence
 
 from django.conf import settings
@@ -252,7 +253,7 @@ class PublishResult:
     """Результат отправки публикации."""
 
     message_ids: list[int]
-    published_at
+    published_at: datetime | None
     raw: dict | None = None
 
 

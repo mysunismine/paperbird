@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Сюжеты — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h1 class="h3 mb-0">Сюжеты</h1>
+      <p class="text-muted">Управляйте сюжетами: создавайте, запускайте рерайт и публикуйте.</p>
+    </div>
+    <a class="btn btn-primary" href="{% url 'stories:create' %}">Создать сюжет</a>
+  </div>
+
+  {% if stories %}
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>Заголовок</th>
+            <th>Проект</th>
+            <th>Статус</th>
+            <th>Обновлён</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for story in stories %}
+            <tr>
+              <td class="fw-semibold">{{ story.title|default:"Черновик" }}</td>
+              <td>{{ story.project.name }}</td>
+              <td>
+                <span class="badge text-bg-secondary">{{ story.get_status_display }}</span>
+              </td>
+              <td>{{ story.updated_at|date:"d.m.Y H:i" }}</td>
+              <td class="text-end">
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'stories:detail' story.pk %}">Открыть</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-info">Пока нет сюжетов. Создайте первый, выбрав посты в проекте.</div>
+  {% endif %}
+
+  <hr class="my-5" />
+  <h2 class="h5">Проекты</h2>
+  <ul class="list-group">
+    {% for project in projects %}
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>{{ project.name }}</span>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'stories:create' %}?project={{ project.id }}">Создать сюжет</a>
+      </li>
+    {% empty %}
+      <li class="list-group-item">У вас пока нет проектов.</li>
+    {% endfor %}
+  </ul>
+{% endblock %}

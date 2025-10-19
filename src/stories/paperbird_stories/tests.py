@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
+from django.urls import reverse
 
 from projects.models import Post, Project, Source
 from stories.paperbird_stories.models import Publication, RewriteTask, Story
@@ -236,3 +238,62 @@ class StoryPublisherTests(TestCase):
         publisher = StoryPublisher(backend=DummyBackend())
         with self.assertRaises(PublicationFailed):
             publisher.publish(self.story, target="@channel")
+
+
+class StoryViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("viewer", password="pass")
+        self.client.force_login(self.user)
+        self.project = Project.objects.create(owner=self.user, name="Newsroom")
+        self.source = Source.objects.create(project=self.project, telegram_id=500)
+        self.post = Post.objects.create(
+            project=self.project,
+            source=self.source,
+            telegram_id=100,
+            message="Текст для истории",
+            posted_at=timezone.now(),
+        )
+
+    def test_story_list_view(self) -> None:
+        response = self.client.get(reverse("stories:list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Сюжеты", response.content.decode("utf-8"))
+
+    def test_create_story_view(self) -> None:
+        response = self.client.post(
+            reverse("stories:create"),
+            data={
+                "project": self.project.id,
+                "posts": [self.post.id],
+                "title": "Новый сюжет",
+                "editor_comment": "",
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        story = Story.objects.get()
+        self.assertEqual(story.title, "Новый сюжет")
+
+    @patch("stories.paperbird_stories.views.default_rewriter")
+    def test_rewrite_action(self, mock_rewriter) -> None:
+        mock_instance = MagicMock()
+        mock_rewriter.return_value = mock_instance
+        story = StoryFactory(project=self.project).create(post_ids=[self.post.id], title="Story")
+        url = reverse("stories:detail", kwargs={"pk": story.pk})
+        response = self.client.post(url, data={"action": "rewrite", "editor_comment": ""}, follow=True)
+        self.assertEqual(response.status_code, 200)
+        mock_instance.rewrite.assert_called_once()
+
+    @patch("stories.paperbird_stories.views.default_publisher_for_story")
+    def test_publish_action(self, mock_publisher_factory) -> None:
+        story = StoryFactory(project=self.project).create(post_ids=[self.post.id], title="Story")
+        story.apply_rewrite(title="Story", summary="", body="Text", hashtags=[], sources=[], payload={})
+        mock_publisher = MagicMock()
+        mock_publisher.publish.return_value.status = Publication.Status.PUBLISHED
+        mock_publisher.publish.return_value.message_ids = [1]
+        mock_publisher.publish.return_value.target = "@ch"
+        mock_publisher_factory.return_value = mock_publisher
+        url = reverse("stories:detail", kwargs={"pk": story.pk})
+        response = self.client.post(url, data={"action": "publish", "target": "@ch"}, follow=True)
+        self.assertEqual(response.status_code, 200)
+        mock_publisher.publish.assert_called_once()
