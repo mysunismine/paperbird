@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Профиль · Paperbird{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-lg-8 col-xl-6">
+      <h2 class="mb-3">Профиль</h2>
+      <p class="text-muted">Обновите контактные данные и ключи Telethon.</p>
+      <form method="post" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger" role="alert">
+            {% for error in form.non_field_errors %}
+              <div>{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% for field in form %}
+          <div class="mb-3">
+            <label class="form-label" for="id_{{ field.name }}">{{ field.label }}</label>
+            {% with base_class=field.field.widget.attrs.class|default:'form-control' %}
+              {% if field.errors %}
+                {{ field.as_widget(attrs={"class": base_class|add:" is-invalid"}) }}
+              {% else %}
+                {{ field }}
+              {% endif %}
+            {% endwith %}
+            {% if field.help_text %}
+              <div class="form-text">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary">Сохранить</button>
+          <a href="{% url 'accounts:password_change' %}" class="btn btn-outline-secondary">Изменить пароль</a>
+          <a href="{% url 'accounts:logout' %}" class="btn btn-outline-danger">Выйти</a>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

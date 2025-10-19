@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Вход · Paperbird{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-md-6 col-lg-4">
+      <h2 class="mb-4 text-center">Вход</h2>
+      <form method="post" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger" role="alert">
+            {% for error in form.non_field_errors %}
+              <div>{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        <div class="mb-3">
+          <label for="id_username" class="form-label">Логин</label>
+          <input
+            type="text"
+            name="username"
+            autofocus
+            required
+            class="form-control{% if form.username.errors %} is-invalid{% endif %}"
+            id="id_username"
+            value="{{ form.username.value|default_if_none:'' }}"
+          />
+          {% for error in form.username.errors %}
+            <div class="invalid-feedback">{{ error }}</div>
+          {% endfor %}
+        </div>
+        <div class="mb-3">
+          <label for="id_password" class="form-label">Пароль</label>
+          <input
+            type="password"
+            name="password"
+            required
+            class="form-control{% if form.password.errors %} is-invalid{% endif %}"
+            id="id_password"
+          />
+          {% for error in form.password.errors %}
+            <div class="invalid-feedback">{{ error }}</div>
+          {% endfor %}
+        </div>
+        <button type="submit" class="btn btn-primary w-100">Войти</button>
+      </form>
+    </div>
+  </div>
+{% endblock %}

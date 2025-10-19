@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Environments
+.venv/
+.env
+
+# Django
+staticfiles/
+media/
+
+# Tooling
+.ruff_cache/
+

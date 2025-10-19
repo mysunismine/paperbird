@@ -1,0 +1,362 @@
+openapi: 3.0.0
+info:
+  title: Paperbird API
+  version: 1.0.0
+  description: API for Paperbird project management and content creation platform.
+servers:
+  - url: https://api.paperbird.example.com/v1
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        fullName:
+          type: string
+      required:
+        - id
+        - username
+        - email
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+    Post:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+    Story:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        content:
+          type: string
+        status:
+          type: string
+          enum: [draft, rewritten, published]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - status
+    RewriteTask:
+      type: object
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        instructions:
+          type: string
+      required:
+        - storyId
+        - instructions
+    Publication:
+      type: object
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        publishedAt:
+          type: string
+          format: date-time
+        platform:
+          type: string
+      required:
+        - storyId
+        - publishedAt
+    Image:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        description:
+          type: string
+      required:
+        - url
+paths:
+  /auth/login:
+    post:
+      summary: User login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+              required:
+                - username
+                - password
+      responses:
+        '200':
+          description: Successful login returns access token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+  /auth/logout:
+    post:
+      summary: User logout
+      responses:
+        '200':
+          description: User logged out successfully
+  /user/me:
+    get:
+      summary: Get current user profile
+      responses:
+        '200':
+          description: User profile information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /projects:
+    get:
+      summary: List all projects
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+    post:
+      summary: Create a new project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+              required:
+                - name
+      responses:
+        '200':
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+  /projects/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Get project by ID
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+    patch:
+      summary: Update project by ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '200':
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+    delete:
+      summary: Delete project by ID
+      responses:
+        '200':
+          description: Project deleted successfully
+  /projects/{id}/posts:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: List posts for a project
+      responses:
+        '200':
+          description: List of posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Post'
+  /projects/{id}/stories:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: List stories for a project
+      responses:
+        '200':
+          description: List of stories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Story'
+    post:
+      summary: Create a new story for a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                content:
+                  type: string
+              required:
+                - title
+      responses:
+        '200':
+          description: Created story
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Story'
+  /stories/{story_id}/rewrite:
+    parameters:
+      - name: story_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Submit a rewrite task for a story
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewriteTask'
+      responses:
+        '200':
+          description: Rewrite task accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Story'
+  /stories/{story_id}/publish:
+    parameters:
+      - name: story_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Publish a story
+      responses:
+        '200':
+          description: Story published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Publication'
+  /stories/{story_id}/image:
+    parameters:
+      - name: story_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Upload an image for a story
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                description:
+                  type: string
+      responses:
+        '200':
+          description: Image uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'

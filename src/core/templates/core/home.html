@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Домашняя страница · Paperbird{% endblock %}
+
+{% block content %}
+  <div class="text-center py-5">
+    <h1 class="display-5">Paperbird</h1>
+    <p class="lead">Базовый каркас сервиса для интеграции с Telegram-каналами.</p>
+    <p class="text-muted">Продолжим настройку после получения технического задания.</p>
+    {% if not user.is_authenticated %}
+      <a class="btn btn-primary mt-3" href="{% url 'accounts:login' %}">Войти</a>
+    {% else %}
+      <a class="btn btn-outline-primary mt-3" href="{% url 'accounts:profile' %}">Перейти в профиль</a>
+    {% endif %}
+  </div>
+{% endblock %}
