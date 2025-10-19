@@ -31,7 +31,7 @@
    ```bash
    cp .env.example .env
    ```
-   Обратите внимание на `DJANGO_SECRET_KEY`, `POSTGRES_*`, а также `TELEGRAM_API_ID` и `TELEGRAM_API_HASH` — их можно получить в [кабинете разработчика Telegram](https://my.telegram.org/).
+   Обратите внимание на `DJANGO_SECRET_KEY`, `POSTGRES_*`, а также `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` и `OPENAI_API_KEY`. Telethon ключи и строковую сессию можно получить в [кабинете разработчика Telegram](https://my.telegram.org/), а ключ OpenAI — в [личном кабинете OpenAI](https://platform.openai.com/).
 
 ## Запуск проекта
 ```bash
@@ -55,6 +55,11 @@ docker compose up -d
    python manage.py collect_posts <username> --limit 50
    ```
    Параметр `--project <id>` ограничит сбор одним проектом.
+
+### Рерайт сюжетов и публикация
+- Создайте сюжет на основе выбранных постов через интерфейс или API, затем запустите рерайт (используется OpenAI Chat Completions).
+- После успешного рерайта сюжет получает статус `ready`, и его можно опубликовать в Telegram. Для публикации используйте API `POST /stories/{id}/publish` или административный интерфейс.
+- Публикация выполняется от имени владельца проекта через Telethon; убедитесь, что у пользователя заполнены Telethon credentials. Результаты и идентификаторы сообщений сохраняются в разделе «Публикации».
 
 ### Аутентификация
 - Создайте учётную запись администратора для первого входа:
@@ -80,8 +85,9 @@ ruff check . --fix
   - `src/accounts/` — аутентификация и управление профилем пользователя
   - `src/projects/` — модели проектов, источников, постов и сборщик Telethon
   - `src/core/` — базовое приложение с главной страницей
-  - `src/templates/` — общие шаблоны, включая Bootstrap
-  - `src/static/` — пользовательские статические файлы (CSS/JS/изображения)
+- `src/templates/` — общие шаблоны, включая Bootstrap
+- `src/static/` — пользовательские статические файлы (CSS/JS/изображения)
+- `src/stories/` — домен сюжетов, рерайта и публикаций, включая интеграции с OpenAI и Telegram
 - `infra/` — инфраструктура и Docker Compose для локальных сервисов
 - `.env.example` — пример конфигурации окружения
 - `requirements.txt` — список зависимостей

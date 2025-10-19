@@ -3,4 +3,5 @@ from django.apps import AppConfig
 
 class PaperbirdStoriesConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
-    name = "paperbird_stories"
+    name = "stories.paperbird_stories"
+    label = "stories"

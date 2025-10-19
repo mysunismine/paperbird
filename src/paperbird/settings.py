@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "accounts",
     "projects",
     "core",
+    "stories.paperbird_stories",
 ]
 
 MIDDLEWARE = [
@@ -143,3 +144,11 @@ AUTH_USER_MODEL = "accounts.User"
 LOGIN_REDIRECT_URL = "accounts:profile"
 LOGOUT_REDIRECT_URL = "accounts:login"
 LOGIN_URL = "accounts:login"
+
+
+# --- Интеграция OpenAI -----------------------------------------------------
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "").strip()
+OPENAI_TIMEOUT = float(os.getenv("OPENAI_TIMEOUT", "30"))

@@ -314,11 +314,19 @@
 
 ### `POST /stories/{story_id}/publish`
 - **Назначение:** Публикация сюжета.
+- **Тело запроса:**
+  ```json
+  { "target": "@channel_name" }
+  ```
 - **Пример ответа:**
   ```json
-  { "publication_id": 300, "status": "published" }
+  {
+    "publication_id": 300,
+    "status": "published",
+    "message_ids": [2456]
+  }
   ```
-- **Ошибки:** `404 Not Found`, `401 Unauthorized`
+- **Ошибки:** `400 Bad Request`, `404 Not Found`, `401 Unauthorized`
 
 ---
 
