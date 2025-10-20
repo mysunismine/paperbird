@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+
+# Импорт только для подсказок типов.
+if TYPE_CHECKING:  # pragma: no cover - используется только для подсказок типов
+    from projects.services.post_filters import PostFilterOptions
 
 
 class Project(models.Model):
@@ -141,8 +146,15 @@ class Source(models.Model):
 
 
 class PostQuerySet(models.QuerySet):
-    def for_processing(self):
+    def for_processing(self) -> PostQuerySet:
         return self.filter(status=Post.Status.NEW)
+
+    def apply_filters(self, options: PostFilterOptions) -> PostQuerySet:
+        """Применяет расширенные фильтры к queryset."""
+
+        from projects.services.post_filters import apply_post_filters
+
+        return apply_post_filters(self, options)
 
 
 class Post(models.Model):
