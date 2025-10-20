@@ -11,6 +11,7 @@ from telethon.errors import RPCError
 from telethon.sessions import StringSession
 
 from accounts.models import User
+from core.utils.telethon import normalize_session_value
 
 
 class TelethonCredentialsMissingError(RuntimeError):
@@ -27,7 +28,18 @@ class TelethonClientFactory:
     def build(self) -> TelegramClient:
         if not self.user.has_telethon_credentials:
             raise TelethonCredentialsMissingError("У пользователя не заполнены ключи Telethon")
-        session = StringSession(self.user.telethon_session)
+
+        session_data = normalize_session_value(self.user.telethon_session)
+        if not session_data:
+            raise TelethonCredentialsMissingError("Телеграм-сессия отсутствует. Обновите профиль.")
+
+        try:
+            session = StringSession(session_data)
+        except ValueError as exc:
+            raise TelethonCredentialsMissingError(
+                "Строка Telethon-сессии повреждена. Сгенерируйте новую и сохраните её в профиле."
+            ) from exc
+
         client = TelegramClient(
             session,
             api_id=self.user.telethon_api_id,

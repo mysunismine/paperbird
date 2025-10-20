@@ -7,6 +7,18 @@
     <div class="col-lg-8 col-xl-6">
       <h2 class="mb-3">Профиль</h2>
       <p class="text-muted">Обновите контактные данные и ключи Telethon.</p>
+      <div class="card border-info-subtle bg-body-tertiary mb-4">
+        <div class="card-body">
+          <h3 class="h6 mb-2">Telethon-сессия</h3>
+          {% if user.telethon_session %}
+            <p class="text-success small mb-3">Строковая сессия сохранена. При необходимости можно перегенерировать её заново.</p>
+            <a class="btn btn-outline-primary btn-sm" href="{% url 'accounts:telethon-setup' %}">Создать новую сессию</a>
+          {% else %}
+            <p class="text-muted small mb-3">Сессия ещё не создана. Нажмите кнопку, чтобы пройти авторизацию и сохранить строку автоматически.</p>
+            <a class="btn btn-primary btn-sm" href="{% url 'accounts:telethon-setup' %}">Сгенерировать сессию</a>
+          {% endif %}
+        </div>
+      </div>
       <form method="post" novalidate>
         {% csrf_token %}
         {% if form.non_field_errors %}
@@ -18,20 +30,16 @@
         {% endif %}
         {% for field in form %}
           <div class="mb-3">
-            <label class="form-label" for="id_{{ field.name }}">{{ field.label }}</label>
-            {% with base_class=field.field.widget.attrs.class|default:'form-control' %}
-              {% if field.errors %}
-                {{ field.as_widget(attrs={"class": base_class|add:" is-invalid"}) }}
-              {% else %}
-                {{ field }}
-              {% endif %}
-            {% endwith %}
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
             {% if field.help_text %}
               <div class="form-text">{{ field.help_text }}</div>
             {% endif %}
-            {% for error in field.errors %}
-              <div class="invalid-feedback d-block">{{ error }}</div>
-            {% endfor %}
+            {% if field.errors %}
+              {% for error in field.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            {% endif %}
           </div>
         {% endfor %}
         <div class="d-flex gap-2">

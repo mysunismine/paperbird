@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from core.constants import REWRITE_MAX_ATTEMPTS
 from core.models import WorkerTask
 from core.services.worker import TaskExecutionError, WorkerRunner, enqueue_task
+from projects.models import Post, Project, Source
+
+User = get_user_model()
 
 
 class WorkerQueueTests(TestCase):
@@ -99,3 +104,50 @@ class WorkerQueueTests(TestCase):
         attempt = task.attempts_log.get()
         self.assertEqual(attempt.error_code, "FATAL")
         self.assertFalse(attempt.will_retry)
+
+
+class FeedViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("viewer", password="secret")
+        self.client.force_login(self.user)
+        self.project = Project.objects.create(owner=self.user, name="Новости")
+        self.source = Source.objects.create(project=self.project, telegram_id=1, title="Tech")
+        self.other_project = Project.objects.create(owner=self.user, name="Архив")
+        self.other_source = Source.objects.create(
+            project=self.other_project,
+            telegram_id=2,
+            title="Политика",
+        )
+        now = timezone.now()
+        self.latest_post = Post.objects.create(
+            project=self.project,
+            source=self.source,
+            telegram_id=10,
+            message="Apple представила новый продукт",
+            posted_at=now,
+        )
+        Post.objects.create(
+            project=self.other_project,
+            source=self.other_source,
+            telegram_id=11,
+            message="Парламент обсудил меры",
+            posted_at=now - timedelta(hours=1),
+        )
+
+    def test_feed_requires_authentication(self) -> None:
+        self.client.logout()
+        response = self.client.get(reverse("feed"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("accounts/login", response.url)
+
+    def test_feed_lists_latest_posts(self) -> None:
+        response = self.client.get(reverse("feed"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Лента постов")
+        self.assertContains(response, self.latest_post.message)
+        self.assertContains(response, self.project.name)
+
+    def test_feed_filters_by_project(self) -> None:
+        response = self.client.get(reverse("feed"), data={"project": self.project.id})
+        self.assertContains(response, "Apple представила новый продукт")
+        self.assertNotContains(response, "Парламент обсудил меры")

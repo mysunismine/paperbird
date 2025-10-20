@@ -1,4 +1,154 @@
-"""Тесты приложения accounts.
+"""Тесты приложения accounts."""
 
-Будут добавлены вместе с реализацией бизнес-логики.
-"""
+from __future__ import annotations
+
+from unittest.mock import patch
+
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.urls import reverse
+
+from accounts.forms import UserProfileForm
+from accounts.services.telethon_setup import (
+    TelethonLoginState,
+    TelethonPasswordRequiredError,
+    TelethonSessionError,
+)
+from accounts.views import TELETHON_SETUP_SESSION_KEY
+from core.utils.telethon import normalize_session_value
+
+User = get_user_model()
+
+
+class TelethonUtilsTests(TestCase):
+    def test_normalize_session_value_strips_wrappers(self) -> None:
+        raw = "StringSession(\"ABCD==\")"
+        self.assertEqual(normalize_session_value(raw), "ABCD==")
+
+    def test_normalize_session_value_handles_prefix(self) -> None:
+        raw = "session=  'XYZ123'  "
+        self.assertEqual(normalize_session_value(raw), "XYZ123")
+
+
+class UserProfileFormTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("editor", password="secret")
+
+    def test_form_strips_session_wrappers_on_save(self) -> None:
+        form = UserProfileForm(
+            data={
+                "first_name": "",
+                "last_name": "",
+                "email": "",
+                "telethon_api_id": 12345,
+                "telethon_api_hash": " hash ",
+                "telethon_session": 'StringSession("ABCD==")',
+            },
+            instance=self.user,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(saved.telethon_api_hash, "hash")
+        self.assertEqual(saved.telethon_session, "ABCD==")
+
+    def test_form_requires_matching_credentials_for_session(self) -> None:
+        form = UserProfileForm(
+            data={
+                "first_name": "",
+                "last_name": "",
+                "email": "",
+                "telethon_api_id": "",
+                "telethon_api_hash": "",
+                "telethon_session": "value",
+            },
+            instance=self.user,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("Для сохранения сессии заполните Telethon API ID и API hash.", form.errors["__all__"])
+
+
+class TelethonSessionSetupViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("owner", password="secret")
+        self.url = reverse("accounts:telethon-setup")
+
+    def test_redirects_when_credentials_missing(self) -> None:
+        self.client.force_login(self.user)
+        response = self.client.get(self.url)
+        self.assertRedirects(response, reverse("accounts:profile"))
+
+    def _prepare_user_with_credentials(self) -> None:
+        self.user.telethon_api_id = 123456
+        self.user.telethon_api_hash = "hash123"
+        self.user.save(update_fields=["telethon_api_id", "telethon_api_hash"])
+
+    @patch("accounts.views.request_login_code")
+    def test_start_step_stores_state(self, mock_request_login_code) -> None:
+        self._prepare_user_with_credentials()
+        mock_request_login_code.return_value = TelethonLoginState(
+            session="temp-session",
+            phone_code_hash="hash",
+        )
+        self.client.force_login(self.user)
+        response = self.client.post(
+            self.url,
+            {"step": "start", "phone": "+79991234567"},
+        )
+        self.assertRedirects(response, self.url)
+        state = self.client.session.get(TELETHON_SETUP_SESSION_KEY)
+        self.assertIsNotNone(state)
+        self.assertEqual(state["phone"], "+79991234567")
+        mock_request_login_code.assert_called_once()
+
+    @patch("accounts.views.complete_login")
+    def test_code_step_saves_session(self, mock_complete_login) -> None:
+        self._prepare_user_with_credentials()
+        mock_complete_login.return_value = "final-session"
+        session = self.client.session
+        session[TELETHON_SETUP_SESSION_KEY] = {
+            "phone": "+79991234567",
+            "session": "temp-session",
+            "phone_code_hash": "hash",
+        }
+        session.save()
+        self.client.force_login(self.user)
+        response = self.client.post(
+            self.url,
+            {"step": "code", "code": "12345"},
+        )
+        self.assertRedirects(response, reverse("accounts:profile"))
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.telethon_session, "final-session")
+        self.assertNotIn(TELETHON_SETUP_SESSION_KEY, self.client.session)
+
+    @patch("accounts.views.complete_login")
+    def test_code_step_requires_password(self, mock_complete_login) -> None:
+        self._prepare_user_with_credentials()
+        mock_complete_login.side_effect = TelethonPasswordRequiredError("password needed")
+        session = self.client.session
+        session[TELETHON_SETUP_SESSION_KEY] = {
+            "phone": "+79991234567",
+            "session": "temp-session",
+            "phone_code_hash": "hash",
+        }
+        session.save()
+        self.client.force_login(self.user)
+        response = self.client.post(
+            self.url,
+            {"step": "code", "code": "12345"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "password needed")
+        self.assertIn(TELETHON_SETUP_SESSION_KEY, self.client.session)
+
+    @patch("accounts.views.request_login_code")
+    def test_start_step_handles_service_error(self, mock_request_login_code) -> None:
+        self._prepare_user_with_credentials()
+        mock_request_login_code.side_effect = TelethonSessionError("Телефон указан неверно.")
+        self.client.force_login(self.user)
+        response = self.client.post(
+            self.url,
+            {"step": "start", "phone": "+79991234567"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Телефон указан неверно.")

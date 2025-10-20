@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Посты проекта {{ project.name }} — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+      <h1 class="h3 mb-1">Лента постов проекта «{{ project.name }}»</h1>
+      <p class="text-muted mb-0">Просматривайте собранные сообщения и используйте фильтры для отбора нужных материалов.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'stories:list' %}">К сюжетам</a>
+  </div>
+
+  <form method="get" class="row g-3 align-items-end mb-4" novalidate>
+    <div class="col-md-3">
+      <label for="search" class="form-label">Поиск</label>
+      <input type="text" class="form-control" id="search" name="search" value="{{ options.search }}" placeholder="Поиск по тексту" />
+    </div>
+    <div class="col-md-3">
+      <label for="include" class="form-label">Ключевые слова</label>
+      <input type="text" class="form-control" id="include" name="include" value="{{ options.include_keywords|join:", " }}" placeholder="слово1, слово2" />
+    </div>
+    <div class="col-md-3">
+      <label for="exclude" class="form-label">Исключить</label>
+      <input type="text" class="form-control" id="exclude" name="exclude" value="{{ options.exclude_keywords|join:", " }}" placeholder="термины для исключения" />
+    </div>
+    <div class="col-md-3">
+      <label for="has_media" class="form-label">Медиа</label>
+      <select class="form-select" id="has_media" name="has_media">
+        <option value="" {% if options.has_media is None %}selected{% endif %}>Все посты</option>
+        <option value="true" {% if options.has_media is True %}selected{% endif %}>Только с медиа</option>
+        <option value="false" {% if options.has_media is False %}selected{% endif %}>Только без медиа</option>
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Статусы</label>
+      <div class="d-flex flex-wrap gap-3">
+        {% for value, label in status_choices %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="status-{{ value }}" name="statuses" value="{{ value }}" {% if value in options.statuses %}checked{% endif %} />
+            <label class="form-check-label" for="status-{{ value }}">{{ label }}</label>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="col-md-4">
+      <label for="sources" class="form-label">Источники</label>
+      <select class="form-select" id="sources" name="sources" multiple size="4">
+        {% for source in sources %}
+          <option value="{{ source.id }}" {% if source.id in options.source_ids %}selected{% endif %}>{{ source.title|default:source.username|default:source.telegram_id }}</option>
+        {% endfor %}
+      </select>
+      <div class="form-text">Удерживайте Ctrl/Cmd для выбора нескольких значений.</div>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Диапазон дат</label>
+      <div class="d-flex gap-2">
+        <input type="datetime-local" class="form-control" name="date_from" value="{{ options.date_from|date:'Y-m-d\TH:i' }}" />
+        <input type="datetime-local" class="form-control" name="date_to" value="{{ options.date_to|date:'Y-m-d\TH:i' }}" />
+      </div>
+    </div>
+    <div class="col-md-4">
+      <button class="btn btn-primary" type="submit">Применить</button>
+      <a class="btn btn-outline-secondary ms-2" href="{% url 'projects:post-list' project.id %}">Сбросить</a>
+    </div>
+  </form>
+
+  {% if keyword_summary %}
+    <div class="alert alert-info">
+      <strong>Совпадения ключевых слов:</strong>
+      {% for keyword, count in keyword_summary.items %}
+        <span class="badge text-bg-primary me-1">{{ keyword }} — {{ count }}</span>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if posts %}
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Источник</th>
+            <th>Дата</th>
+            <th>Статус</th>
+            <th>Текст</th>
+            <th>Ключевые слова</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for post in posts %}
+            <tr>
+              <td>{{ post.telegram_id }}</td>
+              <td>{{ post.source.title|default:post.source.username|default:post.source.telegram_id }}</td>
+              <td>{{ post.posted_at|date:"d.m.Y H:i" }}</td>
+              <td><span class="badge text-bg-secondary">{{ post.get_status_display }}</span></td>
+              <td style="max-width: 380px;" class="text-wrap">{{ post.message|linebreaksbr }}</td>
+              <td>
+                {% if post.keyword_hits %}
+                  {% for word in post.keyword_hits %}
+                    <span class="badge text-bg-warning text-dark me-1">{{ word }}</span>
+                  {% endfor %}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-info">Посты не найдены. Попробуйте изменить условия фильтра.</div>
+  {% endif %}
+{% endblock %}

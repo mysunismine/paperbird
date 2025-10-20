@@ -7,6 +7,7 @@ from typing import Any
 from django import forms
 
 from projects.models import Post, Project
+from stories.paperbird_stories.models import RewritePreset, Story
 
 
 class StoryCreateForm(forms.Form):
@@ -48,9 +49,27 @@ class StoryCreateForm(forms.Form):
 
 
 class StoryRewriteForm(forms.Form):
-    editor_comment = forms.CharField(
-        label="Комментарий", required=False, widget=forms.Textarea(attrs={"rows": 3})
+    preset = forms.ModelChoiceField(
+        label="Пресет",
+        queryset=RewritePreset.objects.none(),
+        required=False,
+        empty_label="Без пресета",
+        widget=forms.Select(attrs={"class": "form-select"}),
     )
+    editor_comment = forms.CharField(
+        label="Комментарий",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "class": "form-control"}),
+    )
+
+    def __init__(self, *args: Any, story: Story | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        presets = RewritePreset.objects.none()
+        if story is not None:
+            presets = story.project.rewrite_presets.filter(is_active=True).order_by("name")
+            if story.last_rewrite_preset:
+                self.fields["preset"].initial = story.last_rewrite_preset
+        self.fields["preset"].queryset = presets
 
 
 class StoryPublishForm(forms.Form):

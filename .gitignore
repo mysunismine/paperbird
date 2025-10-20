@@ -6,6 +6,7 @@ __pycache__/
 # Environments
 .venv/
 .env
+.django_secret_key
 
 # Django
 staticfiles/
@@ -13,4 +14,3 @@ media/
 
 # Tooling
 .ruff_cache/
-

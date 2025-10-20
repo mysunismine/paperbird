@@ -81,8 +81,8 @@ class PostFilterOptions:
     def highlight_keywords(self) -> set[str]:
         """Возвращает совокупность ключевых слов для подсветки в UI."""
 
-        keywords = {keyword.casefold() for keyword in self.include_keywords}
-        keywords.update(term.casefold() for term in self.search_terms)
+        keywords = set(self.include_keywords)
+        keywords.update(self.search_terms)
         return keywords
 
 

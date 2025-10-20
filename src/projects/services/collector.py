@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from asgiref.sync import sync_to_async
 from django.db import transaction
 from django.utils import timezone
 from telethon.tl.custom.message import Message
@@ -31,14 +32,22 @@ class PostCollector:
 
     async def collect_for_project(self, project: Project) -> None:
         factory = TelethonClientFactory(user=self.user)
+        sources = await sync_to_async(list)(
+            project.sources.filter(is_active=True).order_by("id")
+        )
         async with factory.connect() as client:
-            for source in project.sources.filter(is_active=True):
-                log = SourceSyncLog.objects.create(source=source)
+            for source in sources:
+                log = await sync_to_async(SourceSyncLog.objects.create)(source=source)
                 fetched = skipped = 0
                 try:
                     target = source.username or source.telegram_id or source.invite_link
                     if not target:
-                        log.finish(status="failed", error="Источник не содержит идентификатора")
+                        await sync_to_async(log.finish)(
+                            status="failed",
+                            error="Источник не содержит идентификатора",
+                            fetched=fetched,
+                            skipped=skipped,
+                        )
                         continue
                     entity = await client.get_entity(target)
                     last_message_id = source.last_synced_id or 0
@@ -59,10 +68,22 @@ class PostCollector:
                     source.last_synced_at = timezone.now()
                     if last_message_id:
                         source.last_synced_id = last_message_id
-                    source.save(update_fields=["last_synced_at", "last_synced_id", "updated_at"])
-                    log.finish(status="ok", fetched=fetched, skipped=skipped)
+                    await sync_to_async(source.save)(
+                        update_fields=["last_synced_at", "last_synced_id", "updated_at"],
+                    )
                 except Exception as exc:  # pragma: no cover - зависит от API
-                    log.finish(status="failed", error=str(exc), fetched=fetched, skipped=skipped)
+                    await sync_to_async(log.finish)(
+                        status="failed",
+                        error=str(exc),
+                        fetched=fetched,
+                        skipped=skipped,
+                    )
+                else:
+                    await sync_to_async(log.finish)(
+                        status="ok",
+                        fetched=fetched,
+                        skipped=skipped,
+                    )
 
     async def _process_message(self, *, message: Message, source: Source) -> bool:
         message_text = message.message or ""
@@ -81,10 +102,36 @@ class PostCollector:
 
         text_hash = Post.make_hash(message_text)
         media_hash = Post.make_hash(media_bytes) if media_bytes else ""
-        if source.should_skip(text_hash=text_hash, media_hash=media_hash):
+        should_skip = await sync_to_async(source.should_skip)(
+            text_hash=text_hash,
+            media_hash=media_hash or None,
+        )
+        if should_skip:
             return False
 
         raw = message.to_dict() if hasattr(message, "to_dict") else {}
+        await sync_to_async(self._store_post)(
+            source=source,
+            message=message,
+            message_text=message_text,
+            raw=raw,
+            media_type=media_type,
+            media_path=media_path,
+            media_bytes=media_bytes,
+        )
+        return True
+
+    @staticmethod
+    def _store_post(
+        *,
+        source: Source,
+        message: Message,
+        message_text: str,
+        raw: dict,
+        media_type: str,
+        media_path: str,
+        media_bytes: bytes | None,
+    ) -> None:
         with transaction.atomic():
             Post.create_or_update(
                 project=source.project,
@@ -97,7 +144,6 @@ class PostCollector:
                 media_path=media_path or None,
                 media_bytes=media_bytes,
             )
-        return True
 
 
 async def collect_for_user(
@@ -113,9 +159,10 @@ async def collect_for_user(
 
     options = CollectOptions(limit=limit)
     collector = PostCollector(user=user, options=options)
-    projects = user.projects.filter(is_active=True)
+    projects_qs = user.projects.filter(is_active=True)
     if project_id:
-        projects = projects.filter(id=project_id)
+        projects_qs = projects_qs.filter(id=project_id)
+    projects = await sync_to_async(list)(projects_qs.order_by("name"))
     for project in projects:
         await collector.collect_for_project(project)
 

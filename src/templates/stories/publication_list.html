@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Публикации — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+      <h1 class="h3 mb-1">Публикации</h1>
+      <p class="text-muted mb-0">История отправленных и запланированных публикаций по вашим проектам.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'stories:list' %}">К сюжетам</a>
+  </div>
+
+  {% if publications %}
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>Сюжет</th>
+            <th>Проект</th>
+            <th>Цель</th>
+            <th>Статус</th>
+            <th>Дата публикации</th>
+            <th>Сообщения</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for publication in publications %}
+            <tr>
+              <td>
+                <a href="{% url 'stories:detail' publication.story_id %}">{{ publication.story.title|default:"Сюжет" }}</a>
+              </td>
+              <td>{{ publication.story.project.name }}</td>
+              <td>{{ publication.target }}</td>
+              <td><span class="badge text-bg-secondary">{{ publication.get_status_display }}</span></td>
+              <td>{{ publication.published_at|date:"d.m.Y H:i"|default:"—" }}</td>
+              <td>
+                {% if publication.message_ids %}
+                  {{ publication.message_ids|join:", " }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if is_paginated %}
+      <nav aria-label="Навигация по публикациям" class="mt-4">
+        <ul class="pagination">
+          {% if page_obj.has_previous %}
+            <li class="page-item">
+              <a class="page-link" href="?page={{ page_obj.previous_page_number }}">Назад</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">Назад</span></li>
+          {% endif %}
+          <li class="page-item disabled"><span class="page-link">Страница {{ page_obj.number }} из {{ page_obj.paginator.num_pages }}</span></li>
+          {% if page_obj.has_next %}
+            <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Вперёд</a></li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">Вперёд</span></li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
+  {% else %}
+    <div class="alert alert-info">Публикаций пока нет.</div>
+  {% endif %}
+{% endblock %}

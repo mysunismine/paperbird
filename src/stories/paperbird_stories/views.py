@@ -13,7 +13,7 @@ from django.views.generic import DetailView, FormView, ListView
 from projects.models import Project
 from projects.services.telethon_client import TelethonCredentialsMissingError
 from stories.paperbird_stories.forms import StoryCreateForm, StoryPublishForm, StoryRewriteForm
-from stories.paperbird_stories.models import Publication, Story
+from stories.paperbird_stories.models import Publication, RewritePreset, Story
 from stories.paperbird_stories.services import (
     PublicationFailed,
     RewriteFailed,
@@ -95,7 +95,10 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         context.setdefault(
             "rewrite_form",
-            StoryRewriteForm(initial={"editor_comment": self.object.editor_comment}),
+            StoryRewriteForm(
+                story=self.object,
+                initial={"editor_comment": self.object.editor_comment},
+            ),
         )
         context.setdefault("publish_form", StoryPublishForm())
         context["publications"] = self.object.publications.order_by("-created_at")
@@ -113,15 +116,16 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         return redirect(self.get_success_url())
 
     def _handle_rewrite(self, request):
-        form = StoryRewriteForm(request.POST)
+        form = StoryRewriteForm(request.POST, story=self.object)
         if not form.is_valid():
             messages.error(request, "Проверьте поля формы рерайта")
             return redirect(self.get_success_url())
 
         comment = form.cleaned_data.get("editor_comment")
+        preset: RewritePreset | None = form.cleaned_data.get("preset")
         try:
             rewriter: StoryRewriter = default_rewriter()
-            rewriter.rewrite(self.object, editor_comment=comment)
+            rewriter.rewrite(self.object, editor_comment=comment, preset=preset)
         except RewriteFailed as exc:
             messages.error(request, f"Рерайт не удался: {exc}")
         except Exception as exc:  # pragma: no cover - подсказка пользователю
@@ -157,3 +161,27 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
 
     def get_success_url(self) -> str:
         return reverse("stories:detail", kwargs={"pk": self.object.pk})
+
+
+class PublicationListView(LoginRequiredMixin, ListView):
+    """Отображает публикации пользователя."""
+
+    model = Publication
+    template_name = "stories/publication_list.html"
+    context_object_name = "publications"
+    paginate_by = 25
+
+    def get_queryset(self):
+        return (
+            Publication.objects.filter(story__project__owner=self.request.user)
+            .select_related("story", "story__project")
+            .order_by("-created_at")
+        )
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["projects"] = (
+            Project.objects.filter(owner=self.request.user)
+            .order_by("name")
+        )
+        return context

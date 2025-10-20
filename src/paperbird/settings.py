@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 import os
 import secrets
+import sys
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -27,7 +28,19 @@ def _resolve_secret_key() -> str:
     env_value = os.getenv("DJANGO_SECRET_KEY")
     if env_value:
         return env_value
-    return secrets.token_urlsafe(64)
+
+    secret_file = BASE_DIR / ".django_secret_key"
+    if secret_file.exists():
+        content = secret_file.read_text(encoding="utf-8").strip()
+        if content:
+            return content
+
+    generated = secrets.token_urlsafe(64)
+    try:
+        secret_file.write_text(generated, encoding="utf-8")
+    except OSError:
+        pass
+    return generated
 
 
 # SECURITY WARNING: keep the secret key used in production secret!
@@ -104,6 +117,20 @@ DATABASES = {
 }
 
 
+def _should_use_sqlite_for_tests(argv: list[str]) -> bool:
+    env_override = os.getenv("DJANGO_TEST_USE_SQLITE", "").lower()
+    if env_override in {"1", "true", "yes", "on"}:
+        return True
+    return any(arg.startswith("test") for arg in argv[1:])
+
+
+if _should_use_sqlite_for_tests(sys.argv):
+    DATABASES["default"] = {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "test.sqlite3",
+    }
+
+
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
 
@@ -149,7 +176,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "accounts.User"
 
-LOGIN_REDIRECT_URL = "accounts:profile"
+LOGIN_REDIRECT_URL = "projects:list"
 LOGOUT_REDIRECT_URL = "accounts:login"
 LOGIN_URL = "accounts:login"
 

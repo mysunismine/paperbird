@@ -18,15 +18,51 @@
         <div class="collapse navbar-collapse show">
           <ul class="navbar-nav ms-auto">
             {% if user.is_authenticated %}
+              {% with current_app=request.resolver_match.app_name current_url=request.resolver_match.url_name %}
               <li class="nav-item">
-                <a class="nav-link" href="{% url 'stories:list' %}">Сюжеты</a>
+                <a
+                  class="nav-link {% if current_app == 'projects' %}active{% endif %}"
+                  href="{% url 'projects:list' %}"
+                >
+                  Проекты
+                </a>
               </li>
               <li class="nav-item">
-                <a class="nav-link" href="{% url 'accounts:profile' %}">Профиль</a>
+                <a
+                  class="nav-link {% if current_url == 'feed' %}active{% endif %}"
+                  href="{% url 'feed' %}"
+                >
+                  Лента
+                </a>
+              </li>
+              <li class="nav-item">
+                <a
+                  class="nav-link {% if current_app == 'stories' and current_url != 'publications' %}active{% endif %}"
+                  href="{% url 'stories:list' %}"
+                >
+                  Сюжеты
+                </a>
+              </li>
+              <li class="nav-item">
+                <a
+                  class="nav-link {% if current_app == 'stories' and current_url == 'publications' %}active{% endif %}"
+                  href="{% url 'stories:publications' %}"
+                >
+                  Публикации
+                </a>
+              </li>
+              <li class="nav-item">
+                <a
+                  class="nav-link {% if current_app == 'accounts' and current_url == 'profile' %}active{% endif %}"
+                  href="{% url 'accounts:profile' %}"
+                >
+                  Профиль
+                </a>
               </li>
               <li class="nav-item">
                 <a class="nav-link" href="{% url 'accounts:logout' %}">Выйти</a>
               </li>
+              {% endwith %}
             {% else %}
               <li class="nav-item">
                 <a class="nav-link" href="{% url 'accounts:login' %}">Войти</a>

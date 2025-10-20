@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 
-from .models import Publication, RewriteTask, Story, StoryPost
+from .models import Publication, RewritePreset, RewriteTask, Story, StoryPost
 
 
 class StoryPostInline(admin.TabularInline):
@@ -13,7 +13,14 @@ class StoryPostInline(admin.TabularInline):
 
 @admin.register(Story)
 class StoryAdmin(admin.ModelAdmin):
-    list_display = ("id", "title", "project", "status", "updated_at")
+    list_display = (
+        "id",
+        "title",
+        "project",
+        "status",
+        "last_rewrite_preset",
+        "updated_at",
+    )
     list_filter = ("status", "project")
     search_fields = ("title", "project__name")
     inlines = [StoryPostInline]
@@ -21,6 +28,7 @@ class StoryAdmin(admin.ModelAdmin):
         "prompt_snapshot",
         "last_rewrite_payload",
         "last_rewrite_at",
+        "last_rewrite_preset",
         "created_at",
         "updated_at",
     )
@@ -28,8 +36,15 @@ class StoryAdmin(admin.ModelAdmin):
 
 @admin.register(RewriteTask)
 class RewriteTaskAdmin(admin.ModelAdmin):
-    list_display = ("id", "story", "status", "provider", "created_at")
-    list_filter = ("status", "provider")
+    list_display = (
+        "id",
+        "story",
+        "status",
+        "provider",
+        "preset",
+        "created_at",
+    )
+    list_filter = ("status", "provider", "preset")
     search_fields = ("story__title", "response_id")
     readonly_fields = (
         "prompt_messages",
@@ -38,6 +53,7 @@ class RewriteTaskAdmin(admin.ModelAdmin):
         "attempts",
         "started_at",
         "finished_at",
+        "preset",
         "created_at",
         "updated_at",
     )
@@ -65,3 +81,19 @@ class PublicationAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
+
+
+@admin.register(RewritePreset)
+class RewritePresetAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "project",
+        "name",
+        "style",
+        "max_length_tokens",
+        "is_active",
+        "updated_at",
+    )
+    list_filter = ("project", "is_active")
+    search_fields = ("name", "project__name", "description", "style")
+    ordering = ("project", "name")

@@ -103,9 +103,29 @@
           <form method="post">
             {% csrf_token %}
             <input type="hidden" name="action" value="rewrite" />
-            {{ rewrite_form.editor_comment.label_tag }}
-            {{ rewrite_form.editor_comment }}
-            <div class="form-text">При необходимости уточните задачу для модели.</div>
+            {% if rewrite_form.non_field_errors %}
+              <div class="alert alert-danger">{{ rewrite_form.non_field_errors }}</div>
+            {% endif %}
+            {% if rewrite_form.preset.field.queryset %}
+              <div class="mb-3">
+                {{ rewrite_form.preset.label_tag }}
+                {{ rewrite_form.preset }}
+                {% if rewrite_form.preset.help_text %}
+                  <div class="form-text">{{ rewrite_form.preset.help_text }}</div>
+                {% endif %}
+                {% if rewrite_form.preset.errors %}
+                  <div class="text-danger small">{{ rewrite_form.preset.errors|join:', ' }}</div>
+                {% endif %}
+              </div>
+            {% endif %}
+            <div class="mb-3">
+              {{ rewrite_form.editor_comment.label_tag }}
+              {{ rewrite_form.editor_comment }}
+              <div class="form-text">При необходимости уточните задачу для модели.</div>
+              {% if rewrite_form.editor_comment.errors %}
+                <div class="text-danger small">{{ rewrite_form.editor_comment.errors|join:', ' }}</div>
+              {% endif %}
+            </div>
             <button class="btn btn-primary mt-3" type="submit">Запустить рерайт</button>
           </form>
         </div>

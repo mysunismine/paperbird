@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 
 from django.db import models
 from django.utils import timezone
 
+from core.constants import REWRITE_DEFAULT_MAX_TOKENS
 from projects.models import Post, Project
 
 
@@ -59,6 +61,14 @@ class Story(models.Model):
         blank=True,
         null=True,
     )
+    last_rewrite_preset = models.ForeignKey(
+        "RewritePreset",
+        on_delete=models.SET_NULL,
+        related_name="stories",
+        blank=True,
+        null=True,
+        verbose_name="Последний пресет",
+    )
     created_at = models.DateTimeField("Создан", auto_now_add=True)
     updated_at = models.DateTimeField("Обновлён", auto_now=True)
 
@@ -109,6 +119,7 @@ class Story(models.Model):
         hashtags: list[str],
         sources: list[str],
         payload: dict,
+        preset: RewritePreset | None = None,
     ) -> None:
         self.title = title
         self.summary = summary
@@ -118,6 +129,7 @@ class Story(models.Model):
         self.status = self.Status.READY
         self.last_rewrite_payload = payload
         self.last_rewrite_at = timezone.now()
+        self.last_rewrite_preset = preset
         self.save(
             update_fields=[
                 "title",
@@ -128,6 +140,7 @@ class Story(models.Model):
                 "status",
                 "last_rewrite_payload",
                 "last_rewrite_at",
+                "last_rewrite_preset",
                 "updated_at",
             ]
         )
@@ -225,6 +238,14 @@ class RewriteTask(models.Model):
     finished_at = models.DateTimeField("Завершено", blank=True, null=True)
     created_at = models.DateTimeField("Создано", auto_now_add=True)
     updated_at = models.DateTimeField("Обновлено", auto_now=True)
+    preset = models.ForeignKey(
+        "RewritePreset",
+        on_delete=models.SET_NULL,
+        related_name="rewrite_tasks",
+        blank=True,
+        null=True,
+        verbose_name="Пресет",
+    )
 
     class Meta:
         verbose_name = "Задача рерайта"
@@ -367,3 +388,51 @@ class Publication(models.Model):
         self.status = self.Status.FAILED
         self.error_message = error
         self.save(update_fields=["status", "error_message", "updated_at"])
+class RewritePreset(models.Model):
+    """Настраиваемый пресет рерайта для проекта."""
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="rewrite_presets",
+        verbose_name="Проект",
+    )
+    name = models.CharField("Название", max_length=100)
+    description = models.TextField("Описание", blank=True)
+    style = models.CharField("Стиль", max_length=255, blank=True)
+    editor_comment = models.TextField("Комментарий редактора", blank=True)
+    max_length_tokens = models.PositiveIntegerField(
+        "Максимальное количество токенов",
+        default=REWRITE_DEFAULT_MAX_TOKENS,
+    )
+    output_format = models.JSONField("Формат вывода", default=dict, blank=True)
+    is_active = models.BooleanField("Активен", default=True)
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+    updated_at = models.DateTimeField("Обновлено", auto_now=True)
+
+    class Meta:
+        verbose_name = "Пресет рерайта"
+        verbose_name_plural = "Пресеты рерайта"
+        ordering = ("name",)
+        unique_together = ("project", "name")
+
+    def __str__(self) -> str:
+        return f"{self.project.name}: {self.name}"
+
+    def instruction_block(self) -> str:
+        """Формирует человекочитаемое описание настроек пресета."""
+
+        parts: list[str] = []
+        if self.description:
+            parts.append(f"Описание: {self.description.strip()}")
+        if self.style:
+            parts.append(f"Стиль: {self.style.strip()}")
+        if self.max_length_tokens:
+            parts.append(
+                "Максимальная длина ответа: "
+                f"{self.max_length_tokens} токенов"
+            )
+        if self.output_format:
+            formatted = json.dumps(self.output_format, ensure_ascii=False, indent=2)
+            parts.append(f"Формат вывода:\n{formatted}")
+        return "\n".join(parts)

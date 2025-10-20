@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from projects.services.collector import collect_for_user_sync
+from projects.services.telethon_client import TelethonCredentialsMissingError
 
 User = get_user_model()
 
@@ -49,9 +50,12 @@ class Command(BaseCommand):
                 f"Запуск сбора постов для пользователя {password_owner} (limit={options['limit']})"
             )
         )
-        collect_for_user_sync(
-            user,
-            project_id=options.get("project_id"),
-            limit=options["limit"],
-        )
+        try:
+            collect_for_user_sync(
+                user,
+                project_id=options.get("project_id"),
+                limit=options["limit"],
+            )
+        except TelethonCredentialsMissingError as exc:
+            raise CommandError(str(exc)) from exc
         self.stdout.write(self.style.SUCCESS("Сбор завершён"))

@@ -7,7 +7,7 @@
     <h1 class="display-6">Добро пожаловать в Paperbird</h1>
     <p class="lead">Собирайте посты из Telegram, объединяйте их в сюжеты, запускайте рерайт и публикуйте.</p>
     {% if user.is_authenticated %}
-      <a class="btn btn-primary btn-lg" href="{% url 'stories:list' %}">Перейти к сюжетам</a>
+      <a class="btn btn-primary btn-lg" href="{% url 'projects:list' %}">Перейти к проектам</a>
     {% else %}
       <a class="btn btn-outline-primary" href="{% url 'accounts:login' %}">Войдите, чтобы начать</a>
     {% endif %}

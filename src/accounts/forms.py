@@ -3,6 +3,7 @@
 from django import forms
 
 from accounts.models import User
+from core.utils.telethon import normalize_session_value
 
 
 class UserProfileForm(forms.ModelForm):
@@ -59,7 +60,49 @@ class UserProfileForm(forms.ModelForm):
         if user.telethon_api_hash:
             user.telethon_api_hash = user.telethon_api_hash.strip()
         if user.telethon_session:
-            user.telethon_session = user.telethon_session.strip()
+            user.telethon_session = normalize_session_value(user.telethon_session)
         if commit:
             user.save()
         return user
+
+
+class TelethonSessionStartForm(forms.Form):
+    """Форма запроса кода подтверждения для Telethon."""
+
+    phone = forms.CharField(
+        label="Номер телефона",
+        help_text="Введите номер в международном формате, например +79990000000",
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "+79990000000"}),
+    )
+    force_sms = forms.BooleanField(
+        label="Запросить SMS",
+        required=False,
+        help_text="Если код не приходит в Telegram, можно принудительно отправить SMS",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+
+    def clean_phone(self) -> str:
+        phone = self.cleaned_data["phone"].strip()
+        if not phone.startswith("+"):
+            raise forms.ValidationError("Номер должен быть указан в международном формате, начиная с +")
+        if len(phone) < 10:
+            raise forms.ValidationError("Проверьте длину номера телефона")
+        return phone
+
+
+class TelethonSessionCodeForm(forms.Form):
+    """Форма подтверждения кода и пароля 2FA для Telethon."""
+
+    code = forms.CharField(
+        label="Код из Telegram",
+        max_length=10,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Код из сообщения", "autocomplete": "one-time-code"}
+        ),
+    )
+    password = forms.CharField(
+        label="Пароль 2FA",
+        required=False,
+        widget=forms.PasswordInput(attrs={"class": "form-control"}),
+        help_text="Заполните, если в Telegram включена двухфакторная аутентификация",
+    )

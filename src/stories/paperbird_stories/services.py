@@ -21,7 +21,13 @@ from core.constants import (
 from projects.models import Post, Project
 from projects.services.telethon_client import TelethonClientFactory
 
-from .models import Publication, RewriteResult, RewriteTask, Story
+from .models import (
+    Publication,
+    RewritePreset,
+    RewriteResult,
+    RewriteTask,
+    Story,
+)
 
 SYSTEM_PROMPT = (
     "Вы — профессиональный редактор новостей. "
@@ -64,7 +70,13 @@ class RewriteFailed(RuntimeError):
     """Ошибка выполнения рерайта."""
 
 
-def build_prompt(*, posts: Sequence[Post], editor_comment: str, title: str) -> list[dict[str, str]]:
+def build_prompt(
+    *,
+    posts: Sequence[Post],
+    editor_comment: str,
+    title: str,
+    preset_instruction: str = "",
+) -> list[dict[str, str]]:
     """Формирует сообщения для LLM по спецификации промптов."""
 
     documents = []
@@ -75,6 +87,12 @@ def build_prompt(*, posts: Sequence[Post], editor_comment: str, title: str) -> l
         documents.append(f"#{index}\n```\n{body}\n```")
 
     comment = editor_comment.strip() or "Без дополнительных указаний."
+    preset_block = preset_instruction.strip()
+    if preset_block:
+        comment = (
+            f"{comment}\n\n"
+            f"Настройки пресета:\n{preset_block}"
+        )
     title_context = title.strip() or "Подберите информативный заголовок."
     user_prompt = (
         "Собери из постов новую заметку и выполни рерайт."\
@@ -135,23 +153,46 @@ class StoryRewriter:
     provider: RewriteProvider
     max_attempts: int = REWRITE_MAX_ATTEMPTS
 
-    def rewrite(self, story: Story, *, editor_comment: str | None = None) -> RewriteTask:
+    def rewrite(
+        self,
+        story: Story,
+        *,
+        editor_comment: str | None = None,
+        preset: RewritePreset | None = None,
+    ) -> RewriteTask:
         posts = list(story.ordered_posts())
         if not posts:
             raise RewriteFailed("Сюжет не содержит постов для рерайта")
 
-        comment = editor_comment if editor_comment is not None else story.editor_comment
-        messages = build_prompt(posts=posts, editor_comment=comment, title=story.title)
+        user_comment = editor_comment if editor_comment is not None else story.editor_comment
+        user_comment = user_comment.strip() if user_comment else ""
+        preset_comment = preset.editor_comment.strip() if preset and preset.editor_comment else ""
+        if preset_comment and user_comment:
+            combined_comment = (
+                f"{preset_comment}\n\n"
+                "Дополнительные указания редактора:\n"
+                f"{user_comment}"
+            )
+        else:
+            combined_comment = preset_comment or user_comment
+
+        messages = build_prompt(
+            posts=posts,
+            editor_comment=combined_comment,
+            title=story.title,
+            preset_instruction=preset.instruction_block() if preset else "",
+        )
 
         with transaction.atomic():
             story.status = Story.Status.REWRITING
-            story.editor_comment = comment or ""
+            story.editor_comment = user_comment
             story.prompt_snapshot = messages
             story.save(update_fields=["status", "editor_comment", "prompt_snapshot", "updated_at"])
             task = RewriteTask.objects.create(
                 story=story,
                 prompt_messages=messages,
                 editor_comment=story.editor_comment,
+                preset=preset,
             )
 
         last_error = ""
@@ -177,6 +218,7 @@ class StoryRewriter:
                     hashtags=result.hashtags,
                     sources=result.sources,
                     payload=payload,
+                    preset=preset,
                 )
                 story.prompt_snapshot = messages
                 story.save(update_fields=["prompt_snapshot", "updated_at"])

@@ -8,6 +8,7 @@ from accounts.views import (
     PasswordUpdateView,
     ProfileView,
     SignInView,
+    TelethonSessionSetupView,
 )
 
 app_name = "accounts"
@@ -16,6 +17,11 @@ urlpatterns = [
     path("login/", SignInView.as_view(), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
     path("profile/", ProfileView.as_view(), name="profile"),
+    path(
+        "profile/telethon/",
+        TelethonSessionSetupView.as_view(),
+        name="telethon-setup",
+    ),
     path("password/change/", PasswordUpdateView.as_view(), name="password_change"),
     path(
         "password/change/done/",

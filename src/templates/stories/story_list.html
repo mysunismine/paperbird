@@ -50,7 +50,10 @@
     {% for project in projects %}
       <li class="list-group-item d-flex justify-content-between align-items-center">
         <span>{{ project.name }}</span>
-        <a class="btn btn-sm btn-outline-secondary" href="{% url 'stories:create' %}?project={{ project.id }}">Создать сюжет</a>
+        <div class="btn-group" role="group">
+          <a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:post-list' project.id %}">Лента постов</a>
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'stories:create' %}?project={{ project.id }}">Создать сюжет</a>
+        </div>
       </li>
     {% empty %}
       <li class="list-group-item">У вас пока нет проектов.</li>

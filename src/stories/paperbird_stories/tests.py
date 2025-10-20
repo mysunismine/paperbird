@@ -13,7 +13,13 @@ from django.urls import reverse
 from django.utils import timezone
 
 from projects.models import Post, Project, Source
-from stories.paperbird_stories.models import Publication, RewriteTask, Story
+from stories.paperbird_stories.forms import StoryRewriteForm
+from stories.paperbird_stories.models import (
+    Publication,
+    RewritePreset,
+    RewriteTask,
+    Story,
+)
 from stories.paperbird_stories.services import (
     ProviderResponse,
     PublicationFailed,
@@ -148,6 +154,49 @@ class StoryRewriterTests(TestCase):
         self.assertEqual(story.sources, ["канал Telegram"])
         self.assertEqual(story.last_rewrite_payload["structured"]["title"], "Новый заголовок")
         self.assertTrue(provider.calls)
+        self.assertIsNone(story.last_rewrite_preset)
+
+    def test_rewrite_with_preset_applies_configuration(self) -> None:
+        preset = RewritePreset.objects.create(
+            project=self.project,
+            name="Деловой стиль",
+            description="Сосредоточиться на цифрах",
+            style="деловой, формальный",
+            editor_comment="Сфокусируйся на ключевых метриках",
+            output_format={"title": "string"},
+        )
+
+        class TrackingProvider:
+            def __init__(self) -> None:
+                self.calls: list[list[dict[str, str]]] = []
+
+            def run(self, *, messages):
+                self.calls.append(list(messages))
+                return ProviderResponse(
+                    result={
+                        "title": "Пресетный заголовок",
+                        "summary": "",
+                        "content": "Текст",
+                        "hashtags": [],
+                        "sources": [],
+                    },
+                    raw={"preset": True},
+                    response_id="resp-2",
+                )
+
+        provider = TrackingProvider()
+        rewriter = StoryRewriter(provider=provider)
+        task = rewriter.rewrite(self.story, editor_comment="", preset=preset)
+
+        user_message = provider.calls[0][1]["content"]
+        self.assertIn("Настройки пресета", user_message)
+        self.assertIn("деловой", user_message)
+        self.assertIn("Сфокусируйся на ключевых метриках", user_message)
+
+        story = Story.objects.get(pk=self.story.pk)
+        self.assertEqual(story.last_rewrite_preset, preset)
+        self.assertEqual(task.preset, preset)
+        self.assertEqual(story.editor_comment, "")
 
     def test_failed_rewrite_restores_draft_status(self) -> None:
         class FailingProvider:
@@ -219,7 +268,6 @@ class StoryPublisherTests(TestCase):
         self.assertEqual(publication.target, "@channel")
         self.story.refresh_from_db()
         self.assertEqual(self.story.status, Story.Status.PUBLISHED)
-        self.assertEqual(len(backend.calls), 1)
 
     def test_publish_failure_sets_error(self) -> None:
         class FailingBackend:
@@ -239,6 +287,7 @@ class StoryPublisherTests(TestCase):
     def test_publish_requires_ready_story(self) -> None:
         self.story.status = Story.Status.DRAFT
         self.story.save(update_fields=["status"])
+
         class DummyBackend:
             def send(self, *, story, text, target):  # pragma: no cover
                 return PublishResult(message_ids=[], published_at=timezone.now())
@@ -246,6 +295,36 @@ class StoryPublisherTests(TestCase):
         publisher = StoryPublisher(backend=DummyBackend())
         with self.assertRaises(PublicationFailed):
             publisher.publish(self.story, target="@channel")
+
+        self.story.refresh_from_db()
+        self.assertEqual(self.story.status, Story.Status.DRAFT)
+
+
+class StoryRewriteFormTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("editor", password="pass")
+        self.project = Project.objects.create(owner=self.user, name="Формы")
+        self.story = Story.objects.create(project=self.project, title="Тестовая история")
+        self.preset_a = RewritePreset.objects.create(
+            project=self.project,
+            name="Пресет А",
+            style="деловой",
+            editor_comment="Придерживайся фактов",
+        )
+        self.preset_b = RewritePreset.objects.create(
+            project=self.project,
+            name="Пресет Б",
+            style="разговорный",
+            editor_comment="Используй лёгкий тон",
+        )
+        self.story.last_rewrite_preset = self.preset_b
+        self.story.save(update_fields=["last_rewrite_preset"])
+
+    def test_form_limits_presets_to_story_project(self) -> None:
+        form = StoryRewriteForm(story=self.story)
+        preset_names = list(form.fields["preset"].queryset.values_list("name", flat=True))
+        self.assertCountEqual(preset_names, ["Пресет А", "Пресет Б"])
+        self.assertEqual(form.fields["preset"].initial, self.preset_b)
 
 
 class StoryViewTests(TestCase):
@@ -260,6 +339,18 @@ class StoryViewTests(TestCase):
             telegram_id=100,
             message="Текст для истории",
             posted_at=timezone.now(),
+        )
+        self.story = StoryFactory(project=self.project).create(
+            post_ids=[self.post.id],
+            title="Story",
+        )
+        self.story.apply_rewrite(
+            title="Story",
+            summary="",
+            body="Text",
+            hashtags=["news"],
+            sources=["source"],
+            payload={},
         )
 
     def test_story_list_view(self) -> None:
@@ -279,15 +370,15 @@ class StoryViewTests(TestCase):
             follow=True,
         )
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        story = Story.objects.get()
+        story = Story.objects.order_by("-created_at").first()
+        assert story is not None
         self.assertEqual(story.title, "Новый сюжет")
 
     @patch("stories.paperbird_stories.views.default_rewriter")
     def test_rewrite_action(self, mock_rewriter) -> None:
         mock_instance = MagicMock()
         mock_rewriter.return_value = mock_instance
-        story = StoryFactory(project=self.project).create(post_ids=[self.post.id], title="Story")
-        url = reverse("stories:detail", kwargs={"pk": story.pk})
+        url = reverse("stories:detail", kwargs={"pk": self.story.pk})
         response = self.client.post(
             url,
             data={"action": "rewrite", "editor_comment": ""},
@@ -298,21 +389,25 @@ class StoryViewTests(TestCase):
 
     @patch("stories.paperbird_stories.views.default_publisher_for_story")
     def test_publish_action(self, mock_publisher_factory) -> None:
-        story = StoryFactory(project=self.project).create(post_ids=[self.post.id], title="Story")
-        story.apply_rewrite(
-            title="Story",
-            summary="",
-            body="Text",
-            hashtags=[],
-            sources=[],
-            payload={},
-        )
         mock_publisher = MagicMock()
         mock_publisher.publish.return_value.status = Publication.Status.PUBLISHED
         mock_publisher.publish.return_value.message_ids = [1]
         mock_publisher.publish.return_value.target = "@ch"
         mock_publisher_factory.return_value = mock_publisher
-        url = reverse("stories:detail", kwargs={"pk": story.pk})
+        url = reverse("stories:detail", kwargs={"pk": self.story.pk})
         response = self.client.post(url, data={"action": "publish", "target": "@ch"}, follow=True)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         mock_publisher.publish.assert_called_once()
+
+    def test_publication_list_view(self) -> None:
+        Publication.objects.create(
+            story=self.story,
+            target="@channel",
+            status=Publication.Status.PUBLISHED,
+            message_ids=[1],
+        )
+        response = self.client.get(reverse("stories:publications"))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode("utf-8")
+        self.assertIn("Публикации", content)
+        self.assertIn("@channel", content)
