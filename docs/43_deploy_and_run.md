@@ -126,16 +126,18 @@ EMAIL_USE_TLS=True
 
 ## 6. Запуск фоновых задач
 
-Для запуска фоновых задач (сборщик постов, рерайтер, публикатор, генератор изображений) используйте соответствующие команды или скрипты, например:
+Для запуска фоновых задач (сборщик постов, рерайтер, публикатор, генератор изображений) используйте management-команду `run_worker`:
 
 ```bash
-python manage.py run_post_collector
-python manage.py run_rewriter
-python manage.py run_publisher
-python manage.py run_image_generator
+python manage.py run_worker collector --handler your_app.workers.collector_handler
+python manage.py run_worker rewrite
+python manage.py run_worker publish --batch-size 5
+python manage.py run_worker image --once  # Разовый прогон
 ```
 
-Если задачи реализованы через Celery или RQ, убедитесь, что воркеры запущены (см. раздел 5).
+Если логика обработчика зарегистрирована программно через `register_handler`, параметр `--handler` можно опустить. Команда поддерживает настройку паузы (`--sleep`), идентификатора воркера (`--worker-id`) и размера батча (`--batch-size`).
+
+Если задачи реализованы через Celery или RQ, вместо `run_worker` воспользуйтесь соответствующими воркерами (см. раздел 5).
 
 ## 7. Запуск через Docker
 
@@ -203,6 +205,7 @@ docker-compose up
 - Для мониторинга фоновых задач используйте:  
   - [Flower](https://flower.readthedocs.io/en/latest/) для Celery  
   - [RQ Dashboard](https://github.com/rq/django-rq#rq-dashboard) для RQ  
+- Встроенная очередь отображается в админке (`WorkerTask`, `WorkerTaskAttempt`), где видно состояние, количество попыток и следующие времена запуска.  
 - Ошибки и исключения можно отслеживать через Sentry или аналогичные сервисы (если настроены).
 
 ## 10. Частые проблемы и их решения

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 import os
+import secrets
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -21,10 +22,17 @@ SRC_DIR = BASE_DIR / "src"
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
+
+def _resolve_secret_key() -> str:
+    env_value = os.getenv("DJANGO_SECRET_KEY")
+    if env_value:
+        return env_value
+    return secrets.token_urlsafe(64)
+
+
 # SECURITY WARNING: keep the secret key used in production secret!
-# In development we allow falling back to a predictable key so the project boots
-# without extra configuration. In production DJANGO_SECRET_KEY must be set.
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-secret-key-change-me")
+# В разработке ключ генерируется автоматически, если переменная окружения не задана.
+SECRET_KEY = _resolve_secret_key()
 
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() in {"1", "true", "yes", "on"}
 
@@ -120,7 +128,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = "ru-ru"
 
-TIME_ZONE = "UTC"
+TIME_ZONE = "Europe/Moscow"
 
 USE_I18N = True
 

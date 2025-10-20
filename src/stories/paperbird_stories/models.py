@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from django.db import models
 from django.utils import timezone
@@ -272,7 +272,7 @@ class RewriteResult:
     sources: list[str]
 
     @classmethod
-    def from_dict(cls, data: dict) -> "RewriteResult":
+    def from_dict(cls, data: dict) -> RewriteResult:
         title = str(data.get("title", "")).strip()
         summary = str(data.get("summary", "")).strip()
         content = str(data.get("content", "")).strip()
@@ -280,13 +280,19 @@ class RewriteResult:
         sources = cls._normalize_list(data.get("sources", []))
         if not content:
             raise ValueError("Ответ модели не содержит текста контента")
-        return cls(title=title, summary=summary, content=content, hashtags=hashtags, sources=sources)
+        return cls(
+            title=title,
+            summary=summary,
+            content=content,
+            hashtags=hashtags,
+            sources=sources,
+        )
 
     @staticmethod
     def _normalize_list(value: object) -> list[str]:
         if not value:
             return []
-        if isinstance(value, (list, tuple, set)):
+        if isinstance(value, list | tuple | set):
             return [str(item).strip() for item in value if str(item).strip()]
         return [str(value).strip()]
 
@@ -333,7 +339,13 @@ class Publication(models.Model):
         self.attempts += 1
         self.save(update_fields=["status", "attempts", "updated_at"])
 
-    def mark_published(self, *, message_ids: list[int], published_at, raw: dict | None = None) -> None:
+    def mark_published(
+        self,
+        *,
+        message_ids: list[int],
+        published_at,
+        raw: dict | None = None,
+    ) -> None:
         self.status = self.Status.PUBLISHED
         self.message_ids = message_ids
         self.published_at = published_at

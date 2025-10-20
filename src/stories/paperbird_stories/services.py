@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from core.constants import (
+    OPENAI_DEFAULT_TEMPERATURE,
+    OPENAI_RESPONSE_FORMAT,
+    REWRITE_MAX_ATTEMPTS,
+)
 from projects.models import Post, Project
 from projects.services.telethon_client import TelethonClientFactory
 
@@ -42,7 +48,11 @@ class ProviderResponse:
 class RewriteProvider(Protocol):
     """Интерфейс провайдера для выполнения рерайта."""
 
-    def run(self, *, messages: Sequence[dict[str, str]]) -> ProviderResponse:  # pragma: no cover - protocol
+    def run(
+        self,
+        *,
+        messages: Sequence[dict[str, str]],
+    ) -> ProviderResponse:  # pragma: no cover - protocol
         ...
 
 
@@ -104,7 +114,9 @@ class StoryFactory:
             raise StoryCreationError("Список постов содержит повторяющиеся значения")
         if len(posts) != len(post_ids):
             missing = set(post_ids) - {post.id for post in posts}
-            raise StoryCreationError(f"Посты не найдены или не принадлежат проекту: {sorted(missing)}")
+            raise StoryCreationError(
+                f"Посты не найдены или не принадлежат проекту: {sorted(missing)}"
+            )
         posts.sort(key=lambda post: order_map[post.id])
 
         story = Story.objects.create(
@@ -121,7 +133,7 @@ class StoryRewriter:
     """Отправляет сюжет на рерайт и применяет результат."""
 
     provider: RewriteProvider
-    max_attempts: int = 3
+    max_attempts: int = REWRITE_MAX_ATTEMPTS
 
     def rewrite(self, story: Story, *, editor_comment: str | None = None) -> RewriteTask:
         posts = list(story.ordered_posts())
@@ -154,7 +166,10 @@ class StoryRewriter:
                     "hashtags": result.hashtags,
                     "sources": result.sources,
                 }
-                task.mark_success(result=provider_response.result, response_id=provider_response.response_id)
+                task.mark_success(
+                    result=provider_response.result,
+                    response_id=provider_response.response_id,
+                )
                 story.apply_rewrite(
                     title=result.title or story.title,
                     summary=result.summary,
@@ -204,8 +219,8 @@ class OpenAIChatProvider:
             {
                 "model": self.model,
                 "messages": list(messages),
-                "temperature": 0.2,
-                "response_format": {"type": "json_object"},
+                "temperature": OPENAI_DEFAULT_TEMPERATURE,
+                "response_format": OPENAI_RESPONSE_FORMAT.copy(),
             }
         ).encode("utf-8")
         request = urllib.request.Request(
@@ -260,7 +275,13 @@ class PublishResult:
 class PublisherBackend(Protocol):
     """Интерфейс механизма доставки публикации."""
 
-    def send(self, *, story: Story, text: str, target: str) -> PublishResult:  # pragma: no cover - protocol
+    def send(
+        self,
+        *,
+        story: Story,
+        text: str,
+        target: str,
+    ) -> PublishResult:  # pragma: no cover - protocol
         ...
 
 

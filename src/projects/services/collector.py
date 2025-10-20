@@ -11,13 +11,14 @@ from telethon.tl.custom.message import Message
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
 
 from accounts.models import User
+from core.constants import DEFAULT_COLLECT_LIMIT
 from projects.models import Post, Project, Source, SourceSyncLog
 from projects.services.telethon_client import TelethonClientFactory
 
 
 @dataclass
 class CollectOptions:
-    limit: int = 100
+    limit: int = DEFAULT_COLLECT_LIMIT
     with_media: bool = True
 
 
@@ -99,7 +100,12 @@ class PostCollector:
         return True
 
 
-async def collect_for_user(user: User, *, project_id: int | None = None, limit: int = 100) -> None:
+async def collect_for_user(
+    user: User,
+    *,
+    project_id: int | None = None,
+    limit: int = DEFAULT_COLLECT_LIMIT,
+) -> None:
     """Асинхронный запуск сборщика для пользователя."""
 
     if not user.has_telethon_credentials:
@@ -114,7 +120,12 @@ async def collect_for_user(user: User, *, project_id: int | None = None, limit: 
         await collector.collect_for_project(project)
 
 
-def collect_for_user_sync(user: User, *, project_id: int | None = None, limit: int = 100) -> None:
+def collect_for_user_sync(
+    user: User,
+    *,
+    project_id: int | None = None,
+    limit: int = DEFAULT_COLLECT_LIMIT,
+) -> None:
     """Синхронный адаптер для использования в manage-команде."""
 
     asyncio.run(collect_for_user(user, project_id=project_id, limit=limit))

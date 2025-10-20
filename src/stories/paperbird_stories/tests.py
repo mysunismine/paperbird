@@ -3,21 +3,22 @@
 from __future__ import annotations
 
 from datetime import datetime
+from http import HTTPStatus
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from django.utils import timezone
 from django.urls import reverse
+from django.utils import timezone
 
 from projects.models import Post, Project, Source
 from stories.paperbird_stories.models import Publication, RewriteTask, Story
 from stories.paperbird_stories.services import (
     ProviderResponse,
-    RewriteFailed,
     PublicationFailed,
     PublishResult,
+    RewriteFailed,
     StoryCreationError,
     StoryFactory,
     StoryPublisher,
@@ -85,7 +86,11 @@ class PromptBuilderTests(TestCase):
             message="Текст поста",
             posted_at=timezone.now(),
         )
-        messages = build_prompt(posts=[post], editor_comment="Сжать до 5 предложений", title="Заголовок")
+        messages = build_prompt(
+            posts=[post],
+            editor_comment="Сжать до 5 предложений",
+            title="Заголовок",
+        )
         self.assertEqual(messages[0]["role"], "system")
         self.assertIn("Документы", messages[1]["content"])
         self.assertIn("Сжать до 5 предложений", messages[1]["content"])
@@ -172,7 +177,10 @@ class StoryPublisherTests(TestCase):
             message="Контент для публикации",
             posted_at=timezone.now(),
         )
-        self.story = StoryFactory(project=self.project).create(post_ids=[self.post.id], title="Заголовок")
+        self.story = StoryFactory(project=self.project).create(
+            post_ids=[self.post.id],
+            title="Заголовок",
+        )
         self.story.apply_rewrite(
             title="Заголовок",
             summary="",
@@ -256,7 +264,7 @@ class StoryViewTests(TestCase):
 
     def test_story_list_view(self) -> None:
         response = self.client.get(reverse("stories:list"))
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertIn("Сюжеты", response.content.decode("utf-8"))
 
     def test_create_story_view(self) -> None:
@@ -270,7 +278,7 @@ class StoryViewTests(TestCase):
             },
             follow=True,
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
         story = Story.objects.get()
         self.assertEqual(story.title, "Новый сюжет")
 
@@ -280,14 +288,25 @@ class StoryViewTests(TestCase):
         mock_rewriter.return_value = mock_instance
         story = StoryFactory(project=self.project).create(post_ids=[self.post.id], title="Story")
         url = reverse("stories:detail", kwargs={"pk": story.pk})
-        response = self.client.post(url, data={"action": "rewrite", "editor_comment": ""}, follow=True)
-        self.assertEqual(response.status_code, 200)
+        response = self.client.post(
+            url,
+            data={"action": "rewrite", "editor_comment": ""},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
         mock_instance.rewrite.assert_called_once()
 
     @patch("stories.paperbird_stories.views.default_publisher_for_story")
     def test_publish_action(self, mock_publisher_factory) -> None:
         story = StoryFactory(project=self.project).create(post_ids=[self.post.id], title="Story")
-        story.apply_rewrite(title="Story", summary="", body="Text", hashtags=[], sources=[], payload={})
+        story.apply_rewrite(
+            title="Story",
+            summary="",
+            body="Text",
+            hashtags=[],
+            sources=[],
+            payload={},
+        )
         mock_publisher = MagicMock()
         mock_publisher.publish.return_value.status = Publication.Status.PUBLISHED
         mock_publisher.publish.return_value.message_ids = [1]
@@ -295,5 +314,5 @@ class StoryViewTests(TestCase):
         mock_publisher_factory.return_value = mock_publisher
         url = reverse("stories:detail", kwargs={"pk": story.pk})
         response = self.client.post(url, data={"action": "publish", "target": "@ch"}, follow=True)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
         mock_publisher.publish.assert_called_once()
