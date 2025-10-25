@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.views.generic import DetailView, FormView, ListView
+from django.template.response import TemplateResponse
 
 from projects.models import Project
 from projects.services.telethon_client import TelethonCredentialsMissingError
@@ -23,6 +24,7 @@ from stories.paperbird_stories.services import (
     StoryRewriter,
     default_publisher_for_story,
     default_rewriter,
+    make_prompt_messages,
 )
 
 
@@ -123,16 +125,79 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
 
         comment = form.cleaned_data.get("editor_comment")
         preset: RewritePreset | None = form.cleaned_data.get("preset")
+        if request.POST.get("prompt_confirm") == "1":
+            prompt_system = (request.POST.get("prompt_system") or "").strip()
+            prompt_user = (request.POST.get("prompt_user") or "").strip()
+            if not prompt_system or not prompt_user:
+                messages.error(request, "Заполните обе части промпта")
+                context = self._prompt_context(
+                    comment=comment or "",
+                    preset=preset,
+                    prompt_system=prompt_system,
+                    prompt_user=prompt_user,
+                )
+                return TemplateResponse(request, "stories/story_prompt_preview.html", context)
+
+            messages_override = [
+                {"role": "system", "content": prompt_system},
+                {"role": "user", "content": prompt_user},
+            ]
+            try:
+                rewriter: StoryRewriter = default_rewriter()
+                rewriter.rewrite(
+                    self.object,
+                    editor_comment=comment,
+                    preset=preset,
+                    messages_override=messages_override,
+                )
+            except RewriteFailed as exc:
+                messages.error(request, f"Рерайт не удался: {exc}")
+            except Exception as exc:  # pragma: no cover - подсказка пользователю
+                messages.error(request, f"Не удалось запустить рерайт: {exc}")
+            else:
+                messages.success(request, "Рерайт выполнен. Проверьте сгенерированный текст.")
+            return redirect(self.get_success_url())
+
         try:
-            rewriter: StoryRewriter = default_rewriter()
-            rewriter.rewrite(self.object, editor_comment=comment, preset=preset)
+            prompt_messages, _ = make_prompt_messages(
+                self.object,
+                editor_comment=comment,
+                preset=preset,
+            )
         except RewriteFailed as exc:
-            messages.error(request, f"Рерайт не удался: {exc}")
-        except Exception as exc:  # pragma: no cover - подсказка пользователю
-            messages.error(request, f"Не удалось запустить рерайт: {exc}")
-        else:
-            messages.success(request, "Рерайт выполнен. Проверьте сгенерированный текст.")
-        return redirect(self.get_success_url())
+            messages.error(request, f"Не удалось подготовить промпт: {exc}")
+            return redirect(self.get_success_url())
+
+        context = self._prompt_context(
+            comment=comment or "",
+            preset=preset,
+            prompt_system=self._extract_message(prompt_messages, "system"),
+            prompt_user=self._extract_message(prompt_messages, "user"),
+        )
+        return TemplateResponse(request, "stories/story_prompt_preview.html", context)
+
+    def _prompt_context(
+        self,
+        *,
+        comment: str,
+        preset: RewritePreset | None,
+        prompt_system: str,
+        prompt_user: str,
+    ) -> dict[str, Any]:
+        return {
+            "story": self.object,
+            "editor_comment": comment,
+            "preset": preset,
+            "prompt_system": prompt_system,
+            "prompt_user": prompt_user,
+        }
+
+    @staticmethod
+    def _extract_message(messages: Sequence[dict[str, str]], role: str) -> str:
+        for message in messages:
+            if message.get("role") == role:
+                return message.get("content", "")
+        return ""
 
     def _handle_publish(self, request):
         form = StoryPublishForm(request.POST)

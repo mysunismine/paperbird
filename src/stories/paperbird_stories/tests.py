@@ -375,13 +375,33 @@ class StoryViewTests(TestCase):
         self.assertEqual(story.title, "Новый сюжет")
 
     @patch("stories.paperbird_stories.views.default_rewriter")
-    def test_rewrite_action(self, mock_rewriter) -> None:
+    def test_rewrite_action_shows_prompt(self, mock_rewriter) -> None:
         mock_instance = MagicMock()
         mock_rewriter.return_value = mock_instance
         url = reverse("stories:detail", kwargs={"pk": self.story.pk})
         response = self.client.post(
             url,
             data={"action": "rewrite", "editor_comment": ""},
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode("utf-8")
+        self.assertIn("Проверьте промпт перед отправкой", content)
+        mock_instance.rewrite.assert_not_called()
+
+    @patch("stories.paperbird_stories.views.default_rewriter")
+    def test_rewrite_confirm_triggers_call(self, mock_rewriter) -> None:
+        mock_instance = MagicMock()
+        mock_rewriter.return_value = mock_instance
+        url = reverse("stories:detail", kwargs={"pk": self.story.pk})
+        response = self.client.post(
+            url,
+            data={
+                "action": "rewrite",
+                "editor_comment": "",
+                "prompt_confirm": "1",
+                "prompt_system": "system",
+                "prompt_user": "user",
+            },
             follow=True,
         )
         self.assertEqual(response.status_code, HTTPStatus.OK)

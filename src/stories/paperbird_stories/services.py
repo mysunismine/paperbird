@@ -109,6 +109,39 @@ def build_prompt(
     ]
 
 
+def make_prompt_messages(
+    story: Story,
+    *,
+    editor_comment: str | None = None,
+    preset: RewritePreset | None = None,
+) -> tuple[list[dict[str, str]], str]:
+    """Собирает промпт для сюжета и возвращает сообщения и комментарий пользователя."""
+
+    posts = list(story.ordered_posts())
+    if not posts:
+        raise RewriteFailed("Сюжет не содержит постов для рерайта")
+
+    user_comment = editor_comment if editor_comment is not None else story.editor_comment
+    user_comment = user_comment.strip() if user_comment else ""
+    preset_comment = preset.editor_comment.strip() if preset and preset.editor_comment else ""
+    if preset_comment and user_comment:
+        combined_comment = (
+            f"{preset_comment}\n\n"
+            "Дополнительные указания редактора:\n"
+            f"{user_comment}"
+        )
+    else:
+        combined_comment = preset_comment or user_comment
+
+    messages = build_prompt(
+        posts=posts,
+        editor_comment=combined_comment,
+        title=story.title,
+        preset_instruction=preset.instruction_block() if preset else "",
+    )
+    return messages, user_comment
+
+
 @dataclass(slots=True)
 class StoryFactory:
     """Создаёт сюжет на основе выбранных постов."""
@@ -159,29 +192,18 @@ class StoryRewriter:
         *,
         editor_comment: str | None = None,
         preset: RewritePreset | None = None,
+        messages_override: Sequence[dict[str, str]] | None = None,
     ) -> RewriteTask:
-        posts = list(story.ordered_posts())
-        if not posts:
-            raise RewriteFailed("Сюжет не содержит постов для рерайта")
-
-        user_comment = editor_comment if editor_comment is not None else story.editor_comment
-        user_comment = user_comment.strip() if user_comment else ""
-        preset_comment = preset.editor_comment.strip() if preset and preset.editor_comment else ""
-        if preset_comment and user_comment:
-            combined_comment = (
-                f"{preset_comment}\n\n"
-                "Дополнительные указания редактора:\n"
-                f"{user_comment}"
-            )
-        else:
-            combined_comment = preset_comment or user_comment
-
-        messages = build_prompt(
-            posts=posts,
-            editor_comment=combined_comment,
-            title=story.title,
-            preset_instruction=preset.instruction_block() if preset else "",
+        messages, user_comment = make_prompt_messages(
+            story,
+            editor_comment=editor_comment,
+            preset=preset,
         )
+        if messages_override is not None:
+            messages = [
+                {"role": message.get("role", ""), "content": message.get("content", "")}
+                for message in messages_override
+            ]
 
         with transaction.atomic():
             story.status = Story.Status.REWRITING

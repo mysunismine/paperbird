@@ -27,9 +27,9 @@
    CREATE USER paperbird WITH PASSWORD 'paperbird';
    GRANT ALL PRIVILEGES ON DATABASE paperbird TO paperbird;
    ```
-5. Скопируйте `.env.example` в `.env` и заполните значения:
+5. Скопируйте `infra/.env.example` в `infra/.env` и заполните значения:
    ```bash
-   cp .env.example .env
+   cp infra/.env.example infra/.env
    ```
    Обратите внимание на `DJANGO_SECRET_KEY`, `POSTGRES_*`, а также `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` и `OPENAI_API_KEY`. Telethon ключи и строковую сессию можно получить в [кабинете разработчика Telegram](https://my.telegram.org/), а ключ OpenAI — в [личном кабинете OpenAI](https://platform.openai.com/).
 
@@ -39,7 +39,7 @@ source .venv/bin/activate
 python manage.py migrate
 python manage.py runserver
 ```
-После запуска приложение будет доступно на http://127.0.0.1:8000/.
+Переменные окружения автоматически подгружаются из `infra/.env`. После запуска приложение будет доступно на http://127.0.0.1:8000/.
 
 ### Локальная БД через Docker
 ```bash
@@ -68,6 +68,9 @@ docker compose up -d
   ```
 - Форма входа доступна по адресу http://127.0.0.1:8000/accounts/login/
 - После входа используйте раздел «Профиль» для добавления Telethon API ID, hash и строковой сессии.
+- Мастер «Генерация Telethon-сессии» поддерживает повторный запрос SMS. Если
+  Telegram временно откажет в отправке, UI покажет подсказку подождать или
+  подтвердить код из приложения Telegram.
 
 ## Проверка кода
 ```bash
@@ -89,7 +92,7 @@ ruff check . --fix
 - `src/static/` — пользовательские статические файлы (CSS/JS/изображения)
 - `src/stories/` — домен сюжетов, рерайта и публикаций, включая интеграции с OpenAI и Telegram
 - `infra/` — инфраструктура и Docker Compose для локальных сервисов
-- `.env.example` — пример конфигурации окружения
+- `infra/.env.example` — пример конфигурации окружения
 - `requirements.txt` — список зависимостей
 - `pyproject.toml` — конфигурация Ruff
 - инфраструктурные файлы (Docker, CI, конфиги) располагаются рядом с `src/`

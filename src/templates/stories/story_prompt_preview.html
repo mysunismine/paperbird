@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Промпт рерайта — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="mb-4">
+    <a class="btn btn-link ps-0" href="{% url 'stories:detail' story.pk %}">← Назад к сюжету</a>
+  </div>
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h1 class="h4 mb-3">Проверьте промпт перед отправкой</h1>
+      <p class="text-muted">Отредактируйте текст ниже, если нужно скорректировать запрос к модели.</p>
+      <dl class="row small text-muted">
+        <dt class="col-sm-3">Сюжет</dt>
+        <dd class="col-sm-9">{{ story.title|default:"Без названия" }}</dd>
+        {% if preset %}
+          <dt class="col-sm-3">Пресет</dt>
+          <dd class="col-sm-9">{{ preset.name }}</dd>
+        {% endif %}
+        {% if editor_comment %}
+          <dt class="col-sm-3">Комментарий редактора</dt>
+          <dd class="col-sm-9">{{ editor_comment|linebreaksbr }}</dd>
+        {% endif %}
+      </dl>
+      <form method="post" action="{% url 'stories:detail' story.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="rewrite" />
+        <input type="hidden" name="prompt_confirm" value="1" />
+        <input type="hidden" name="preset" value="{% if preset %}{{ preset.pk }}{% endif %}" />
+        <input type="hidden" name="editor_comment" value="{{ editor_comment|default:''|escape }}" />
+        <div class="mb-3">
+          <label class="form-label" for="prompt-system">System prompt</label>
+          <textarea class="form-control" id="prompt-system" name="prompt_system" rows="5">{{ prompt_system|default:"" }}</textarea>
+          <div class="form-text">Базовые инструкции для модели.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="prompt-user">User prompt</label>
+          <textarea class="form-control" id="prompt-user" name="prompt_user" rows="14">{{ prompt_user|default:"" }}</textarea>
+          <div class="form-text">Итоговый запрос с выбранными постами и инструкциями.</div>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-primary" type="submit">Запустить рерайт</button>
+          <a class="btn btn-outline-secondary" href="{% url 'stories:detail' story.pk %}">Отмена</a>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

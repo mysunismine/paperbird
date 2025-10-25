@@ -11,7 +11,7 @@ cd infra
 POSTGRES_PASSWORD=paperbird docker compose up -d
 ```
 
-По умолчанию используются значения из `.env` проекта. Если переменные `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` не заданы, будут применены значения `paperbird`/`paperbird`.
+По умолчанию Docker Compose читает переменные из `.env` в этом каталоге. Скопируйте `infra/.env.example` в `infra/.env`, чтобы переопределить `POSTGRES_DB`, `POSTGRES_USER` и другие настройки (по умолчанию — `paperbird`).
 
 После запуска БД можно выполнить миграции из корня проекта:
 

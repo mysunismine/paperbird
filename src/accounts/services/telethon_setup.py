@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from dataclasses import dataclass
 
-from telethon import TelegramClient
+from telethon import TelegramClient, functions
 from telethon.errors import (
     PhoneCodeExpiredError,
     PhoneCodeInvalidError,
     PhoneNumberBannedError,
     PhoneNumberInvalidError,
     PhoneNumberUnoccupiedError,
+    RPCError,
+    SendCodeUnavailableError,
     SessionPasswordNeededError,
 )
 from telethon.sessions import StringSession
@@ -33,13 +36,48 @@ class TelethonLoginState:
     phone_code_hash: str
 
 
+def _ensure_windows_event_loop_policy() -> None:
+    """Switches to the selector event loop policy on Windows if needed."""
+
+    if sys.platform != "win32":
+        return
+
+    policy_cls = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
+    if policy_cls is None:
+        return
+
+    current_policy = asyncio.get_event_loop_policy()
+    if not isinstance(current_policy, policy_cls):
+        asyncio.set_event_loop_policy(policy_cls())
+
+
 async def _request_login_code_async(
     *, api_id: int, api_hash: str, phone: str, force_sms: bool = False
 ) -> TelethonLoginState:
     client = TelegramClient(StringSession(), api_id, api_hash)
     await client.connect()
     try:
-        sent = await client.send_code_request(phone, force_sms=force_sms)
+        sent = await client.send_code_request(phone)
+        if force_sms:
+            phone_code_hash = getattr(sent, "phone_code_hash", "")
+            if phone_code_hash:
+                try:
+                    resend = await client(
+                        functions.auth.ResendCodeRequest(phone, phone_code_hash)
+                    )
+                except PhoneCodeExpiredError as exc:
+                    raise TelethonSessionError(
+                        "Срок действия кода истёк. Отправьте код повторно."
+                    ) from exc
+                except SendCodeUnavailableError as exc:
+                    raise TelethonSessionError(
+                        "Telegram временно не может отправить SMS на этот номер. "
+                        "Попробуйте через несколько минут или без опции SMS."
+                    ) from exc
+                except RPCError as exc:
+                    raise TelethonSessionError(str(exc)) from exc
+                if getattr(resend, "phone_code_hash", ""):
+                    sent = resend
         session_str = client.session.save()
         return TelethonLoginState(session=session_str, phone_code_hash=sent.phone_code_hash)
     finally:
@@ -50,6 +88,8 @@ def request_login_code(
     *, api_id: int, api_hash: str, phone: str, force_sms: bool = False
 ) -> TelethonLoginState:
     """Requests a login code for the provided phone number."""
+
+    _ensure_windows_event_loop_policy()
 
     try:
         return asyncio.run(
@@ -110,6 +150,8 @@ def complete_login(
     password: str | None,
 ) -> str:
     """Completes login with the confirmation code and returns a usable session string."""
+
+    _ensure_windows_event_loop_policy()
 
     try:
         return asyncio.run(

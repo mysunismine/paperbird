@@ -2,7 +2,7 @@
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.contrib.auth.views import LoginView, PasswordChangeDoneView, PasswordChangeView
+from django.contrib.auth.views import LoginView, LogoutView, PasswordChangeDoneView, PasswordChangeView
 from django.shortcuts import redirect
 from django.urls import reverse, reverse_lazy
 from django.views.generic import FormView, TemplateView
@@ -46,6 +46,15 @@ class ProfileView(LoginRequiredMixin, FormView):
         form.save()
         messages.success(self.request, "Профиль обновлён.")
         return super().form_valid(form)
+
+
+class SignOutView(LoginRequiredMixin, LogoutView):
+    """Поддерживает выход по GET-запросу для ссылок в интерфейсе."""
+
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
 
 
 class TelethonSessionSetupView(LoginRequiredMixin, TemplateView):

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -13,11 +14,167 @@ from accounts.services.telethon_setup import (
     TelethonLoginState,
     TelethonPasswordRequiredError,
     TelethonSessionError,
+    request_login_code,
 )
 from accounts.views import TELETHON_SETUP_SESSION_KEY
 from core.utils.telethon import normalize_session_value
 
 User = get_user_model()
+
+
+class TelethonEventLoopPolicyTests(TestCase):
+    def test_windows_policy_applied_when_not_selector(self) -> None:
+        from accounts.services import telethon_setup
+
+        class DummyPolicy:  # noqa: D401 - simple stub for isinstance checks
+            """Stub policy used to simulate Windows selector policy."""
+
+        with (
+            patch("accounts.services.telethon_setup.sys.platform", "win32"),
+            patch(
+                "accounts.services.telethon_setup.asyncio.WindowsSelectorEventLoopPolicy",
+                new=DummyPolicy,
+                create=True,
+            ),
+            patch(
+                "accounts.services.telethon_setup.asyncio.get_event_loop_policy",
+                return_value=object(),
+            ),
+            patch("accounts.services.telethon_setup.asyncio.set_event_loop_policy") as mock_set_policy,
+        ):
+            telethon_setup._ensure_windows_event_loop_policy()
+            mock_set_policy.assert_called_once()
+            policy_arg = mock_set_policy.call_args.args[0]
+            self.assertIsInstance(policy_arg, DummyPolicy)
+
+    def test_windows_policy_noop_when_already_set(self) -> None:
+        from accounts.services import telethon_setup
+
+        class DummyPolicy:
+            pass
+
+        selector_instance = DummyPolicy()
+
+        with (
+            patch("accounts.services.telethon_setup.sys.platform", "win32"),
+            patch(
+                "accounts.services.telethon_setup.asyncio.WindowsSelectorEventLoopPolicy",
+                new=DummyPolicy,
+                create=True,
+            ),
+            patch(
+                "accounts.services.telethon_setup.asyncio.get_event_loop_policy",
+                return_value=selector_instance,
+            ),
+            patch("accounts.services.telethon_setup.asyncio.set_event_loop_policy") as mock_set_policy,
+        ):
+            telethon_setup._ensure_windows_event_loop_policy()
+            mock_set_policy.assert_not_called()
+
+
+class LogoutViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("logout-user", password="secret")
+
+    def test_get_logout_redirects_and_clears_session(self) -> None:
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("accounts:logout"))
+        self.assertRedirects(response, reverse("accounts:login"))
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+
+class TelethonSetupServiceTests(TestCase):
+    @patch("accounts.services.telethon_setup.TelegramClient")
+    def test_force_sms_requests_resend_code(self, mock_client_cls) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.connect = AsyncMock()
+                self.disconnect = AsyncMock()
+                self.send_code_request = AsyncMock(
+                    return_value=SimpleNamespace(phone_code_hash="hash1")
+                )
+                self.session = SimpleNamespace(save=Mock(return_value="session"))
+                self.resend_mock = AsyncMock(
+                    return_value=SimpleNamespace(phone_code_hash="hash2")
+                )
+
+            async def __call__(self, request):
+                return await self.resend_mock(request)
+
+        client = FakeClient()
+        mock_client_cls.return_value = client
+
+        state = request_login_code(
+            api_id=123,
+            api_hash="hash",
+            phone="+79990000000",
+            force_sms=True,
+        )
+
+        client.connect.assert_awaited_once()
+        client.send_code_request.assert_awaited_once()
+        client.resend_mock.assert_awaited_once()
+        self.assertEqual(state.phone_code_hash, "hash2")
+
+    @patch("accounts.services.telethon_setup.TelegramClient")
+    def test_force_sms_skipped_when_hash_missing(self, mock_client_cls) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.connect = AsyncMock()
+                self.disconnect = AsyncMock()
+                self.send_code_request = AsyncMock(
+                    return_value=SimpleNamespace(phone_code_hash="")
+                )
+                self.session = SimpleNamespace(save=Mock(return_value="session"))
+                self.resend_mock = AsyncMock()
+
+            async def __call__(self, request):
+                return await self.resend_mock(request)
+
+        client = FakeClient()
+        mock_client_cls.return_value = client
+
+        state = request_login_code(
+            api_id=123,
+            api_hash="hash",
+            phone="+79990000000",
+            force_sms=True,
+        )
+
+        client.resend_mock.assert_not_called()
+        self.assertEqual(state.phone_code_hash, "")
+
+    @patch("accounts.services.telethon_setup.TelegramClient")
+    def test_force_sms_unavailable_error(self, mock_client_cls) -> None:
+        from accounts.services import telethon_setup
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.connect = AsyncMock()
+                self.disconnect = AsyncMock()
+                self.send_code_request = AsyncMock(
+                    return_value=SimpleNamespace(phone_code_hash="hash1")
+                )
+                self.session = SimpleNamespace(save=Mock(return_value="session"))
+                self.resend_mock = AsyncMock(
+                    side_effect=telethon_setup.SendCodeUnavailableError(Mock())
+                )
+
+            async def __call__(self, request):
+                return await self.resend_mock(request)
+
+        client = FakeClient()
+        mock_client_cls.return_value = client
+
+        with self.assertRaises(TelethonSessionError) as ctx:
+            request_login_code(
+                api_id=123,
+                api_hash="hash",
+                phone="+79990000000",
+                force_sms=True,
+            )
+
+        self.assertIn("Telegram временно не может отправить SMS", str(ctx.exception))
 
 
 class TelethonUtilsTests(TestCase):
