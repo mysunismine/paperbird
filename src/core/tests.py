@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from core.constants import REWRITE_MAX_ATTEMPTS
 from core.models import WorkerTask
+from core.logging import event_logger, logging_context
+from core.middleware import RequestContextMiddleware
 from core.services.worker import TaskExecutionError, WorkerRunner, enqueue_task
 from projects.models import Post, Project, Source
 
@@ -44,6 +47,12 @@ class WorkerQueueTests(TestCase):
         self.assertEqual(len(attempts), 1)
         self.assertEqual(attempts[0].status, WorkerTask.Status.SUCCEEDED)
         self.assertFalse(attempts[0].will_retry)
+
+    def test_enqueue_task_preserves_correlation_from_context(self) -> None:
+        with logging_context(correlation_id="cid-test"):
+            task = enqueue_task("default", payload={"value": 1})
+
+        self.assertEqual(task.payload["correlation_id"], "cid-test")
 
     def test_worker_requeues_on_retryable_error(self) -> None:
         task = enqueue_task("default", payload={"value": 5})
@@ -151,3 +160,63 @@ class FeedViewTests(TestCase):
         response = self.client.get(reverse("feed"), data={"project": self.project.id})
         self.assertContains(response, "Apple представила новый продукт")
         self.assertNotContains(response, "Парламент обсудил меры")
+
+
+class StructuredLoggingTests(TestCase):
+    def test_event_logger_combines_context(self) -> None:
+        logger = event_logger("paperbird.tests")
+        with logging_context(correlation_id="cid-1", user_id=42, project_id=7):
+            with self.assertLogs("paperbird.tests", level="INFO") as captured:
+                logger.info("story_processed", story_id=5)
+
+        record = captured.records[0]
+        payload = record.structured_payload
+        self.assertEqual(payload["event"], "story_processed")
+        self.assertEqual(payload["correlation_id"], "cid-1")
+        self.assertEqual(payload["user_id"], 42)
+        self.assertEqual(payload["project_id"], 7)
+        self.assertEqual(payload["story_id"], 5)
+
+
+class RequestContextMiddlewareTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+
+    def test_propagates_existing_correlation_id(self) -> None:
+        response = self.client.get("/", HTTP_X_CORRELATION_ID="abc123")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["X-Correlation-ID"], "abc123")
+
+    def test_logs_unhandled_exception(self) -> None:
+        def raising_view(request):
+            raise RuntimeError("Взрыв")
+
+        middleware = RequestContextMiddleware(raising_view)
+        request = self.factory.get("/boom")
+
+        with self.assertLogs("paperbird.request", level="ERROR") as captured:
+            with self.assertRaises(RuntimeError):
+                middleware(request)
+
+        record = captured.records[0]
+        payload = record.structured_payload
+        self.assertEqual(payload["event"], "unhandled_error")
+        self.assertEqual(payload["method"], "GET")
+        self.assertIn("correlation_id", payload)
+        self.assertEqual(payload["error"], "Взрыв")
+
+
+@override_settings(ROOT_URLCONF="core.tests_urls", DEBUG=False)
+class ServerErrorViewTests(TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.client.raise_request_exception = False
+
+    def test_custom_error_page_renders_with_correlation(self) -> None:
+        response = self.client.get("/boom/")
+        self.assertEqual(response.status_code, 500)
+        self.assertContains(response, "Упс! Что-то пошло не так", status_code=500)
+        match = re.search(r"Идентификатор ошибки: <code>([a-f0-9]+)</code>", response.content.decode())
+        self.assertIsNotNone(match)
+        correlation_id = match.group(1)
+        self.assertEqual(response["X-Correlation-ID"], correlation_id)

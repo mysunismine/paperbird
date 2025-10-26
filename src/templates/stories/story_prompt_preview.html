@@ -26,17 +26,30 @@
         {% csrf_token %}
         <input type="hidden" name="action" value="rewrite" />
         <input type="hidden" name="prompt_confirm" value="1" />
-        <input type="hidden" name="preset" value="{% if preset %}{{ preset.pk }}{% endif %}" />
-        <input type="hidden" name="editor_comment" value="{{ editor_comment|default:''|escape }}" />
+        {{ prompt_form.preset }}
+        {{ prompt_form.editor_comment }}
+        {% if prompt_form.non_field_errors %}
+          <div class="alert alert-danger">{{ prompt_form.non_field_errors }}</div>
+        {% endif %}
         <div class="mb-3">
-          <label class="form-label" for="prompt-system">System prompt</label>
-          <textarea class="form-control" id="prompt-system" name="prompt_system" rows="5">{{ prompt_system|default:"" }}</textarea>
+          <label class="form-label" for="{{ prompt_form.prompt_system.id_for_label }}">
+            {{ prompt_form.prompt_system.label }}
+          </label>
+          {{ prompt_form.prompt_system }}
           <div class="form-text">Базовые инструкции для модели.</div>
+          {% if prompt_form.prompt_system.errors %}
+            <div class="text-danger small">{{ prompt_form.prompt_system.errors|join:', ' }}</div>
+          {% endif %}
         </div>
         <div class="mb-3">
-          <label class="form-label" for="prompt-user">User prompt</label>
-          <textarea class="form-control" id="prompt-user" name="prompt_user" rows="14">{{ prompt_user|default:"" }}</textarea>
+          <label class="form-label" for="{{ prompt_form.prompt_user.id_for_label }}">
+            {{ prompt_form.prompt_user.label }}
+          </label>
+          {{ prompt_form.prompt_user }}
           <div class="form-text">Итоговый запрос с выбранными постами и инструкциями.</div>
+          {% if prompt_form.prompt_user.errors %}
+            <div class="text-danger small">{{ prompt_form.prompt_user.errors|join:', ' }}</div>
+          {% endif %}
         </div>
         <div class="d-flex gap-2">
           <button class="btn btn-primary" type="submit">Запустить рерайт</button>

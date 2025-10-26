@@ -5,3 +5,8 @@ class PaperbirdStoriesConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "stories.paperbird_stories"
     label = "stories"
+
+    def ready(self) -> None:
+        from .workers import register_publish_worker
+
+        register_publish_worker()

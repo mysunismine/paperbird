@@ -2,18 +2,30 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import base64
+import os
+import shutil
+import tempfile
+from datetime import datetime, timedelta
 from http import HTTPStatus
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from projects.models import Post, Project, Source
-from stories.paperbird_stories.forms import StoryRewriteForm
+from core.models import WorkerTask
+from core.services.worker import TaskExecutionError
+from stories.paperbird_stories.forms import (
+    StoryImageAttachForm,
+    StoryImageGenerateForm,
+    StoryPublishForm,
+    StoryRewriteForm,
+)
 from stories.paperbird_stories.models import (
     Publication,
     RewritePreset,
@@ -21,6 +33,7 @@ from stories.paperbird_stories.models import (
     Story,
 )
 from stories.paperbird_stories.services import (
+    GeneratedImage,
     ProviderResponse,
     PublicationFailed,
     PublishResult,
@@ -31,6 +44,7 @@ from stories.paperbird_stories.services import (
     StoryRewriter,
     build_prompt,
 )
+from stories.paperbird_stories.workers import publish_story_task
 
 User = get_user_model()
 
@@ -198,6 +212,85 @@ class StoryRewriterTests(TestCase):
         self.assertEqual(task.preset, preset)
         self.assertEqual(story.editor_comment, "")
 
+
+class StoryPromptPreviewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("viewer", password="pass")
+        self.project = Project.objects.create(owner=self.user, name="Preview")
+        self.source = Source.objects.create(project=self.project, telegram_id=500)
+        self.post = Post.objects.create(
+            project=self.project,
+            source=self.source,
+            telegram_id=42,
+            message="Контент поста",
+            posted_at=timezone.now(),
+        )
+        self.story = StoryFactory(project=self.project).create(post_ids=[self.post.id], title="Предпросмотр")
+        self.client.login(username="viewer", password="pass")
+
+    def test_preview_displays_prompt_form(self) -> None:
+        url = reverse("stories:detail", args=[self.story.pk])
+        response = self.client.post(url, {"action": "rewrite"})
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertTemplateUsed(response, "stories/story_prompt_preview.html")
+        prompt_form = response.context["prompt_form"]
+        self.assertIn("System prompt", prompt_form["prompt_system"].label)
+        self.assertIn("Собери", prompt_form["prompt_user"].value())
+
+    @patch("stories.paperbird_stories.views.default_rewriter")
+    def test_confirm_rewrite_uses_custom_prompts(self, mocked_default_rewriter: MagicMock) -> None:
+        rewriter = MagicMock()
+        mocked_default_rewriter.return_value = rewriter
+
+        url = reverse("stories:detail", args=[self.story.pk])
+        response = self.client.post(
+            url,
+            {
+                "action": "rewrite",
+                "prompt_confirm": "1",
+                "prompt_system": "Custom system",
+                "prompt_user": "Custom user",
+                "editor_comment": "Оставь цифры",
+                "preset": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        mocked_default_rewriter.assert_called_once()
+        rewriter.rewrite.assert_called_once()
+        _, kwargs = rewriter.rewrite.call_args
+        self.assertEqual(kwargs["editor_comment"], "Оставь цифры")
+        self.assertIsNone(kwargs["preset"])
+        self.assertEqual(
+            kwargs["messages_override"],
+            [
+                {"role": "system", "content": "Custom system"},
+                {"role": "user", "content": "Custom user"},
+            ],
+        )
+
+    @patch("stories.paperbird_stories.views.default_rewriter")
+    def test_confirm_requires_both_prompts(self, mocked_default_rewriter: MagicMock) -> None:
+        url = reverse("stories:detail", args=[self.story.pk])
+        response = self.client.post(
+            url,
+            {
+                "action": "rewrite",
+                "prompt_confirm": "1",
+                "prompt_system": "",
+                "prompt_user": "User",  # только user заполнен
+                "editor_comment": "Комментарий",
+                "preset": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertTemplateUsed(response, "stories/story_prompt_preview.html")
+        prompt_form = response.context["prompt_form"]
+        self.assertIn("prompt_system", prompt_form.errors)
+        mocked_default_rewriter.assert_not_called()
+
     def test_failed_rewrite_restores_draft_status(self) -> None:
         class FailingProvider:
             def run(self, *, messages):
@@ -284,6 +377,28 @@ class StoryPublisherTests(TestCase):
         self.story.refresh_from_db()
         self.assertEqual(self.story.status, Story.Status.READY)
 
+    @patch("stories.paperbird_stories.services.enqueue_task")
+    def test_schedule_publication_enqueues_worker(self, mocked_enqueue) -> None:
+        class DummyBackend:
+            def send(self, *, story, text, target):  # pragma: no cover - not used
+                raise AssertionError("Should not send immediately")
+
+        publish_at = timezone.now() + timedelta(hours=1)
+        publisher = StoryPublisher(backend=DummyBackend())
+
+        publication = publisher.publish(
+            self.story,
+            target="@channel",
+            scheduled_for=publish_at,
+        )
+
+        self.assertEqual(publication.status, Publication.Status.SCHEDULED)
+        mocked_enqueue.assert_called_once()
+        args, kwargs = mocked_enqueue.call_args
+        self.assertEqual(args[0], WorkerTask.Queue.PUBLISH)
+        self.assertEqual(kwargs["payload"], {"publication_id": publication.pk})
+        self.assertEqual(kwargs["scheduled_for"], publish_at)
+
     def test_publish_requires_ready_story(self) -> None:
         self.story.status = Story.Status.DRAFT
         self.story.save(update_fields=["status"])
@@ -325,6 +440,133 @@ class StoryRewriteFormTests(TestCase):
         preset_names = list(form.fields["preset"].queryset.values_list("name", flat=True))
         self.assertCountEqual(preset_names, ["Пресет А", "Пресет Б"])
         self.assertEqual(form.fields["preset"].initial, self.preset_b)
+
+
+class StoryPublishFormTests(TestCase):
+    def test_accepts_future_datetime(self) -> None:
+        future = timezone.localtime(timezone.now() + timedelta(hours=2))
+        form = StoryPublishForm(
+            data={
+                "target": "@channel",
+                "publish_at": future.strftime("%Y-%m-%dT%H:%M"),
+            }
+        )
+
+        self.assertTrue(form.is_valid())
+        cleaned = form.cleaned_data["publish_at"]
+        self.assertEqual(
+            timezone.localtime(cleaned).replace(second=0, microsecond=0),
+            future.replace(second=0, microsecond=0),
+        )
+
+    def test_rejects_past_datetime(self) -> None:
+        past = timezone.localtime(timezone.now() - timedelta(minutes=5))
+        form = StoryPublishForm(
+            data={
+                "target": "@channel",
+                "publish_at": past.strftime("%Y-%m-%dT%H:%M"),
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("publish_at", form.errors)
+
+
+class StoryImageFormsTests(TestCase):
+    def test_generate_form_requires_prompt(self) -> None:
+        form = StoryImageGenerateForm(data={"prompt": "   "})
+        self.assertFalse(form.is_valid())
+        self.assertIn("prompt", form.errors)
+
+    def test_attach_form_decodes_payload(self) -> None:
+        encoded = base64.b64encode(b"binary").decode("ascii")
+        form = StoryImageAttachForm(
+            data={
+                "prompt": "Sunset",
+                "image_data": encoded,
+                "mime_type": "image/png",
+            }
+        )
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["image_data"], b"binary")
+
+
+class StoryImageViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("artist", password="pass")
+        self.client.force_login(self.user)
+        self.project = Project.objects.create(owner=self.user, name="Art")
+        self.story = Story.objects.create(
+            project=self.project,
+            title="История",
+            summary="Закат над морем",
+        )
+
+    def test_get_renders_form(self) -> None:
+        response = self.client.get(reverse("stories:image", kwargs={"pk": self.story.pk}))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        generate_form = response.context["generate_form"]
+        self.assertIsInstance(generate_form, StoryImageGenerateForm)
+        self.assertIn("Сгенерировать", response.content.decode("utf-8"))
+
+    @patch("stories.paperbird_stories.views.default_image_generator")
+    def test_generate_action_displays_preview(self, mock_generator) -> None:
+        stub_generator = MagicMock()
+        stub_generator.generate.return_value = GeneratedImage(data=b"image", mime_type="image/png")
+        mock_generator.return_value = stub_generator
+
+        response = self.client.post(
+            reverse("stories:image", kwargs={"pk": self.story.pk}),
+            data={"action": "generate", "prompt": "Яркий закат"},
+        )
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertIn("data:image/png;base64", response.content.decode("utf-8"))
+        stub_generator.generate.assert_called_once()
+
+    def test_attach_action_saves_file(self) -> None:
+        url = reverse("stories:image", kwargs={"pk": self.story.pk})
+        encoded = base64.b64encode(b"fake-image").decode("ascii")
+        media_root = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(media_root, ignore_errors=True))
+
+        with override_settings(MEDIA_ROOT=media_root):
+            response = self.client.post(
+                url,
+                data={
+                    "action": "attach",
+                    "prompt": "Летний пляж",
+                    "image_data": encoded,
+                    "mime_type": "image/png",
+                },
+            )
+
+            self.assertEqual(response.status_code, HTTPStatus.FOUND)
+            self.story.refresh_from_db()
+            self.assertEqual(self.story.image_prompt, "Летний пляж")
+            self.assertTrue(self.story.image_file.name)
+            stored_path = os.path.join(settings.MEDIA_ROOT, self.story.image_file.name)
+            self.assertTrue(os.path.exists(stored_path))
+
+    def test_remove_action_deletes_file(self) -> None:
+        media_root = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(media_root, ignore_errors=True))
+
+        with override_settings(MEDIA_ROOT=media_root):
+            self.story.attach_image(prompt="Preview", data=b"img", mime_type="image/png")
+            stored_path = os.path.join(settings.MEDIA_ROOT, self.story.image_file.name)
+            self.assertTrue(os.path.exists(stored_path))
+
+            response = self.client.post(
+                reverse("stories:image", kwargs={"pk": self.story.pk}),
+                data={"action": "remove", "confirm": "True"},
+                follow=True,
+            )
+
+            self.assertEqual(response.status_code, HTTPStatus.OK)
+            self.story.refresh_from_db()
+            self.assertFalse(self.story.image_file)
+            self.assertFalse(os.path.exists(stored_path))
 
 
 class StoryViewTests(TestCase):
@@ -419,6 +661,32 @@ class StoryViewTests(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         mock_publisher.publish.assert_called_once()
 
+    @patch("stories.paperbird_stories.views.default_publisher_for_story")
+    def test_publish_action_with_schedule(self, mock_publisher_factory) -> None:
+        mock_publisher = MagicMock()
+        publication = MagicMock()
+        publication.status = Publication.Status.SCHEDULED
+        mock_publisher.publish.return_value = publication
+        mock_publisher_factory.return_value = mock_publisher
+        url = reverse("stories:detail", kwargs={"pk": self.story.pk})
+        future = timezone.localtime(timezone.now() + timedelta(hours=1))
+        response = self.client.post(
+            url,
+            data={
+                "action": "publish",
+                "target": "@ch",
+                "publish_at": future.strftime("%Y-%m-%dT%H:%M"),
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        mock_publisher.publish.assert_called_once()
+        _, kwargs = mock_publisher.publish.call_args
+        self.assertIn("scheduled_for", kwargs)
+        self.assertIsNotNone(kwargs["scheduled_for"])
+        self.assertTrue(timezone.is_aware(kwargs["scheduled_for"]))
+
     def test_publication_list_view(self) -> None:
         Publication.objects.create(
             story=self.story,
@@ -431,3 +699,63 @@ class StoryViewTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertIn("Публикации", content)
         self.assertIn("@channel", content)
+
+
+class PublishWorkerTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("worker", password="pass")
+        self.project = Project.objects.create(owner=self.user, name="Queue")
+        self.source = Source.objects.create(project=self.project, telegram_id=90)
+        post = Post.objects.create(
+            project=self.project,
+            source=self.source,
+            telegram_id=77,
+            message="Текст",
+            posted_at=timezone.now(),
+        )
+        self.story = StoryFactory(project=self.project).create(post_ids=[post.id], title="Story")
+        self.story.apply_rewrite(
+            title="Story",
+            summary="",
+            body="Body",
+            hashtags=[],
+            sources=[],
+            payload={},
+        )
+
+    @patch("stories.paperbird_stories.workers.default_publisher_for_story")
+    def test_worker_processes_publication(self, mocked_default) -> None:
+        publication = Publication.objects.create(
+            story=self.story,
+            target="@channel",
+            status=Publication.Status.SCHEDULED,
+            result_text=self.story.compose_publication_text(),
+        )
+
+        class StubBackend:
+            def send(self, *, story, text, target):
+                return PublishResult(
+                    message_ids=[55],
+                    published_at=timezone.now(),
+                    raw={"ok": True},
+                )
+
+        mocked_default.return_value = StoryPublisher(backend=StubBackend())
+
+        task = WorkerTask.objects.create(
+            queue=WorkerTask.Queue.PUBLISH,
+            payload={"publication_id": publication.pk},
+        )
+
+        result = publish_story_task(task)
+
+        mocked_default.assert_called_once_with(publication.story)
+        publication.refresh_from_db()
+        self.assertEqual(result["status"], Publication.Status.PUBLISHED)
+        self.assertEqual(publication.status, Publication.Status.PUBLISHED)
+
+    def test_worker_requires_publication_id(self) -> None:
+        task = WorkerTask.objects.create(queue=WorkerTask.Queue.PUBLISH, payload={})
+
+        with self.assertRaises(TaskExecutionError):
+            publish_story_task(task)

@@ -104,6 +104,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "core.middleware.RequestContextMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -196,6 +197,9 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [SRC_DIR / "static"]
 
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
@@ -214,3 +218,49 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "").strip()
 OPENAI_TIMEOUT = float(os.getenv("OPENAI_TIMEOUT", "30"))
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "structured": {
+            "()": "core.logging.StructuredFormatter",
+        },
+    },
+    "filters": {
+        "context": {
+            "()": "core.logging.ContextInjector",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "structured",
+            "filters": ["context"],
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "paperbird": {
+            "handlers": ["console"],
+            "level": "INFO",
+        },
+        "stories": {
+            "handlers": ["console"],
+            "level": "INFO",
+        },
+        "core": {
+            "handlers": ["console"],
+            "level": "INFO",
+        },
+        "": {
+            "handlers": ["console"],
+            "level": "WARNING",
+        },
+    },
+}

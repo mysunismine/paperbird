@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Что-то пошло не так — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <div class="text-center py-5">
+        <h1 class="display-5 mb-3">Упс! Что-то пошло не так</h1>
+        <p class="lead mb-4">
+          Мы уже получили уведомление и разберёмся с ошибкой. Попробуйте обновить страницу
+          или вернуться чуть позже.
+        </p>
+        {% if correlation_id %}
+          <p class="text-muted mb-4">
+            Идентификатор ошибки: <code>{{ correlation_id }}</code>
+          </p>
+        {% endif %}
+        <div class="d-flex gap-3 justify-content-center">
+          <a class="btn btn-primary" href="{% url 'projects:list' %}">Перейти к проектам</a>
+          <a class="btn btn-outline-secondary" href="{% url 'feed' %}">Открыть ленту</a>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

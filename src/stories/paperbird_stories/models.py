@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import mimetypes
+import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from django.core.files.base import ContentFile
 from django.db import models
 from django.utils import timezone
 
@@ -56,6 +59,18 @@ class Story(models.Model):
         blank=True,
         help_text="Сырые данные ответа модели.",
     )
+    image_prompt = models.TextField(
+        "Описание изображения",
+        blank=True,
+        default="",
+        help_text="Последний промпт, по которому было сгенерировано изображение.",
+    )
+    image_file = models.FileField(
+        "Прикреплённое изображение",
+        upload_to="story_images/",
+        blank=True,
+        null=True,
+    )
     last_rewrite_at = models.DateTimeField(
         "Дата последнего рерайта",
         blank=True,
@@ -102,7 +117,7 @@ class Story(models.Model):
     def ordered_posts(self) -> models.QuerySet[Post]:
         """Возвращает queryset постов в порядке `StoryPost.position`."""
 
-        return self.posts.order_by("storypost__position", "storypost__id")
+        return self.posts.order_by("story_posts__position", "story_posts__id")
 
     # --- Обновление статуса и содержания ----------------------------------
 
@@ -171,6 +186,47 @@ class Story(models.Model):
                 parts.append(f"Источники: {sources_text}")
         combined = "\n\n".join(part for part in parts if part)
         return combined.strip()
+
+    # --- Работа с изображением ----------------------------------------------
+
+    def attach_image(self, *, prompt: str, data: bytes, mime_type: str) -> None:
+        """Сохраняет изображение сюжета, заменяя предыдущее."""
+
+        if not data:
+            raise ValueError("Пустые данные изображения")
+
+        extension = self._extension_from_mime(mime_type)
+        filename = f"story_{self.pk}_{uuid.uuid4().hex}.{extension}"
+        content = ContentFile(data)
+
+        if self.image_file:
+            self.image_file.delete(save=False)
+
+        self.image_file.save(filename, content, save=False)
+        self.image_prompt = prompt.strip()
+        self.save(update_fields=["image_prompt", "image_file", "updated_at"])
+
+    def remove_image(self) -> None:
+        """Удаляет прикреплённое изображение."""
+
+        if self.image_file:
+            self.image_file.delete(save=False)
+        self.image_file = None
+        self.image_prompt = ""
+        self.save(update_fields=["image_prompt", "image_file", "updated_at"])
+
+    @staticmethod
+    def _extension_from_mime(mime_type: str) -> str:
+        default_extension = "png"
+        if not mime_type:
+            return default_extension
+        extension = mimetypes.guess_extension(mime_type) or ""
+        extension = extension.lstrip(".")
+        if extension:
+            return extension
+        if mime_type == "image/jpeg":
+            return "jpg"
+        return default_extension
 
 
 class StoryPost(models.Model):

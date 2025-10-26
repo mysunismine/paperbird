@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from typing import Any, Sequence
 
 from django.contrib import messages
@@ -10,18 +11,29 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.views.generic import DetailView, FormView, ListView
 from django.template.response import TemplateResponse
+from django.utils import timezone
 
 from projects.models import Project
 from projects.services.telethon_client import TelethonCredentialsMissingError
-from stories.paperbird_stories.forms import StoryCreateForm, StoryPublishForm, StoryRewriteForm
+from stories.paperbird_stories.forms import (
+    StoryCreateForm,
+    StoryImageAttachForm,
+    StoryImageDeleteForm,
+    StoryImageGenerateForm,
+    StoryPromptConfirmForm,
+    StoryPublishForm,
+    StoryRewriteForm,
+)
 from stories.paperbird_stories.models import Publication, RewritePreset, Story
 from stories.paperbird_stories.services import (
+    ImageGenerationFailed,
     PublicationFailed,
     RewriteFailed,
     StoryCreationError,
     StoryFactory,
     StoryPublisher,
     StoryRewriter,
+    default_image_generator,
     default_publisher_for_story,
     default_rewriter,
     make_prompt_messages,
@@ -123,24 +135,19 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             messages.error(request, "Проверьте поля формы рерайта")
             return redirect(self.get_success_url())
 
-        comment = form.cleaned_data.get("editor_comment")
+        comment = form.cleaned_data.get("editor_comment") or ""
         preset: RewritePreset | None = form.cleaned_data.get("preset")
         if request.POST.get("prompt_confirm") == "1":
-            prompt_system = (request.POST.get("prompt_system") or "").strip()
-            prompt_user = (request.POST.get("prompt_user") or "").strip()
-            if not prompt_system or not prompt_user:
-                messages.error(request, "Заполните обе части промпта")
-                context = self._prompt_context(
-                    comment=comment or "",
-                    preset=preset,
-                    prompt_system=prompt_system,
-                    prompt_user=prompt_user,
-                )
+            prompt_form = StoryPromptConfirmForm(request.POST, story=self.object)
+            if not prompt_form.is_valid():
+                context = self._prompt_context(prompt_form=prompt_form)
                 return TemplateResponse(request, "stories/story_prompt_preview.html", context)
 
+            comment = prompt_form.cleaned_data.get("editor_comment", "")
+            preset = prompt_form.cleaned_data.get("preset")
             messages_override = [
-                {"role": "system", "content": prompt_system},
-                {"role": "user", "content": prompt_user},
+                {"role": "system", "content": prompt_form.cleaned_data["prompt_system"]},
+                {"role": "user", "content": prompt_form.cleaned_data["prompt_user"]},
             ]
             try:
                 rewriter: StoryRewriter = default_rewriter()
@@ -168,28 +175,28 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             messages.error(request, f"Не удалось подготовить промпт: {exc}")
             return redirect(self.get_success_url())
 
-        context = self._prompt_context(
-            comment=comment or "",
-            preset=preset,
-            prompt_system=self._extract_message(prompt_messages, "system"),
-            prompt_user=self._extract_message(prompt_messages, "user"),
+        prompt_form = StoryPromptConfirmForm(
+            story=self.object,
+            initial={
+                "prompt_system": self._extract_message(prompt_messages, "system"),
+                "prompt_user": self._extract_message(prompt_messages, "user"),
+                "preset": preset,
+                "editor_comment": comment,
+            },
         )
+        context = self._prompt_context(prompt_form=prompt_form)
         return TemplateResponse(request, "stories/story_prompt_preview.html", context)
 
     def _prompt_context(
         self,
         *,
-        comment: str,
-        preset: RewritePreset | None,
-        prompt_system: str,
-        prompt_user: str,
+        prompt_form: StoryPromptConfirmForm,
     ) -> dict[str, Any]:
         return {
             "story": self.object,
-            "editor_comment": comment,
-            "preset": preset,
-            "prompt_system": prompt_system,
-            "prompt_user": prompt_user,
+            "editor_comment": prompt_form.editor_comment_value,
+            "preset": prompt_form.selected_preset,
+            "prompt_form": prompt_form,
         }
 
     @staticmethod
@@ -210,15 +217,25 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             return redirect(self.get_success_url())
 
         target = form.cleaned_data["target"]
+        publish_at = form.cleaned_data.get("publish_at")
         try:
             publisher: StoryPublisher = default_publisher_for_story(self.object)
-            publication = publisher.publish(self.object, target=target)
+            publication = publisher.publish(
+                self.object, target=target, scheduled_for=publish_at
+            )
         except (PublicationFailed, TelethonCredentialsMissingError) as exc:
             messages.error(request, f"Публикация не удалась: {exc}")
         except Exception as exc:  # pragma: no cover
             messages.error(request, f"Ошибка публикации: {exc}")
         else:
-            if publication.status == Publication.Status.PUBLISHED:
+            if publish_at:
+                scheduled_time = timezone.localtime(publish_at)
+                messages.success(
+                    request,
+                    "Публикация запланирована на "
+                    f"{scheduled_time:%d.%m.%Y %H:%M}.",
+                )
+            elif publication.status == Publication.Status.PUBLISHED:
                 messages.success(request, "Сюжет опубликован в Telegram.")
             else:
                 messages.info(request, "Публикация запланирована и будет выполнена позже.")
@@ -250,3 +267,118 @@ class PublicationListView(LoginRequiredMixin, ListView):
             .order_by("name")
         )
         return context
+
+
+class StoryImageView(LoginRequiredMixin, DetailView):
+    """Диалог генерации и прикрепления изображения."""
+
+    model = Story
+    template_name = "stories/story_image_modal.html"
+    context_object_name = "story"
+
+    def get_queryset(self):
+        return Story.objects.filter(project__owner=self.request.user).select_related("project")
+
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        context = self.get_context_data(
+            generate_form=self._generate_form_initial(),
+            attach_form=None,
+            delete_form=self._delete_form(),
+        )
+        return self.render_to_response(context)
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        action = request.POST.get("action")
+        if action == "generate":
+            return self._handle_generate(request)
+        if action == "attach":
+            return self._handle_attach(request)
+        if action == "remove":
+            return self._handle_remove(request)
+        messages.error(request, "Неизвестное действие")
+        return redirect("stories:detail", pk=self.object.pk)
+
+    def _handle_generate(self, request):
+        form = StoryImageGenerateForm(request.POST)
+        preview: dict[str, str] | None = None
+        attach_form: StoryImageAttachForm | None = None
+        if form.is_valid():
+            prompt = form.cleaned_data["prompt"]
+            generator = default_image_generator()
+            try:
+                result = generator.generate(prompt=prompt)
+            except ImageGenerationFailed as exc:
+                messages.error(request, f"Не удалось сгенерировать изображение: {exc}")
+            except Exception as exc:  # pragma: no cover - непредвиденные ошибки
+                messages.error(request, f"Ошибка генерации изображения: {exc}")
+            else:
+                encoded = base64.b64encode(result.data).decode("ascii")
+                preview = {
+                    "data": encoded,
+                    "mime": result.mime_type,
+                    "prompt": prompt,
+                }
+                attach_form = StoryImageAttachForm(
+                    initial={
+                        "prompt": prompt,
+                        "image_data": encoded,
+                        "mime_type": result.mime_type,
+                    }
+                )
+        context = self.get_context_data(
+            generate_form=form,
+            preview=preview,
+            attach_form=attach_form,
+            delete_form=self._delete_form(),
+        )
+        return self.render_to_response(context)
+
+    def _handle_attach(self, request):
+        form = StoryImageAttachForm(request.POST)
+        if form.is_valid():
+            prompt = form.cleaned_data["prompt"]
+            data = form.cleaned_data["image_data"]
+            mime_type = form.cleaned_data["mime_type"]
+            try:
+                self.object.attach_image(prompt=prompt, data=data, mime_type=mime_type)
+            except ValueError as exc:
+                form.add_error(None, str(exc))
+            else:
+                messages.success(request, "Изображение прикреплено к сюжету.")
+                return redirect("stories:detail", pk=self.object.pk)
+
+        encoded = request.POST.get("image_data", "")
+        preview = None
+        if encoded:
+            preview = {
+                "data": encoded,
+                "mime": request.POST.get("mime_type", "image/png"),
+                "prompt": request.POST.get("prompt", ""),
+            }
+        context = self.get_context_data(
+            generate_form=self._generate_form_initial(prompt=preview["prompt"] if preview else None),
+            attach_form=form,
+            preview=preview,
+            delete_form=self._delete_form(),
+        )
+        return self.render_to_response(context)
+
+    def _handle_remove(self, request):
+        form = StoryImageDeleteForm(request.POST)
+        if form.is_valid():
+            self.object.remove_image()
+            messages.info(request, "Изображение удалено из сюжета.")
+            return redirect("stories:detail", pk=self.object.pk)
+        messages.error(request, "Не удалось удалить изображение")
+        return redirect("stories:detail", pk=self.object.pk)
+
+    def _generate_form_initial(self, prompt: str | None = None) -> StoryImageGenerateForm:
+        initial_prompt = prompt or self.object.image_prompt or self.object.summary or self.object.title or ""
+        return StoryImageGenerateForm(initial={"prompt": initial_prompt})
+
+    def _delete_form(self) -> StoryImageDeleteForm | None:
+        if self.object.image_file:
+            return StoryImageDeleteForm()
+        return None
