@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import socket
 import time
@@ -13,8 +12,14 @@ from typing import Any, Protocol
 from django.utils import timezone
 
 from core.models import WorkerTask, queue_settings
+from core.logging import (
+    current_correlation_id,
+    event_logger,
+    generate_correlation_id,
+    logging_context,
+)
 
-logger = logging.getLogger(__name__)
+logger = event_logger("core.worker")
 
 
 class TaskExecutionError(RuntimeError):
@@ -79,55 +84,79 @@ class WorkerRunner:
     def run_forever(self) -> None:  # pragma: no cover - requires long-running loop
         """Continuously poll the queue until interrupted."""
 
-        logger.info("Worker %s started for queue '%s'", self.worker_id, self.queue)
+        logger.info(
+            "worker_started",
+            queue=self.queue,
+            worker_id=self.worker_id,
+        )
         try:
             while True:
                 processed = self.run_once()
                 if processed == 0 and self.idle_sleep:
                     time.sleep(self.idle_sleep)
         except KeyboardInterrupt:  # pragma: no cover - manual interruption
-            logger.info("Worker %s interrupted", self.worker_id)
+            logger.warning(
+                "worker_interrupted",
+                queue=self.queue,
+                worker_id=self.worker_id,
+            )
 
     # --- internals ----------------------------------------------------------
 
     def _process_task(self, task: WorkerTask) -> None:
+        payload = task.payload or {}
+        correlation_id = payload.get("correlation_id") or generate_correlation_id()
+        project_id = payload.get("project_id")
+        story_id = payload.get("story_id")
         start = timezone.now()
-        try:
-            result = self.handler(task)
-        except TaskExecutionError as exc:
-            self._handle_task_error(task, exc)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            logger.exception(
-                "Unexpected error in worker %s for task %s",
-                self.worker_id,
-                task.pk,
-                exc_info=exc,
-            )
-            self._finalize_task_failure(
-                task,
-                error_code="UNEXPECTED_ERROR",
-                error_message=str(exc),
-                error_payload={},
-                force_fail=not task.can_retry(),
-            )
-        else:
-            if result is None:
-                result = {}
-            task.mark_succeeded(result=result)
-            logger.info(
-                "Worker %s processed task %s successfully in %.2fs",
-                self.worker_id,
-                task.pk,
-                (timezone.now() - start).total_seconds(),
-            )
+
+        with logging_context(
+            correlation_id=correlation_id,
+            project_id=project_id,
+            story_id=story_id,
+        ):
+            try:
+                result = self.handler(task)
+            except TaskExecutionError as exc:
+                self._handle_task_error(task, exc)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.error(
+                    "worker_unexpected_error",
+                    worker_id=self.worker_id,
+                    task_id=task.pk,
+                    queue=self.queue,
+                    error=str(exc),
+                    exception=exc.__class__.__name__,
+                )
+                self._finalize_task_failure(
+                    task,
+                    error_code="UNEXPECTED_ERROR",
+                    error_message=str(exc),
+                    error_payload={},
+                    force_fail=not task.can_retry(),
+                )
+            else:
+                if result is None:
+                    result = {}
+                task.mark_succeeded(result=result)
+                logger.info(
+                    "worker_task_succeeded",
+                    worker_id=self.worker_id,
+                    task_id=task.pk,
+                    queue=self.queue,
+                    duration=(timezone.now() - start).total_seconds(),
+                )
 
     def _handle_task_error(self, task: WorkerTask, exc: TaskExecutionError) -> None:
         logger.warning(
-            "Worker %s raised %s for task %s: %s",
-            self.worker_id,
-            exc.code,
-            task.pk,
-            exc,
+            "worker_task_retry",
+            worker_id=self.worker_id,
+            task_id=task.pk,
+            queue=self.queue,
+            error_code=exc.code,
+            error_message=str(exc),
+            will_retry=exc.retry,
+            retry_in=exc.retry_in,
         )
         self._finalize_task_failure(
             task,
@@ -156,11 +185,13 @@ class WorkerRunner:
                 retry_in=retry_in,
             )
             logger.info(
-                "Task %s requeued (attempt %s/%s) available at %s",
-                task.pk,
-                task.attempts,
-                task.max_attempts,
-                task.available_at,
+                "worker_task_requeued",
+                worker_id=self.worker_id,
+                task_id=task.pk,
+                queue=self.queue,
+                attempts=task.attempts,
+                max_attempts=task.max_attempts,
+                next_run_at=task.available_at.isoformat() if task.available_at else None,
             )
             return
         task.mark_failed(
@@ -169,7 +200,13 @@ class WorkerRunner:
             error_payload=error_payload,
         )
         logger.error(
-            "Task %s failed permanently after %s attempts", task.pk, task.attempts
+            "worker_task_failed",
+            worker_id=self.worker_id,
+            task_id=task.pk,
+            queue=self.queue,
+            attempts=task.attempts,
+            error_code=error_code,
+            error_message=error_message,
         )
 
 
@@ -233,9 +270,13 @@ def enqueue_task(
     max_delay = max_retry_delay or settings.max_retry_delay
     if max_delay < 0:
         raise ValueError("max_retry_delay must be >= 0")
+    payload_data = dict(payload or {})
+    correlation_id = payload_data.get("correlation_id") or current_correlation_id()
+    if correlation_id:
+        payload_data["correlation_id"] = correlation_id
     task = WorkerTask.objects.create(
         queue=queue_name,
-        payload=payload or {},
+        payload=payload_data,
         priority=priority,
         available_at=scheduled_for or timezone.now(),
         max_attempts=attempts_limit,

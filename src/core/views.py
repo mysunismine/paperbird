@@ -1,4 +1,6 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import HttpRequest, HttpResponse
+from django.template.response import TemplateResponse
 from django.views.generic import TemplateView
 
 from projects.models import Post, Project
@@ -37,3 +39,19 @@ class FeedView(LoginRequiredMixin, TemplateView):
             }
         )
         return context
+
+
+def server_error(request: HttpRequest) -> HttpResponse:
+    """Отображает пользовательскую страницу ошибки 500."""
+
+    correlation_id = getattr(request, "correlation_id", "")
+    response = TemplateResponse(
+        request,
+        "errors/server_error.html",
+        {"correlation_id": correlation_id},
+        status=500,
+    )
+    response.render()
+    if correlation_id:
+        response["X-Correlation-ID"] = correlation_id
+    return response

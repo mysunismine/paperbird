@@ -25,3 +25,6 @@ urlpatterns = [
     path("stories/", include("stories.paperbird_stories.urls")),
     path("", include("core.urls")),
 ]
+
+
+handler500 = "core.views.server_error"

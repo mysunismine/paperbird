@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import hashlib
 import json
+import os
+import struct
+import urllib.error
+import urllib.request
+import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,6 +26,9 @@ from core.constants import (
     OPENAI_RESPONSE_FORMAT,
     REWRITE_MAX_ATTEMPTS,
 )
+from core.models import WorkerTask
+from core.logging import event_logger, logging_context
+from core.services.worker import enqueue_task
 from projects.models import Post, Project
 from projects.services.telethon_client import TelethonClientFactory
 
@@ -68,6 +79,25 @@ class StoryCreationError(RuntimeError):
 
 class RewriteFailed(RuntimeError):
     """Ошибка выполнения рерайта."""
+
+
+@dataclass(slots=True)
+class GeneratedImage:
+    """Результат генерации изображения."""
+
+    data: bytes
+    mime_type: str = "image/png"
+
+
+class ImageGenerationFailed(RuntimeError):
+    """Ошибка генерации изображения."""
+
+
+class ImageGenerationProvider(Protocol):
+    """Интерфейс генератора изображений."""
+
+    def generate(self, *, prompt: str) -> GeneratedImage:  # pragma: no cover - protocol
+        ...
 
 
 def build_prompt(
@@ -323,6 +353,119 @@ def default_rewriter() -> StoryRewriter:
     return StoryRewriter(provider=provider)
 
 
+def _png_chunk(tag: bytes, data: bytes) -> bytes:
+    return (
+        struct.pack("!I", len(data))
+        + tag
+        + data
+        + struct.pack("!I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    )
+
+
+def _placeholder_image_bytes(prompt: str) -> bytes:
+    width = height = 320
+    digest = hashlib.sha256(prompt.encode("utf-8", "ignore")).digest()
+    color = digest[0], digest[8], digest[16]
+    pixel = bytes([color[0], color[1], color[2], 255])
+    rows = []
+    for _ in range(height):
+        rows.append(b"\x00" + pixel * width)
+    raw = b"".join(rows)
+    header = struct.pack("!2I5B", width, height, 8, 6, 0, 0, 0)
+    compressed = zlib.compress(raw, 9)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", header)
+        + _png_chunk(b"IDAT", compressed)
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+class OpenAIImageProvider:
+    """Генерирует изображения через OpenAI Images API."""
+
+    def __init__(
+        self,
+        *,
+        api_url: str | None = None,
+        model: str | None = None,
+        size: str | None = None,
+        quality: str | None = None,
+    ) -> None:
+        self.api_url = api_url or os.getenv(
+            "OPENAI_IMAGE_URL", "https://api.openai.com/v1/images/generations"
+        )
+        self.model = model or os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
+        self.size = size or os.getenv("OPENAI_IMAGE_SIZE", "1024x1024")
+        self.quality = quality or os.getenv("OPENAI_IMAGE_QUALITY", "standard")
+
+    def generate(self, *, prompt: str) -> GeneratedImage:
+        prompt = prompt.strip()
+        if not prompt:
+            raise ImageGenerationFailed("Описание не может быть пустым")
+
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        if not api_key:
+            data = _placeholder_image_bytes(prompt or "placeholder")
+            return GeneratedImage(data=data, mime_type="image/png")
+
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "size": self.size,
+            "quality": self.quality,
+            "response_format": "b64_json",
+        }
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(self.api_url, data=body, method="POST")
+        request.add_header("Content-Type", "application/json")
+        request.add_header("Authorization", f"Bearer {api_key}")
+
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                raw_body = response.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as exc:  # pragma: no cover - требует живого API
+            message = exc.read().decode("utf-8", "replace")
+            raise ImageGenerationFailed(f"OpenAI HTTP {exc.code}: {message}") from exc
+        except OSError as exc:  # pragma: no cover
+            raise ImageGenerationFailed(str(exc)) from exc
+
+        try:
+            parsed = json.loads(raw_body)
+            item = parsed["data"][0]
+            encoded = item.get("b64_json", "")
+            mime_type = item.get("mime_type", "image/png") or "image/png"
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            raise ImageGenerationFailed("Некорректный ответ OpenAI") from exc
+
+        try:
+            image_bytes = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ImageGenerationFailed("Некорректные данные изображения") from exc
+
+        if not image_bytes:
+            raise ImageGenerationFailed("Пустой ответ от провайдера")
+
+        return GeneratedImage(data=image_bytes, mime_type=mime_type)
+
+
+@dataclass(slots=True)
+class StoryImageGenerator:
+    """Обёртка вокруг провайдера генерации изображений."""
+
+    provider: ImageGenerationProvider
+
+    def generate(self, *, prompt: str) -> GeneratedImage:
+        return self.provider.generate(prompt=prompt)
+
+
+def default_image_generator() -> StoryImageGenerator:
+    """Возвращает генератор изображений по умолчанию."""
+
+    provider = OpenAIImageProvider()
+    return StoryImageGenerator(provider=provider)
+
+
 class PublicationFailed(RuntimeError):
     """Ошибка публикации сюжета."""
 
@@ -354,6 +497,7 @@ class StoryPublisher:
     """Управляет публикацией сюжета в Telegram."""
 
     backend: PublisherBackend
+    logger = event_logger("stories.publication")
 
     def publish(
         self,
@@ -371,37 +515,90 @@ class StoryPublisher:
         if not text:
             raise PublicationFailed("Сюжет не содержит текста для публикации")
 
-        with transaction.atomic():
-            publication = Publication.objects.create(
-                story=story,
+        with logging_context(project_id=story.project_id, story_id=story.pk):
+            with transaction.atomic():
+                publication = Publication.objects.create(
+                    story=story,
+                    target=target,
+                    result_text=text,
+                    scheduled_for=scheduled_for,
+                    status=(
+                        Publication.Status.SCHEDULED
+                        if scheduled_for
+                        else Publication.Status.PUBLISHING
+                    ),
+                )
+
+            if scheduled_for:
+                enqueue_task(
+                    WorkerTask.Queue.PUBLISH,
+                    payload={
+                        "publication_id": publication.pk,
+                        "project_id": story.project_id,
+                        "story_id": story.pk,
+                    },
+                    scheduled_for=scheduled_for,
+                )
+                self.logger.info(
+                    "publication_scheduled",
+                    publication_id=publication.pk,
+                    target=target,
+                    scheduled_for=scheduled_for.isoformat(),
+                )
+                return publication
+
+            self.logger.info(
+                "publication_requested",
+                publication_id=publication.pk,
                 target=target,
-                result_text=text,
-                scheduled_for=scheduled_for,
-                status=(
-                    Publication.Status.SCHEDULED
-                    if scheduled_for
-                    else Publication.Status.PUBLISHING
-                ),
             )
+            return self.deliver(publication)
 
-        if scheduled_for:
+    def deliver(self, publication: Publication) -> Publication:
+        """Выполняет отправку публикации, если она ещё не выполнена."""
+
+        story = publication.story
+        if publication.status == Publication.Status.PUBLISHED:
             return publication
+        if publication.status == Publication.Status.PUBLISHING:
+            return publication
+        if publication.status == Publication.Status.FAILED:
+            raise PublicationFailed("Публикация уже завершилась с ошибкой")
+        if not publication.result_text:
+            raise PublicationFailed("Сюжет не содержит текста для публикации")
 
-        try:
-            publication.mark_publishing()
-            result = self.backend.send(story=story, text=text, target=target)
-        except Exception as exc:  # pragma: no cover - проверяется тестами
-            publication.mark_failed(error=str(exc))
-            raise PublicationFailed(str(exc)) from exc
+        with logging_context(project_id=story.project_id, story_id=story.pk):
+            try:
+                publication.mark_publishing()
+                result = self.backend.send(
+                    story=story, text=publication.result_text, target=publication.target
+                )
+            except Exception as exc:  # pragma: no cover - проверяется тестами
+                publication.mark_failed(error=str(exc))
+                self.logger.error(
+                    "publication_failed",
+                    publication_id=publication.pk,
+                    target=publication.target,
+                    error=str(exc),
+                    exception=exc.__class__.__name__,
+                )
+                raise PublicationFailed(str(exc)) from exc
 
-        published_at = result.published_at or timezone.now()
-        publication.mark_published(
-            message_ids=result.message_ids,
-            published_at=published_at,
-            raw=result.raw,
-        )
-        story.mark_published()
-        return publication
+            published_at = result.published_at or timezone.now()
+            publication.mark_published(
+                message_ids=result.message_ids,
+                published_at=published_at,
+                raw=result.raw,
+            )
+            story.mark_published()
+            self.logger.info(
+                "publication_succeeded",
+                publication_id=publication.pk,
+                target=publication.target,
+                published_at=published_at.isoformat(),
+                message_ids=result.message_ids,
+            )
+            return publication
 
 
 class TelethonPublisherBackend:

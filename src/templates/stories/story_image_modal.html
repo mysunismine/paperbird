@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Генерация изображения — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="mb-3">
+    <a href="{% url 'stories:detail' story.pk %}" class="link-secondary">← Назад к сюжету</a>
+  </div>
+
+  <h1 class="h3 mb-3">Генерация изображения</h1>
+  <p class="text-muted">{{ story.title|default:"Сюжет без названия" }} — {{ story.project.name }}</p>
+
+  {% if story.image_file %}
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <h2 class="h5">Текущее изображение</h2>
+        <img
+          src="{{ story.image_file.url }}"
+          alt="{{ story.image_prompt|default:"Прикреплённое изображение" }}"
+          class="img-fluid rounded border mb-2"
+        />
+        {% if story.image_prompt %}
+          <p class="small text-muted">{{ story.image_prompt }}</p>
+        {% endif %}
+        {% if delete_form %}
+          <form method="post" class="mt-2">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="remove" />
+            {{ delete_form.confirm }}
+            <button class="btn btn-outline-danger" type="submit">Удалить изображение</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <h2 class="h5">Новое изображение</h2>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="generate" />
+        <div class="mb-3">
+          {{ generate_form.prompt.label_tag }}
+          {{ generate_form.prompt }}
+          <div class="form-text">{{ generate_form.prompt.help_text }}</div>
+          {% if generate_form.prompt.errors %}
+            <div class="text-danger small">{{ generate_form.prompt.errors|join:', ' }}</div>
+          {% endif %}
+        </div>
+        <button class="btn btn-primary" type="submit">Сгенерировать</button>
+      </form>
+    </div>
+  </div>
+
+  {% if preview %}
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h5">Предпросмотр</h2>
+        <img
+          src="data:{{ preview.mime }};base64,{{ preview.data }}"
+          alt="{{ preview.prompt|default:"Сгенерированное изображение" }}"
+          class="img-fluid rounded border mb-3"
+        />
+        {% if attach_form and attach_form.non_field_errors %}
+          <div class="alert alert-danger">{{ attach_form.non_field_errors|join:' ' }}</div>
+        {% endif %}
+        <div class="d-flex flex-wrap gap-2">
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="attach" />
+            {{ attach_form.prompt }}
+            {% if attach_form.prompt.errors %}
+              <div class="text-danger small">{{ attach_form.prompt.errors|join:', ' }}</div>
+            {% endif %}
+            {{ attach_form.image_data }}
+            {% if attach_form.image_data.errors %}
+              <div class="text-danger small">{{ attach_form.image_data.errors|join:', ' }}</div>
+            {% endif %}
+            {{ attach_form.mime_type }}
+            {% if attach_form.mime_type.errors %}
+              <div class="text-danger small">{{ attach_form.mime_type.errors|join:', ' }}</div>
+            {% endif %}
+            <button class="btn btn-success" type="submit">Прикрепить к сюжету</button>
+          </form>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="generate" />
+            <input type="hidden" name="prompt" value="{{ preview.prompt }}" />
+            <button class="btn btn-outline-secondary" type="submit">Перегенерировать</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}
