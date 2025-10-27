@@ -2,25 +2,27 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, ListView, TemplateView
+from django.views.generic import CreateView, ListView, TemplateView, UpdateView
 
-from projects.models import Post, Project
+from core.models import WorkerTask
+from core.services.worker import enqueue_task
+from projects.models import Post, Project, Source
 from projects.services.post_filters import (
     PostFilterOptions,
     apply_post_filters,
     collect_keyword_hits,
-    summarize_keyword_hits,
 )
-from .forms import ProjectCreateForm
+from .forms import ProjectCreateForm, SourceCreateForm, SourceUpdateForm
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -74,13 +76,23 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         self.project = get_object_or_404(
             Project, pk=kwargs["pk"], owner=request.user
         )
+        self._projects = list(
+            Project.objects.filter(owner=request.user).order_by("name")
+        )
         return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        action = request.POST.get("action")
+        if action == "collector_start":
+            return self._start_collector()
+        if action == "collector_stop":
+            return self._stop_collector()
+        messages.error(request, "Неизвестное действие")
+        return redirect(request.path)
 
     def _build_options(self) -> PostFilterOptions:
         query = self.request.GET
         statuses = set(query.getlist("statuses"))
-        include_keywords = set(_split_csv(query.get("include")))
-        exclude_keywords = set(_split_csv(query.get("exclude")))
         source_ids = {
             int(value)
             for value in query.getlist("sources")
@@ -89,12 +101,13 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         options = PostFilterOptions(
             statuses=statuses,
             search=query.get("search", ""),
-            include_keywords=include_keywords,
-            exclude_keywords=exclude_keywords,
+            include_keywords=set(),
+            exclude_keywords=set(),
             date_from=_parse_datetime(query.get("date_from")),
             date_to=_parse_datetime(query.get("date_to")),
             has_media=_parse_bool(query.get("has_media")),
             source_ids=source_ids,
+            languages=set(),
         )
         return options
 
@@ -108,22 +121,114 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         )
         filtered = apply_post_filters(queryset, options)
         posts = list(filtered[:100])
-        highlight_keywords = list(options.include_keywords) + options.search_terms
+        highlight_keywords = options.search_terms
         keyword_hits = collect_keyword_hits(posts, highlight_keywords)
-        keyword_summary = summarize_keyword_hits(posts, highlight_keywords)
         for post in posts:
             post.keyword_hits = keyword_hits.get(post.id, [])
         context.update(
             {
                 "project": self.project,
+                "projects": self._projects,
                 "posts": posts,
                 "options": options,
-                "keyword_summary": keyword_summary,
                 "status_choices": Post.Status.choices,
-                "sources": self.project.sources.filter(is_active=True).order_by("title"),
+                "total_posts": queryset.count(),
+                "last_refreshed": timezone.now(),
+                "collector": self._collector_context(),
             }
         )
         return context
+
+    def render_to_response(self, context, **response_kwargs):
+        if self.request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return render(
+                self.request,
+                "projects/partials/post_table.html",
+                context,
+                **response_kwargs,
+            )
+        return super().render_to_response(context, **response_kwargs)
+
+    def _collector_context(self) -> dict[str, Any]:
+        next_task = (
+            WorkerTask.objects.filter(
+                queue=WorkerTask.Queue.COLLECTOR,
+                status=WorkerTask.Status.QUEUED,
+                payload__project_id=self.project.id,
+            )
+            .order_by("available_at")
+            .first()
+        )
+        return {
+            "enabled": self.project.collector_enabled,
+            "interval": self.project.collector_interval,
+            "last_run": self.project.collector_last_run,
+            "next_run": next_task.available_at if next_task else None,
+            "has_credentials": self.request.user.has_telethon_credentials,
+        }
+
+    def _start_collector(self):
+        project = self.project
+        if not self.request.user.has_telethon_credentials:
+            messages.error(
+                self.request,
+                "Сначала добавьте Telethon-ключи в профиль, чтобы запустить сборщик.",
+            )
+            return redirect(self.request.path)
+
+        if project.collector_enabled:
+            messages.info(self.request, "Сборщик уже запущен для этого проекта.")
+        else:
+            project.collector_enabled = True
+            project.save(update_fields=["collector_enabled", "updated_at"])
+            self._ensure_collector_task(delay=0)
+            messages.success(
+                self.request,
+                "Сборщик запущен. Посты будут обновляться автоматически.",
+            )
+        return redirect(self.request.path)
+
+    def _stop_collector(self):
+        project = self.project
+        if not project.collector_enabled:
+            messages.info(self.request, "Сборщик уже остановлен.")
+            return redirect(self.request.path)
+
+        project.collector_enabled = False
+        project.save(update_fields=["collector_enabled", "updated_at"])
+        now = timezone.now()
+        WorkerTask.objects.filter(
+            queue=WorkerTask.Queue.COLLECTOR,
+            payload__project_id=project.id,
+            status=WorkerTask.Status.QUEUED,
+        ).update(
+            status=WorkerTask.Status.CANCELLED,
+            finished_at=now,
+            updated_at=now,
+        )
+        messages.warning(
+            self.request,
+            "Сборщик остановлен. Новые посты не будут собираться автоматически.",
+        )
+        return redirect(self.request.path)
+
+    def _ensure_collector_task(self, *, delay: int) -> None:
+        exists = WorkerTask.objects.filter(
+            queue=WorkerTask.Queue.COLLECTOR,
+            payload__project_id=self.project.id,
+            status__in=[WorkerTask.Status.QUEUED, WorkerTask.Status.RUNNING],
+        ).exists()
+        if exists:
+            return
+        scheduled_for = timezone.now() + timedelta(seconds=max(delay, 0))
+        enqueue_task(
+            WorkerTask.Queue.COLLECTOR,
+            payload={
+                "project_id": self.project.id,
+                "interval": self.project.collector_interval,
+            },
+            scheduled_for=scheduled_for,
+        )
 
 
 class ProjectCreateView(LoginRequiredMixin, CreateView):
@@ -145,3 +250,122 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
             f"Проект «{self.object.name}» создан.",
         )
         return response
+
+
+class ProjectSettingsView(LoginRequiredMixin, UpdateView):
+    """Настройки существующего проекта."""
+
+    model = Project
+    form_class = ProjectCreateForm
+    template_name = "projects/project_settings.html"
+    context_object_name = "project"
+    success_url = reverse_lazy("projects:list")
+
+    def get_queryset(self):
+        return Project.objects.filter(owner=self.request.user)
+
+    def get_form_kwargs(self) -> dict[str, Any]:
+        kwargs = super().get_form_kwargs()
+        kwargs["owner"] = self.request.user
+        return kwargs
+
+    def form_valid(self, form):  # type: ignore[override]
+        response = super().form_valid(form)
+        messages.success(
+            self.request,
+            f"Настройки проекта «{self.object.name}» обновлены.",
+        )
+        return response
+
+
+class ProjectSourcesView(LoginRequiredMixin, TemplateView):
+    """Список источников проекта и форма добавления новых."""
+
+    template_name = "projects/project_sources.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(
+            Project,
+            pk=kwargs["pk"],
+            owner=request.user,
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def _get_create_form(self):
+        if not hasattr(self, "_create_form"):
+            self._create_form = SourceCreateForm(project=self.project)
+        return self._create_form
+
+    def _get_edit_form(self, source: Source | None):
+        if source is None:
+            return None
+        if getattr(self, "_edit_form_source", None) == source:
+            return self._edit_form
+        self._edit_form_source = source
+        self._edit_form = SourceUpdateForm(project=self.project, instance=source)
+        return self._edit_form
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        edit_source = None
+        source_id = self.request.GET.get("source")
+        if source_id and source_id.isdigit():
+            edit_source = self.project.sources.filter(pk=int(source_id)).first()
+        context.update(
+            {
+                "project": self.project,
+                "form": getattr(self, "_create_form", self._get_create_form()),
+                "edit_form": getattr(
+                    self,
+                    "_edit_form",
+                    self._get_edit_form(edit_source),
+                ),
+                "editing_source": edit_source,
+                "sources": self.project.sources.order_by("title", "telegram_id"),
+            }
+        )
+        return context
+
+    def post(self, request, *args, **kwargs):
+        action = request.POST.get("action", "create")
+        if action == "delete":
+            return self._handle_delete(request)
+        if action == "update":
+            return self._handle_update(request)
+        return self._handle_create(request)
+
+    def _handle_create(self, request):
+        form = SourceCreateForm(request.POST, project=self.project)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Источник добавлен к проекту.")
+            return redirect("projects:sources", pk=self.project.pk)
+        messages.error(request, "Исправьте ошибки формы")
+        self._create_form = form
+        return self.get(request, pk=self.project.pk)
+
+    def _handle_update(self, request):
+        source_id = request.POST.get("source_id")
+        source = self.project.sources.filter(pk=source_id).first()
+        if source is None:
+            messages.error(request, "Источник не найден")
+            return redirect("projects:sources", pk=self.project.pk)
+        form = SourceUpdateForm(request.POST, project=self.project, instance=source)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Источник обновлён.")
+            return redirect("projects:sources", pk=self.project.pk)
+        messages.error(request, "Исправьте ошибки формы")
+        self._edit_form = form
+        self._edit_form_source = source
+        return self.get(request, pk=self.project.pk)
+
+    def _handle_delete(self, request):
+        source_id = request.POST.get("source_id")
+        source = self.project.sources.filter(pk=source_id).first()
+        if source is None:
+            messages.error(request, "Источник не найден")
+        else:
+            source.delete()
+            messages.success(request, "Источник удалён.")
+        return redirect("projects:sources", pk=self.project.pk)

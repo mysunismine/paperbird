@@ -1,115 +1,251 @@
 {% extends "base.html" %}
 
-{% block title %}Посты проекта {{ project.name }} — Paperbird{% endblock %}
+{% block title %}Лента проекта {{ project.name }} — Paperbird{% endblock %}
 
 {% block content %}
-  <div class="d-flex justify-content-between align-items-start mb-4">
-    <div>
-      <h1 class="h3 mb-1">Лента постов проекта «{{ project.name }}»</h1>
-      <p class="text-muted mb-0">Просматривайте собранные сообщения и используйте фильтры для отбора нужных материалов.</p>
-    </div>
-    <a class="btn btn-outline-secondary" href="{% url 'stories:list' %}">К сюжетам</a>
+  <div class="mb-4">
+    <h1 class="h3 mb-1">Лента проекта «{{ project.name }}»</h1>
+    <p class="text-muted mb-0">Всего {{ total_posts }} постов • Показано {{ posts|length }}</p>
   </div>
 
-  <form method="get" class="row g-3 align-items-end mb-4" novalidate>
-    <div class="col-md-3">
-      <label for="search" class="form-label">Поиск</label>
-      <input type="text" class="form-control" id="search" name="search" value="{{ options.search }}" placeholder="Поиск по тексту" />
-    </div>
-    <div class="col-md-3">
-      <label for="include" class="form-label">Ключевые слова</label>
-      <input type="text" class="form-control" id="include" name="include" value="{{ options.include_keywords|join:", " }}" placeholder="слово1, слово2" />
-    </div>
-    <div class="col-md-3">
-      <label for="exclude" class="form-label">Исключить</label>
-      <input type="text" class="form-control" id="exclude" name="exclude" value="{{ options.exclude_keywords|join:", " }}" placeholder="термины для исключения" />
-    </div>
-    <div class="col-md-3">
-      <label for="has_media" class="form-label">Медиа</label>
-      <select class="form-select" id="has_media" name="has_media">
-        <option value="" {% if options.has_media is None %}selected{% endif %}>Все посты</option>
-        <option value="true" {% if options.has_media is True %}selected{% endif %}>Только с медиа</option>
-        <option value="false" {% if options.has_media is False %}selected{% endif %}>Только без медиа</option>
-      </select>
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">Статусы</label>
-      <div class="d-flex flex-wrap gap-3">
-        {% for value, label in status_choices %}
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="status-{{ value }}" name="statuses" value="{{ value }}" {% if value in options.statuses %}checked{% endif %} />
-            <label class="form-check-label" for="status-{{ value }}">{{ label }}</label>
-          </div>
-        {% endfor %}
+  <div class="card shadow-sm mb-4">
+    <div class="card-body d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3">
+      <div>
+        <h2 class="h6 mb-1">Сборщик постов</h2>
+        {% if collector.enabled %}
+          <p class="mb-1 text-success">Сборщик активен. Лента будет обновляться автоматически.</p>
+        {% else %}
+          <p class="mb-1 text-warning">Сборщик остановлен. Посты не обновляются автоматически.</p>
+        {% endif %}
+        <p class="text-muted small mb-0">
+          Последний запуск: {{ collector.last_run|date:"d.m.Y H:i"|default:"—" }}
+          {% if collector.next_run and collector.enabled %}
+            • Следующий запуск: {{ collector.next_run|date:"d.m.Y H:i" }}
+          {% endif %}
+        </p>
+        {% if not collector.has_credentials %}
+          <p class="text-danger small mb-0">Добавьте Telethon-ключи в профиле, чтобы включить автоматический сбор.</p>
+        {% endif %}
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <form method="post" class="d-inline">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="collector_start" />
+          <button
+            class="btn btn-sm btn-primary"
+            type="submit"
+            {% if collector.enabled or not collector.has_credentials %}disabled{% endif %}
+          >
+            Запустить сборщик
+          </button>
+        </form>
+        <form method="post" class="d-inline">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="collector_stop" />
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            type="submit"
+            {% if not collector.enabled %}disabled{% endif %}
+          >
+            Остановить
+          </button>
+        </form>
       </div>
     </div>
-    <div class="col-md-4">
-      <label for="sources" class="form-label">Источники</label>
-      <select class="form-select" id="sources" name="sources" multiple size="4">
-        {% for source in sources %}
-          <option value="{{ source.id }}" {% if source.id in options.source_ids %}selected{% endif %}>{{ source.title|default:source.username|default:source.telegram_id }}</option>
-        {% endfor %}
-      </select>
-      <div class="form-text">Удерживайте Ctrl/Cmd для выбора нескольких значений.</div>
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">Диапазон дат</label>
-      <div class="d-flex gap-2">
-        <input type="datetime-local" class="form-control" name="date_from" value="{{ options.date_from|date:'Y-m-d\TH:i' }}" />
-        <input type="datetime-local" class="form-control" name="date_to" value="{{ options.date_to|date:'Y-m-d\TH:i' }}" />
-      </div>
-    </div>
-    <div class="col-md-4">
-      <button class="btn btn-primary" type="submit">Применить</button>
-      <a class="btn btn-outline-secondary ms-2" href="{% url 'projects:post-list' project.id %}">Сбросить</a>
-    </div>
-  </form>
+  </div>
 
-  {% if keyword_summary %}
-    <div class="alert alert-info">
-      <strong>Совпадения ключевых слов:</strong>
-      {% for keyword, count in keyword_summary.items %}
-        <span class="badge text-bg-primary me-1">{{ keyword }} — {{ count }}</span>
+  {% if projects %}
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      {% for item in projects %}
+        <a
+          class="btn btn-sm {% if item.id == project.id %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+          href="{% url 'projects:post-list' item.id %}"
+        >
+          {{ item.name }}
+        </a>
       {% endfor %}
     </div>
   {% endif %}
 
-  {% if posts %}
-    <div class="table-responsive">
-      <table class="table align-middle">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Источник</th>
-            <th>Дата</th>
-            <th>Статус</th>
-            <th>Текст</th>
-            <th>Ключевые слова</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for post in posts %}
-            <tr>
-              <td>{{ post.telegram_id }}</td>
-              <td>{{ post.source.title|default:post.source.username|default:post.source.telegram_id }}</td>
-              <td>{{ post.posted_at|date:"d.m.Y H:i" }}</td>
-              <td><span class="badge text-bg-secondary">{{ post.get_status_display }}</span></td>
-              <td style="max-width: 380px;" class="text-wrap">{{ post.message|linebreaksbr }}</td>
-              <td>
-                {% if post.keyword_hits %}
-                  {% for word in post.keyword_hits %}
-                    <span class="badge text-bg-warning text-dark me-1">{{ word }}</span>
-                  {% endfor %}
-                {% else %}
-                  —
-                {% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+  <form method="get" class="mb-3" id="filters-form" novalidate>
+    <div class="d-flex flex-wrap gap-3 align-items-end">
+      <div class="flex-grow-1">
+        <label for="search" class="form-label">Поиск</label>
+        <input type="text" class="form-control" id="search" name="search" value="{{ options.search }}" placeholder="Поиск по тексту" />
+      </div>
+      <div style="min-width: 200px;">
+        <label class="form-label" for="has_media">Медиа</label>
+        <select class="form-select" id="has_media" name="has_media">
+          <option value="" {% if options.has_media is None %}selected{% endif %}>Все посты</option>
+          <option value="true" {% if options.has_media is True %}selected{% endif %}>Только с медиа</option>
+          <option value="false" {% if options.has_media is False %}selected{% endif %}>Только текст</option>
+        </select>
+      </div>
+      <div style="min-width: 260px;">
+        <label class="form-label">Диапазон дат</label>
+        <div class="d-flex gap-2">
+          <input type="datetime-local" class="form-control" name="date_from" value="{{ options.date_from|date:'Y-m-d\TH:i' }}" />
+          <input type="datetime-local" class="form-control" name="date_to" value="{{ options.date_to|date:'Y-m-d\TH:i' }}" />
+        </div>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Применить</button>
+        <a class="btn btn-outline-secondary" href="{% url 'projects:post-list' project.id %}">Сбросить</a>
+      </div>
     </div>
-  {% else %}
-    <div class="alert alert-info">Посты не найдены. Попробуйте изменить условия фильтра.</div>
-  {% endif %}
+    <div class="d-flex flex-wrap gap-3 mt-2 align-items-center small text-uppercase text-muted">
+      <span class="fw-semibold">Статусы</span>
+      {% for value, label in status_choices %}
+        <label class="form-check form-check-inline mb-0">
+          <input class="form-check-input" type="checkbox" id="status-{{ value }}" name="statuses" value="{{ value }}" {% if value in options.statuses %}checked{% endif %} />
+          <span class="form-check-label">{{ label }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </form>
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="text-muted small">Последнее обновление: <span id="last-updated">{{ last_refreshed|date:"H:i:s" }}</span></div>
+    <div class="d-flex gap-2 align-items-center">
+      <span id="selected-counter" class="text-muted small">Ничего не выбрано</span>
+      <form id="create-story-form" action="{% url 'stories:create' %}" method="get" class="d-inline">
+        <input type="hidden" name="project" value="{{ project.id }}" />
+      </form>
+      <button type="button" class="btn btn-primary" id="create-story-btn" disabled>Сделать сюжет</button>
+    </div>
+  </div>
+
+  <div id="post-table">
+    {% include "projects/partials/post_table.html" %}
+  </div>
+
+  <script>
+    (function () {
+      const projectId = {{ project.id }};
+      const tableContainer = document.getElementById("post-table");
+      const createBtn = document.getElementById("create-story-btn");
+      const createForm = document.getElementById("create-story-form");
+      const counter = document.getElementById("selected-counter");
+      const lastUpdatedEl = document.getElementById("last-updated");
+      const storageKey = `paperbird:selected:${projectId}`;
+      const selected = new Set(JSON.parse(localStorage.getItem(storageKey) || "[]"));
+      const autoRefreshEnabled = '{{ collector.enabled|yesno:"true,false" }}' === 'true';
+
+      function persist() {
+        localStorage.setItem(storageKey, JSON.stringify(Array.from(selected)));
+      }
+
+      function updateCounter() {
+        const count = selected.size;
+        if (count === 0) {
+          counter.textContent = "Ничего не выбрано";
+        } else {
+          counter.textContent = `Выбрано ${count}`;
+        }
+        createBtn.disabled = count === 0;
+      }
+
+      function toggleSelection(id, checked) {
+        if (checked) {
+          selected.add(id);
+        } else {
+          selected.delete(id);
+        }
+        persist();
+        updateCounter();
+      }
+
+      function attachCheckboxHandlers() {
+        const checkboxes = tableContainer.querySelectorAll('.post-select');
+        const available = new Set();
+        checkboxes.forEach((checkbox) => {
+          available.add(checkbox.value);
+          checkbox.checked = selected.has(checkbox.value);
+          checkbox.addEventListener('change', () => {
+            toggleSelection(checkbox.value, checkbox.checked);
+            syncSelectAllState();
+          });
+        });
+        // remove selections that no longer exist in the table
+        Array.from(selected).forEach((value) => {
+          if (!available.has(value)) {
+            selected.delete(value);
+          }
+        });
+        persist();
+        updateCounter();
+        syncSelectAllState();
+        const selectAll = tableContainer.querySelector('#select-all-posts');
+        if (selectAll) {
+          selectAll.addEventListener('change', () => {
+            const shouldSelect = selectAll.checked;
+            checkboxes.forEach((cb) => {
+              cb.checked = shouldSelect;
+              toggleSelection(cb.value, shouldSelect);
+            });
+            syncSelectAllState();
+          });
+        }
+      }
+
+      function syncSelectAllState() {
+        const selectAll = tableContainer.querySelector('#select-all-posts');
+        if (!selectAll) {
+          return;
+        }
+        const checkboxes = Array.from(tableContainer.querySelectorAll('.post-select'));
+        if (checkboxes.length === 0) {
+          selectAll.checked = false;
+          selectAll.indeterminate = false;
+          return;
+        }
+        const checkedCount = checkboxes.filter((cb) => cb.checked).length;
+        selectAll.checked = checkedCount === checkboxes.length;
+        selectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+      }
+
+      function submitStory() {
+        // remove previous post inputs
+        createForm.querySelectorAll('input[name="posts"]').forEach((node) => node.remove());
+        selected.forEach((id) => {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'posts';
+          input.value = id;
+          createForm.appendChild(input);
+        });
+        createForm.submit();
+      }
+
+      function refreshTable() {
+        fetch(window.location.href, {
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          credentials: 'same-origin'
+        })
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error('Failed to refresh table');
+            }
+            return response.text();
+          })
+          .then((html) => {
+            tableContainer.innerHTML = html;
+            lastUpdatedEl.textContent = new Date().toLocaleTimeString();
+            attachCheckboxHandlers();
+          })
+          .catch(() => {
+            // swallow errors silently to avoid disrupting the UI
+          });
+      }
+
+      createBtn.addEventListener('click', submitStory);
+      attachCheckboxHandlers();
+      updateCounter();
+      if (autoRefreshEnabled) {
+        setInterval(refreshTable, 30000);
+      }
+    })();
+  </script>
 {% endblock %}

@@ -2,7 +2,13 @@
 
 from django.urls import path
 
-from .views import ProjectCreateView, ProjectListView, ProjectPostListView
+from .views import (
+    ProjectCreateView,
+    ProjectListView,
+    ProjectPostListView,
+    ProjectSettingsView,
+    ProjectSourcesView,
+)
 
 app_name = "projects"
 
@@ -10,4 +16,6 @@ urlpatterns = [
     path("", ProjectListView.as_view(), name="list"),
     path("create/", ProjectCreateView.as_view(), name="create"),
     path("<int:pk>/posts/", ProjectPostListView.as_view(), name="post-list"),
+    path("<int:pk>/settings/", ProjectSettingsView.as_view(), name="settings"),
+    path("<int:pk>/sources/", ProjectSourcesView.as_view(), name="sources"),
 ]

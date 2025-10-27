@@ -9,6 +9,11 @@ from typing import Any
 from django import forms
 from django.utils import timezone
 
+from core.constants import (
+    IMAGE_MODEL_CHOICES,
+    IMAGE_QUALITY_CHOICES,
+    IMAGE_SIZE_CHOICES,
+)
 from projects.models import Post, Project
 from stories.paperbird_stories.models import RewritePreset, Story
 
@@ -172,12 +177,44 @@ class StoryPublishForm(forms.Form):
         return publish_at
 
 
+class StoryContentForm(forms.ModelForm):
+    """Редактирование заголовка и текста сюжета."""
+
+    class Meta:
+        model = Story
+        fields = ["title", "body"]
+        widgets = {
+            "title": forms.TextInput(attrs={"class": "form-control", "placeholder": "Заголовок сюжета"}),
+            "body": forms.Textarea(attrs={"class": "form-control", "rows": 12, "placeholder": "Переписанный текст"}),
+        }
+        labels = {
+            "title": "Заголовок",
+            "body": "Текст",
+        }
+
+
 class StoryImageGenerateForm(forms.Form):
     prompt = forms.CharField(
         label="Описание изображения",
         widget=forms.Textarea(attrs={"rows": 4, "class": "form-control"}),
         help_text="Опишите желаемое изображение",
         error_messages={"required": "Заполните описание"},
+    )
+    model = forms.ChoiceField(
+        label="Модель",
+        choices=IMAGE_MODEL_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    size = forms.ChoiceField(
+        label="Размер",
+        choices=IMAGE_SIZE_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        help_text="Для безошибочной загрузки изображения ограничены значениями до 512x512.",
+    )
+    quality = forms.ChoiceField(
+        label="Качество",
+        choices=IMAGE_QUALITY_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
     )
 
     def clean_prompt(self):
@@ -191,6 +228,21 @@ class StoryImageAttachForm(forms.Form):
     prompt = forms.CharField(widget=forms.HiddenInput())
     image_data = forms.CharField(widget=forms.HiddenInput())
     mime_type = forms.CharField(widget=forms.HiddenInput())
+    model = forms.ChoiceField(
+        choices=IMAGE_MODEL_CHOICES,
+        widget=forms.HiddenInput(),
+        required=False,
+    )
+    size = forms.ChoiceField(
+        choices=IMAGE_SIZE_CHOICES,
+        widget=forms.HiddenInput(),
+        required=False,
+    )
+    quality = forms.ChoiceField(
+        choices=IMAGE_QUALITY_CHOICES,
+        widget=forms.HiddenInput(),
+        required=False,
+    )
 
     def clean_prompt(self):
         value = self.cleaned_data["prompt"].strip()

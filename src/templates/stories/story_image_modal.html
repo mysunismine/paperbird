@@ -37,7 +37,7 @@
   <div class="card shadow-sm mb-4">
     <div class="card-body">
       <h2 class="h5">Новое изображение</h2>
-      <form method="post">
+      <form method="post" id="image-generate-form">
         {% csrf_token %}
         <input type="hidden" name="action" value="generate" />
         <div class="mb-3">
@@ -48,7 +48,40 @@
             <div class="text-danger small">{{ generate_form.prompt.errors|join:', ' }}</div>
           {% endif %}
         </div>
-        <button class="btn btn-primary" type="submit">Сгенерировать</button>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <div class="mb-3 mb-md-0">
+              {{ generate_form.model.label_tag }}
+              {{ generate_form.model }}
+              {% if generate_form.model.errors %}
+                <div class="text-danger small">{{ generate_form.model.errors|join:', ' }}</div>
+              {% endif %}
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="mb-3 mb-md-0">
+              {{ generate_form.size.label_tag }}
+              {{ generate_form.size }}
+              {% if generate_form.size.errors %}
+                <div class="text-danger small">{{ generate_form.size.errors|join:', ' }}</div>
+              {% endif %}
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="mb-3 mb-md-0">
+              {{ generate_form.quality.label_tag }}
+              {{ generate_form.quality }}
+              {% if generate_form.quality.errors %}
+                <div class="text-danger small">{{ generate_form.quality.errors|join:', ' }}</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        <div id="image-generate-status" class="alert alert-info d-none align-items-center" role="alert">
+          <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+          <span>Генерация запущена <span class="fw-semibold" data-role="timer">0</span> c</span>
+        </div>
+        <button class="btn btn-primary" type="submit" id="image-generate-submit">Сгенерировать</button>
       </form>
     </div>
   </div>
@@ -57,6 +90,14 @@
     <div class="card shadow-sm">
       <div class="card-body">
         <h2 class="h5">Предпросмотр</h2>
+        <dl class="row small text-muted">
+          <dt class="col-sm-3">Модель</dt>
+          <dd class="col-sm-9">{{ preview.model|default:"—" }}</dd>
+          <dt class="col-sm-3">Размер</dt>
+          <dd class="col-sm-9">{{ preview.size|default:"—" }}</dd>
+          <dt class="col-sm-3">Качество</dt>
+          <dd class="col-sm-9">{{ preview.quality|default:"—" }}</dd>
+        </dl>
         <img
           src="data:{{ preview.mime }};base64,{{ preview.data }}"
           alt="{{ preview.prompt|default:"Сгенерированное изображение" }}"
@@ -81,16 +122,64 @@
             {% if attach_form.mime_type.errors %}
               <div class="text-danger small">{{ attach_form.mime_type.errors|join:', ' }}</div>
             {% endif %}
+            {{ attach_form.model }}
+            {{ attach_form.size }}
+            {{ attach_form.quality }}
             <button class="btn btn-success" type="submit">Прикрепить к сюжету</button>
           </form>
           <form method="post">
             {% csrf_token %}
             <input type="hidden" name="action" value="generate" />
             <input type="hidden" name="prompt" value="{{ preview.prompt }}" />
+            <input type="hidden" name="model" value="{{ preview.model }}" />
+            <input type="hidden" name="size" value="{{ preview.size }}" />
+            <input type="hidden" name="quality" value="{{ preview.quality }}" />
             <button class="btn btn-outline-secondary" type="submit">Перегенерировать</button>
           </form>
         </div>
       </div>
     </div>
   {% endif %}
+
+  <script>
+    (function () {
+      const form = document.getElementById('image-generate-form');
+      if (!form) {
+        return;
+      }
+      const statusBox = document.getElementById('image-generate-status');
+      const timerEl = statusBox ? statusBox.querySelector('[data-role="timer"]') : null;
+      const submitBtn = document.getElementById('image-generate-submit');
+      let timerId = null;
+
+      function stopTimer() {
+        if (timerId !== null) {
+          clearInterval(timerId);
+          timerId = null;
+        }
+      }
+
+      form.addEventListener('submit', () => {
+        if (!statusBox || !timerEl) {
+          return;
+        }
+        let seconds = 0;
+        statusBox.classList.remove('d-none');
+        timerEl.textContent = '0';
+        submitBtn?.setAttribute('disabled', 'disabled');
+        timerId = window.setInterval(() => {
+          seconds += 1;
+          timerEl.textContent = String(seconds);
+        }, 1000);
+      });
+
+      window.addEventListener('pageshow', () => {
+        stopTimer();
+        statusBox?.classList.add('d-none');
+        submitBtn?.removeAttribute('disabled');
+      });
+
+      window.addEventListener('beforeunload', stopTimer);
+    })();
+  </script>
 {% endblock %}

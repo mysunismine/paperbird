@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import base64
+import io
+import json
 import os
 import shutil
 import tempfile
 from datetime import datetime, timedelta
 from http import HTTPStatus
+from urllib.error import HTTPError
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -43,6 +46,7 @@ from stories.paperbird_stories.services import (
     StoryPublisher,
     StoryRewriter,
     build_prompt,
+    OpenAIImageProvider,
 )
 from stories.paperbird_stories.workers import publish_story_task
 
@@ -145,8 +149,12 @@ class StoryRewriterTests(TestCase):
                 return ProviderResponse(
                     result={
                         "title": "Новый заголовок",
-                        "summary": "Краткое описание",
-                        "content": "Сгенерированный текст",
+                        "content": {
+                            "paragraphs": [
+                                {"text": "Раз абзац"},
+                                {"text": "Два абзац"},
+                            ]
+                        },
                         "hashtags": ["новости"],
                         "sources": ["канал Telegram"],
                     },
@@ -162,13 +170,43 @@ class StoryRewriterTests(TestCase):
         story = Story.objects.get(pk=self.story.pk)
         self.assertEqual(story.status, Story.Status.READY)
         self.assertEqual(story.title, "Новый заголовок")
-        self.assertEqual(story.summary, "Краткое описание")
-        self.assertEqual(story.body, "Сгенерированный текст")
-        self.assertEqual(story.hashtags, ["новости"])
-        self.assertEqual(story.sources, ["канал Telegram"])
+        self.assertEqual(story.summary, "")
+        self.assertEqual(story.body, "Раз абзац\n\nДва абзац")
+        self.assertEqual(story.hashtags, [])
+        self.assertEqual(story.sources, [])
         self.assertEqual(story.last_rewrite_payload["structured"]["title"], "Новый заголовок")
+        self.assertEqual(story.last_rewrite_payload["structured"]["text"], "Раз абзац\n\nДва абзац")
+        self.assertIn("provider_result", story.last_rewrite_payload)
+        self.assertEqual(
+            story.last_rewrite_payload["provider_result"]["hashtags"],
+            ["новости"],
+        )
         self.assertTrue(provider.calls)
         self.assertIsNone(story.last_rewrite_preset)
+
+    def test_rewrite_parses_text_array_payload(self) -> None:
+        class TextArrayProvider:
+            def run(self, *, messages):
+                return ProviderResponse(
+                    result={
+                        "title": "Заголовок массива",
+                        "text": [
+                            {"text": "Первый абзац"},
+                            {"text": "Второй абзац"},
+                        ],
+                    },
+                    raw={"mock": True},
+                )
+
+        rewriter = StoryRewriter(provider=TextArrayProvider())
+        rewriter.rewrite(self.story)
+
+        story = Story.objects.get(pk=self.story.pk)
+        self.assertEqual(story.body, "Первый абзац\n\nВторой абзац")
+        self.assertEqual(story.summary, "")
+        self.assertEqual(story.hashtags, [])
+        self.assertEqual(story.sources, [])
+        self.assertEqual(story.last_rewrite_payload["structured"]["text"], "Первый абзац\n\nВторой абзац")
 
     def test_rewrite_with_preset_applies_configuration(self) -> None:
         preset = RewritePreset.objects.create(
@@ -507,6 +545,9 @@ class StoryImageViewTests(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         generate_form = response.context["generate_form"]
         self.assertIsInstance(generate_form, StoryImageGenerateForm)
+        self.assertEqual(generate_form.initial["model"], self.project.image_model)
+        self.assertEqual(generate_form.initial["size"], self.project.image_size)
+        self.assertEqual(generate_form.initial["quality"], self.project.image_quality)
         self.assertIn("Сгенерировать", response.content.decode("utf-8"))
 
     @patch("stories.paperbird_stories.views.default_image_generator")
@@ -517,12 +558,23 @@ class StoryImageViewTests(TestCase):
 
         response = self.client.post(
             reverse("stories:image", kwargs={"pk": self.story.pk}),
-            data={"action": "generate", "prompt": "Яркий закат"},
+            data={
+                "action": "generate",
+                "prompt": "Яркий закат",
+                "model": self.project.image_model,
+                "size": self.project.image_size,
+                "quality": self.project.image_quality,
+            },
         )
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertIn("data:image/png;base64", response.content.decode("utf-8"))
-        stub_generator.generate.assert_called_once()
+        stub_generator.generate.assert_called_once_with(
+            prompt="Яркий закат",
+            model=self.project.image_model,
+            size=self.project.image_size,
+            quality=self.project.image_quality,
+        )
 
     def test_attach_action_saves_file(self) -> None:
         url = reverse("stories:image", kwargs={"pk": self.story.pk})
@@ -617,18 +669,60 @@ class StoryViewTests(TestCase):
         self.assertEqual(story.title, "Новый сюжет")
 
     @patch("stories.paperbird_stories.views.default_rewriter")
-    def test_rewrite_action_shows_prompt(self, mock_rewriter) -> None:
+    def test_rewrite_preview_shows_prompt(self, mock_rewriter) -> None:
+        mock_instance = MagicMock()
+        mock_rewriter.return_value = mock_instance
+        url = reverse("stories:detail", kwargs={"pk": self.story.pk})
+        response = self.client.post(
+            url,
+            data={"action": "rewrite", "editor_comment": "", "preview": "1"},
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode("utf-8")
+        self.assertIn("Проверьте промпт перед отправкой", content)
+        mock_instance.rewrite.assert_not_called()
+
+    def test_preview_shows_last_prompt_snapshot(self) -> None:
+        self.story.prompt_snapshot = [
+            {"role": "system", "content": "System snapshot"},
+            {"role": "user", "content": "User snapshot"},
+        ]
+        self.story.editor_comment = "Сохрани факты"
+        self.story.save(update_fields=["prompt_snapshot", "editor_comment", "updated_at"])
+        self.story.refresh_from_db()
+
+        url = reverse("stories:detail", kwargs={"pk": self.story.pk})
+        response = self.client.post(
+            url,
+            data={
+                "action": "rewrite",
+                "editor_comment": "Сохрани факты",
+                "preview": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        html = response.content.decode("utf-8")
+        self.assertIn("System snapshot", html)
+        self.assertIn("User snapshot", html)
+
+    @patch("stories.paperbird_stories.views.default_rewriter")
+    def test_rewrite_without_preview_runs_immediately(self, mock_rewriter) -> None:
         mock_instance = MagicMock()
         mock_rewriter.return_value = mock_instance
         url = reverse("stories:detail", kwargs={"pk": self.story.pk})
         response = self.client.post(
             url,
             data={"action": "rewrite", "editor_comment": ""},
+            follow=True,
         )
+
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        content = response.content.decode("utf-8")
-        self.assertIn("Проверьте промпт перед отправкой", content)
-        mock_instance.rewrite.assert_not_called()
+        mock_instance.rewrite.assert_called_once()
+        args, kwargs = mock_instance.rewrite.call_args
+        self.assertEqual(args[0], self.story)
+        self.assertEqual(kwargs.get("editor_comment"), "")
+        self.assertIsNone(kwargs.get("preset"))
 
     @patch("stories.paperbird_stories.views.default_rewriter")
     def test_rewrite_confirm_triggers_call(self, mock_rewriter) -> None:
@@ -648,6 +742,28 @@ class StoryViewTests(TestCase):
         )
         self.assertEqual(response.status_code, HTTPStatus.OK)
         mock_instance.rewrite.assert_called_once()
+        _args, kwargs = mock_instance.rewrite.call_args
+        self.assertEqual(kwargs.get("messages_override"), [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "user"},
+        ])
+
+    def test_save_action_updates_story(self) -> None:
+        url = reverse("stories:detail", kwargs={"pk": self.story.pk})
+        response = self.client.post(
+            url,
+            data={
+                "action": "save",
+                "title": "Новый заголовок",
+                "body": "Основной текст",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.story.refresh_from_db()
+        self.assertEqual(self.story.title, "Новый заголовок")
+        self.assertEqual(self.story.body, "Основной текст")
 
     @patch("stories.paperbird_stories.views.default_publisher_for_story")
     def test_publish_action(self, mock_publisher_factory) -> None:
@@ -759,3 +875,103 @@ class PublishWorkerTests(TestCase):
 
         with self.assertRaises(TaskExecutionError):
             publish_story_task(task)
+
+
+class OpenAIImageProviderTests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.prev_key = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+    def tearDown(self) -> None:
+        if self.prev_key is None:
+            os.environ.pop("OPENAI_API_KEY", None)
+        else:
+            os.environ["OPENAI_API_KEY"] = self.prev_key
+
+    def test_fallback_without_response_format(self) -> None:
+        provider = OpenAIImageProvider(response_format="b64_json")
+        captured_payloads: list[dict] = []
+
+        class DummyResponse:
+            def __init__(self, payload: str) -> None:
+                self._payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return self._payload.encode("utf-8")
+
+        error_stream = io.BytesIO(
+            b'{"error":{"message":"Unknown parameter: \\"response_format\\"","code":"unknown_parameter"}}'
+        )
+
+        def fake_urlopen(request, timeout=30):
+            payload = json.loads(request.data.decode("utf-8"))
+            captured_payloads.append(payload)
+            if len(captured_payloads) == 1:
+                raise HTTPError(
+                    provider.api_url,
+                    400,
+                    "Bad Request",
+                    hdrs=None,
+                    fp=error_stream,
+                )
+            data = {
+                "data": [
+                    {
+                        "b64_json": base64.b64encode(b"mock-image").decode("ascii"),
+                        "mime_type": "image/png",
+                    }
+                ]
+            }
+            return DummyResponse(json.dumps(data))
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            image = provider.generate(prompt="Demo image")
+
+        self.assertEqual(len(captured_payloads), 2)
+        self.assertIn("response_format", captured_payloads[0])
+        self.assertNotIn("response_format", captured_payloads[1])
+        self.assertEqual(image.mime_type, "image/png")
+        self.assertEqual(image.data, b"mock-image")
+
+    def test_normalizes_large_size(self) -> None:
+        provider = OpenAIImageProvider()
+
+        class DummyResponse:
+            def __init__(self, payload: str) -> None:
+                self._payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return self._payload.encode("utf-8")
+
+        payloads: list[dict] = []
+
+        def fake_urlopen(request, timeout=30):
+            data = json.loads(request.data.decode("utf-8"))
+            payloads.append(data)
+            response_body = {
+                "data": [
+                    {
+                        "b64_json": base64.b64encode(b"mini").decode("ascii"),
+                        "mime_type": "image/png",
+                    }
+                ]
+            }
+            return DummyResponse(json.dumps(response_body))
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            image = provider.generate(prompt="Demo", size="2048x2048")
+
+        self.assertEqual(image.data, b"mini")
+        self.assertEqual(payloads[0]["size"], "512x512")

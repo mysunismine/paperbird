@@ -33,6 +33,12 @@
                 <dd class="col-6 text-end">{{ project.posts_total }}</dd>
                 <dt class="col-6">Сюжетов:</dt>
                 <dd class="col-6 text-end">{{ project.stories_total }}</dd>
+                <dt class="col-6">Срок хранения:</dt>
+                <dd class="col-6 text-end">{{ project.retention_days }} дн.</dd>
+                {% if project.publish_target %}
+                  <dt class="col-6">Канал по умолчанию:</dt>
+                  <dd class="col-6 text-end">{{ project.publish_target }}</dd>
+                {% endif %}
               </dl>
               <div class="mt-auto d-flex gap-2">
                 <a
@@ -42,11 +48,16 @@
                   Лента постов
                 </a>
                 <a
-                  class="btn btn-sm btn-outline-secondary disabled"
-                  href="#"
-                  aria-disabled="true"
+                  class="btn btn-sm btn-outline-primary"
+                  href="{% url 'projects:sources' project.id %}"
                 >
-                  Редактировать (скоро)
+                  Источники
+                </a>
+                <a
+                  class="btn btn-sm btn-outline-secondary"
+                  href="{% url 'projects:settings' project.id %}"
+                >
+                  Настройки
                 </a>
               </div>
             </div>

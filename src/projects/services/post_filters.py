@@ -60,6 +60,7 @@ class PostFilterOptions:
     date_to: datetime | None = None
     has_media: bool | None = None
     source_ids: set[int] = field(default_factory=set)
+    languages: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         self.statuses = {status for status in self.statuses if status}
@@ -70,6 +71,7 @@ class PostFilterOptions:
         if self.date_from and self.date_to and self.date_from > self.date_to:
             raise ValueError("Дата начала фильтрации позже даты окончания")
         self.source_ids = {source_id for source_id in self.source_ids if source_id}
+        self.languages = {lang for lang in self.languages if lang}
 
     @property
     def search_terms(self) -> list[str]:
@@ -114,6 +116,9 @@ def apply_post_filters(queryset: QuerySet[Post], options: PostFilterOptions) -> 
     elif options.has_media is False:
         filtered = filtered.filter(has_media=False)
 
+    if options.languages:
+        filtered = filtered.filter(language__in=options.languages)
+
     if options.search_terms:
         for term in options.search_terms:
             term_q = (
@@ -133,7 +138,8 @@ def apply_post_filters(queryset: QuerySet[Post], options: PostFilterOptions) -> 
         for keyword in options.exclude_keywords:
             filtered = filtered.exclude(message__icontains=keyword)
 
-    return filtered.distinct()
+    filtered = filtered.distinct()
+    return filtered.order_by("-posted_at", "-id")
 
 
 def collect_keyword_hits(

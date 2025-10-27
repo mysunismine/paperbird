@@ -106,6 +106,11 @@ EMAIL_USE_TLS=True
   python manage.py collect_posts <username> --limit 50
   ```
   Убедитесь, что в профиле пользователя заполнены ключи Telethon и запущена база данных.
+  Для непрерывного мониторинга добавьте `--follow` и задайте интервал (секунды) при необходимости:  
+  ```bash
+  python manage.py collect_posts <username> --follow --interval 30
+  ```
+  Команда будет работать до нажатия Ctrl+C, раз в 30 секунд проверяя все подключённые источники.
 
 - Рерайт и публикация сюжетов:  
   1. Создайте сюжет и запустите рерайт через API/UI, убедившись, что `OPENAI_API_KEY` прописан.  
@@ -135,11 +140,20 @@ python manage.py run_worker collector --handler your_app.workers.collector_handl
 python manage.py run_worker rewrite
 python manage.py run_worker publish --batch-size 5
 python manage.py run_worker image --once  # Разовый прогон
+python manage.py run_worker maintenance --sleep 30
 ```
 
 Если логика обработчика зарегистрирована программно через `register_handler`, параметр `--handler` можно опустить. Команда поддерживает настройку паузы (`--sleep`), идентификатора воркера (`--worker-id`) и размера батча (`--batch-size`).
 
 Если задачи реализованы через Celery или RQ, вместо `run_worker` воспользуйтесь соответствующими воркерами (см. раздел 5).
+
+Для регулярной очистки постов по сроку хранения добавьте в cron или планировщик задание:
+
+```bash
+python manage.py schedule_retention_cleanup
+```
+
+Команда ставит задачи в очередь `maintenance`; при необходимости можно ограничить проект (`--project 42`) или отложить исполнение (`--delay 60` для запуска через час). Для диагностики используйте `python manage.py purge_expired_posts --dry-run`.
 
 ## 7. Запуск через Docker
 

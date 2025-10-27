@@ -1,0 +1,43 @@
+{% if posts %}
+<table class="table table-hover align-middle mb-0">
+  <thead>
+    <tr>
+      <th style="width: 48px;" class="text-center">
+        <input type="checkbox" class="form-check-input" id="select-all-posts" />
+      </th>
+      <th style="width: 160px;">Дата</th>
+      <th style="width: 220px;">Источник</th>
+      <th>Текст</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for post in posts %}
+      <tr data-post-id="{{ post.id }}">
+        <td class="text-center">
+          <input type="checkbox" class="form-check-input post-select" value="{{ post.id }}" />
+        </td>
+        <td>
+          <div>{{ post.posted_at|date:"d.m.Y" }}</div>
+          <div class="text-muted small">{{ post.posted_at|date:"H:i" }}</div>
+        </td>
+        <td>
+          <div class="fw-semibold">{{ post.source.title|default:post.source.username|default:post.source.telegram_id|default:"Источник" }}</div>
+          <div class="small text-muted">ID: {{ post.telegram_id }}</div>
+        </td>
+        <td style="max-width: 620px;">
+          {% if post.message %}
+            <div class="text-body">{{ post.message|truncatechars:500|linebreaksbr }}</div>
+          {% else %}
+            <span class="text-muted">Текст отсутствует</span>
+          {% endif %}
+          {% if post.keyword_hits %}
+            <div class="small text-warning mt-1">Совпадения: {{ post.keyword_hits|join:", " }}</div>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="alert alert-info mb-0">В этом проекте пока нет постов. Убедитесь, что сборщик работает и источники настроены корректно.</div>
+{% endif %}

@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}Источники проекта {{ project.name }} — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+      <h1 class="h3 mb-1">Источники проекта «{{ project.name }}»</h1>
+      <p class="text-muted mb-0">Подключите каналы Telegram, которые будет отслеживать коллектор.</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{% url 'projects:list' %}">К проектам</a>
+      <a class="btn btn-outline-secondary" href="{% url 'projects:settings' project.pk %}">Настройки</a>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-5">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h2 class="h5 mb-3">Добавить источник</h2>
+          <form method="post" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="action" value="create" />
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger" role="alert">
+                {% for error in form.non_field_errors %}
+                  <div>{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+            <div class="mb-3">
+              <label for="{{ form.title.id_for_label }}" class="form-label">{{ form.title.label }}</label>
+              {{ form.title }}
+              <div class="form-text">Если оставить пустым, название подтянется автоматически.</div>
+              {% for error in form.title.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+            <div class="mb-3">
+              <label for="{{ form.username.id_for_label }}" class="form-label">{{ form.username.label }}</label>
+              {{ form.username }}
+              <div class="form-text">Например, @bazabazon или https://t.me/bazabazon.</div>
+              {% for error in form.username.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+            <div class="mb-3">
+              <label for="{{ form.invite_link.id_for_label }}" class="form-label">{{ form.invite_link.label }}</label>
+              {{ form.invite_link }}
+              <div class="form-text">Нужна только для закрытых чатов по пригласительной ссылке.</div>
+              {% for error in form.invite_link.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+            <div class="mb-3">
+              <label for="{{ form.telegram_id.id_for_label }}" class="form-label">{{ form.telegram_id.label }}</label>
+              {{ form.telegram_id }}
+              <div class="form-text">Опционально, если знаете числовой peer id.</div>
+              {% for error in form.telegram_id.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+            <div class="mb-3">
+              <div class="form-check form-switch">
+                {{ form.deduplicate_text }}
+                <label class="form-check-label" for="{{ form.deduplicate_text.id_for_label }}">{{ form.deduplicate_text.label }}</label>
+              </div>
+            </div>
+            <div class="mb-3">
+              <div class="form-check form-switch">
+                {{ form.deduplicate_media }}
+                <label class="form-check-label" for="{{ form.deduplicate_media.id_for_label }}">{{ form.deduplicate_media.label }}</label>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label for="{{ form.retention_days.id_for_label }}" class="form-label">{{ form.retention_days.label }}</label>
+              {{ form.retention_days }}
+              {% for error in form.retention_days.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+            <div class="d-flex justify-content-end">
+              <button type="submit" class="btn btn-primary">Добавить источник</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {% if edit_form %}
+        <div class="card shadow-sm mt-4">
+          <div class="card-body">
+            <h2 class="h5 mb-3">Редактировать источник</h2>
+            <form method="post" novalidate>
+              {% csrf_token %}
+              <input type="hidden" name="action" value="update" />
+              <input type="hidden" name="source_id" value="{{ editing_source.pk }}" />
+              {% if edit_form.non_field_errors %}
+                <div class="alert alert-danger" role="alert">
+                  {% for error in edit_form.non_field_errors %}
+                    <div>{{ error }}</div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              <div class="mb-3">
+                <label for="{{ edit_form.title.id_for_label }}" class="form-label">{{ edit_form.title.label }}</label>
+                {{ edit_form.title }}
+              </div>
+              <div class="mb-3">
+                <label for="{{ edit_form.username.id_for_label }}" class="form-label">{{ edit_form.username.label }}</label>
+                {{ edit_form.username }}
+                {% for error in edit_form.username.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="mb-3">
+                <label for="{{ edit_form.invite_link.id_for_label }}" class="form-label">{{ edit_form.invite_link.label }}</label>
+                {{ edit_form.invite_link }}
+              </div>
+              <div class="mb-3">
+                <label for="{{ edit_form.telegram_id.id_for_label }}" class="form-label">{{ edit_form.telegram_id.label }}</label>
+                {{ edit_form.telegram_id }}
+                {% for error in edit_form.telegram_id.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="mb-3">
+                <div class="form-check form-switch">
+                  {{ edit_form.deduplicate_text }}
+                  <label class="form-check-label" for="{{ edit_form.deduplicate_text.id_for_label }}">{{ edit_form.deduplicate_text.label }}</label>
+                </div>
+              </div>
+              <div class="mb-3">
+                <div class="form-check form-switch">
+                  {{ edit_form.deduplicate_media }}
+                  <label class="form-check-label" for="{{ edit_form.deduplicate_media.id_for_label }}">{{ edit_form.deduplicate_media.label }}</label>
+                </div>
+              </div>
+              <div class="mb-3">
+                <label for="{{ edit_form.retention_days.id_for_label }}" class="form-label">{{ edit_form.retention_days.label }}</label>
+                {{ edit_form.retention_days }}
+              </div>
+              <div class="d-flex justify-content-between">
+                <a class="btn btn-outline-secondary" href="{% url 'projects:sources' project.pk %}">Отмена</a>
+                <button type="submit" class="btn btn-primary">Сохранить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="col-lg-7">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h2 class="h5 mb-3">Подключённые источники</h2>
+          {% if sources %}
+            <div class="table-responsive">
+              <table class="table align-middle">
+                <thead>
+                  <tr>
+                    <th>Название</th>
+                    <th>ID</th>
+                    <th>Username</th>
+                    <th>Создан</th>
+                    <th style="width: 160px;">Действия</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for source in sources %}
+                    <tr>
+                      <td>{{ source.title|default:"—" }}</td>
+                      <td>{{ source.telegram_id|default:"—" }}</td>
+                      <td>{{ source.username|default:"—" }}</td>
+                      <td>{{ source.created_at|date:"d.m.Y" }}</td>
+                      <td>
+                        <div class="d-flex gap-2">
+                          <a class="btn btn-sm btn-outline-primary" href="{% url 'projects:sources' project.pk %}?source={{ source.pk }}">Изменить</a>
+                          <form method="post" class="d-inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="delete" />
+                            <input type="hidden" name="source_id" value="{{ source.pk }}" />
+                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить источник?');">Удалить</button>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="text-muted mb-0">Источники ещё не подключены.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

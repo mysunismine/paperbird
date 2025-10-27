@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import date, datetime, time
 
 from asgiref.sync import sync_to_async
 from django.db import transaction
@@ -110,6 +111,7 @@ class PostCollector:
             return False
 
         raw = message.to_dict() if hasattr(message, "to_dict") else {}
+        raw = _normalize_raw(raw)
         await sync_to_async(self._store_post)(
             source=source,
             message=message,
@@ -167,12 +169,63 @@ async def collect_for_user(
         await collector.collect_for_project(project)
 
 
+async def collect_for_user_live(
+    user: User,
+    *,
+    project_id: int | None = None,
+    limit: int = DEFAULT_COLLECT_LIMIT,
+    interval: int = 60,
+) -> None:
+    """Постоянный сбор постов с указанным интервалом опроса."""
+
+    delay = max(interval, 5)
+    while True:
+        await collect_for_user(user, project_id=project_id, limit=limit)
+        await asyncio.sleep(delay)
+
+
 def collect_for_user_sync(
     user: User,
     *,
     project_id: int | None = None,
     limit: int = DEFAULT_COLLECT_LIMIT,
+    continuous: bool = False,
+    interval: int = 60,
 ) -> None:
     """Синхронный адаптер для использования в manage-команде."""
 
-    asyncio.run(collect_for_user(user, project_id=project_id, limit=limit))
+    async def runner() -> None:
+        if continuous:
+            await collect_for_user_live(
+                user,
+                project_id=project_id,
+                limit=limit,
+                interval=interval,
+            )
+        else:
+            await collect_for_user(user, project_id=project_id, limit=limit)
+
+    try:
+        asyncio.run(runner())
+    except KeyboardInterrupt:
+        # graceful stop for continuous mode
+        pass
+
+
+def _normalize_raw(value):
+    """Recursively convert unsupported JSON types (e.g., datetime) to strings."""
+
+    if isinstance(value, dict):
+        return {key: _normalize_raw(sub) for key, sub in value.items()}
+    if isinstance(value, list):
+        return [_normalize_raw(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_raw(item) for item in value]
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return value.hex()
+    return value

@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+
+from core.constants import (
+    IMAGE_DEFAULT_MODEL,
+    IMAGE_DEFAULT_QUALITY,
+    IMAGE_DEFAULT_SIZE,
+    IMAGE_MODEL_CHOICES,
+    IMAGE_QUALITY_CHOICES,
+    IMAGE_SIZE_CHOICES,
+)
+from projects.services.language import detect_language
 
 # Импорт только для подсказок типов.
 if TYPE_CHECKING:  # pragma: no cover - используется только для подсказок типов
@@ -27,6 +38,50 @@ class Project(models.Model):
     name = models.CharField("Название", max_length=200)
     description = models.TextField("Описание", blank=True)
     is_active = models.BooleanField("Активен", default=True)
+    publish_target = models.CharField(
+        "Целевой канал",
+        max_length=255,
+        blank=True,
+        help_text="Например, @my_channel или ссылка на чат",
+    )
+    image_model = models.CharField(
+        "Модель генерации изображений",
+        max_length=100,
+        choices=IMAGE_MODEL_CHOICES,
+        default=IMAGE_DEFAULT_MODEL,
+    )
+    image_size = models.CharField(
+        "Размер изображения",
+        max_length=20,
+        choices=IMAGE_SIZE_CHOICES,
+        default=IMAGE_DEFAULT_SIZE,
+    )
+    image_quality = models.CharField(
+        "Качество изображения",
+        max_length=20,
+        choices=IMAGE_QUALITY_CHOICES,
+        default=IMAGE_DEFAULT_QUALITY,
+    )
+    retention_days = models.PositiveIntegerField(
+        "Срок хранения постов (дней)",
+        default=90,
+        help_text="Посты старше указанного срока удаляются из ленты проекта.",
+    )
+    collector_enabled = models.BooleanField(
+        "Сборщик активен",
+        default=False,
+        help_text="Если включено, фоновый сборщик будет регулярно обновлять ленту проекта.",
+    )
+    collector_interval = models.PositiveIntegerField(
+        "Интервал сбора (сек)",
+        default=300,
+        help_text="Через какой промежуток времени запускать следующий цикл сбора.",
+    )
+    collector_last_run = models.DateTimeField(
+        "Последний запуск сборщика",
+        blank=True,
+        null=True,
+    )
     created_at = models.DateTimeField("Создан", auto_now_add=True)
     updated_at = models.DateTimeField("Обновлён", auto_now=True)
 
@@ -38,6 +93,13 @@ class Project(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name}"
+
+    def retention_cutoff(self):
+        """Возвращает дату, старше которой посты подлежат удалению."""
+
+        if not self.retention_days:
+            return None
+        return timezone.now() - timedelta(days=self.retention_days)
 
 
 class Source(models.Model):
@@ -52,7 +114,9 @@ class Source(models.Model):
     title = models.CharField("Название", max_length=255, blank=True)
     telegram_id = models.BigIntegerField(
         "Telegram ID",
-        help_text="Идентификатор канала или чата (peer id).",
+        blank=True,
+        null=True,
+        help_text="Опционально: числовой идентификатор канала (peer id).",
     )
     username = models.CharField(
         "Username",
@@ -106,7 +170,7 @@ class Source(models.Model):
         ordering = ("project", "title")
 
     def __str__(self) -> str:
-        return self.title or self.username or str(self.telegram_id)
+        return self.title or self.username or (str(self.telegram_id) if self.telegram_id else "Источник")
 
     def _normalize_keywords(self, values: Iterable[str]) -> list[str]:
         return sorted({value.strip().lower() for value in values if value and value.strip()})
@@ -166,6 +230,11 @@ class Post(models.Model):
         USED = "used", "Использован"
         DELETED = "deleted", "Удалён"
 
+    class Language(models.TextChoices):
+        RU = "ru", "Русский"
+        EN = "en", "Английский"
+        UNKNOWN = "unknown", "Не определён"
+
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
@@ -195,6 +264,12 @@ class Post(models.Model):
     media_path = models.CharField("Путь к медиа", max_length=512, blank=True)
     text_hash = models.CharField("Хэш текста", max_length=64, blank=True)
     media_hash = models.CharField("Хэш медиа", max_length=64, blank=True)
+    language = models.CharField(
+        "Язык",
+        max_length=16,
+        choices=Language.choices,
+        default=Language.UNKNOWN,
+    )
 
     objects = PostQuerySet.as_manager()
 
@@ -210,6 +285,19 @@ class Post(models.Model):
 
     def __str__(self) -> str:
         return f"{self.source}: {self.telegram_id}"
+
+    @property
+    def media_url(self) -> str | None:
+        """Возвращает публичный URL медиафайла, если он доступен."""
+
+        if not self.media_path:
+            return None
+        base = getattr(settings, "MEDIA_URL", "") or ""
+        base = base.rstrip("/")
+        relative = self.media_path.lstrip("/")
+        if not base:
+            return f"/{relative}"
+        return f"{base}/{relative}"
 
     @staticmethod
     def make_hash(value: str | bytes | None) -> str:
@@ -239,6 +327,7 @@ class Post(models.Model):
 
         text_hash = cls.make_hash(message) if message else ""
         media_hash = cls.make_hash(media_bytes) if media_bytes else ""
+        language = detect_language(message)
         defaults = {
             "project": project,
             "message": message or "",
@@ -249,6 +338,7 @@ class Post(models.Model):
             "media_path": media_path or "",
             "text_hash": text_hash,
             "media_hash": media_hash,
+            "language": language,
         }
         post, _created = cls.objects.update_or_create(
             source=source,

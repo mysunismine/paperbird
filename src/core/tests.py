@@ -151,15 +151,13 @@ class FeedViewTests(TestCase):
 
     def test_feed_lists_latest_posts(self) -> None:
         response = self.client.get(reverse("feed"))
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Лента постов")
-        self.assertContains(response, self.latest_post.message)
-        self.assertContains(response, self.project.name)
+        expected = reverse("projects:post-list", args=[self.other_project.pk])
+        self.assertRedirects(response, expected)
 
     def test_feed_filters_by_project(self) -> None:
         response = self.client.get(reverse("feed"), data={"project": self.project.id})
-        self.assertContains(response, "Apple представила новый продукт")
-        self.assertNotContains(response, "Парламент обсудил меры")
+        expected = reverse("projects:post-list", args=[self.project.pk])
+        self.assertRedirects(response, expected)
 
 
 class StructuredLoggingTests(TestCase):

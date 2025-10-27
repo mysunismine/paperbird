@@ -6,7 +6,7 @@ import json
 import mimetypes
 import uuid
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from django.core.files.base import ContentFile
 from django.db import models
@@ -343,35 +343,69 @@ class RewriteResult:
     """Типизированный результат рерайта."""
 
     title: str
-    summary: str
     content: str
-    hashtags: list[str]
-    sources: list[str]
+    summary: str = ""
+    hashtags: list[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> RewriteResult:
         title = str(data.get("title", "")).strip()
-        summary = str(data.get("summary", "")).strip()
-        content = str(data.get("content", "")).strip()
-        hashtags = cls._normalize_list(data.get("hashtags", []))
-        sources = cls._normalize_list(data.get("sources", []))
+        raw_content = data.get("content")
+        if raw_content is None and "text" in data:
+            raw_content = data.get("text")
+        content = cls._coerce_content(raw_content)
         if not content:
             raise ValueError("Ответ модели не содержит текста контента")
-        return cls(
-            title=title,
-            summary=summary,
-            content=content,
-            hashtags=hashtags,
-            sources=sources,
-        )
+        return cls(title=title, content=content)
 
     @staticmethod
-    def _normalize_list(value: object) -> list[str]:
-        if not value:
-            return []
-        if isinstance(value, list | tuple | set):
-            return [str(item).strip() for item in value if str(item).strip()]
-        return [str(value).strip()]
+    def _coerce_content(value: object) -> str:
+        texts: list[str] = []
+        seen: set[str] = set()
+
+        def add_text(text: str) -> None:
+            normalized = text.strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                texts.append(normalized)
+
+        def collect(node: object) -> None:
+            if not node:
+                return
+            if isinstance(node, str):
+                add_text(node)
+                return
+            if isinstance(node, (list, tuple, set)):
+                for item in node:
+                    collect(item)
+                return
+            if isinstance(node, dict):
+                direct_keys = ("text", "value")
+                for key in direct_keys:
+                    if key in node and isinstance(node[key], str):
+                        add_text(node[key])
+                container_keys = (
+                    "paragraphs",
+                    "chunks",
+                    "children",
+                    "items",
+                    "nodes",
+                    "sections",
+                    "parts",
+                    "content",
+                )
+                for key in container_keys:
+                    if key in node:
+                        collect(node[key])
+                for value in node.values():
+                    if isinstance(value, (list, tuple, set, dict)):
+                        collect(value)
+                return
+            add_text(str(node))
+
+        collect(value)
+        return "\n\n".join(texts)
 
 
 class Publication(models.Model):

@@ -22,6 +22,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.constants import (
+    IMAGE_DEFAULT_SIZE,
+    IMAGE_SIZE_CHOICES,
     OPENAI_DEFAULT_TEMPERATURE,
     OPENAI_RESPONSE_FORMAT,
     REWRITE_MAX_ATTEMPTS,
@@ -43,14 +45,29 @@ from .models import (
 SYSTEM_PROMPT = (
     "Вы — профессиональный редактор новостей. "
     "Объединяйте предоставленные материалы в связный текст, сохраняйте факты, "
-    "исключайте домыслы и следуйте деловому стилю. Отвечайте только структурированными данными."
+    "исключайте домыслы и следуйте деловому стилю. "
+    "Отвечайте только структурированными данными и не добавляйте необязательные поля "
+    "(summary, hashtags, sources и т. д.)."
 )
 
 RESPONSE_REQUIREMENTS = (
-    "Верните валидный JSON с полями: title (строка, до 120 символов), summary (до 300 символов), "
-    "content (структурированный текст, допускается Markdown), hashtags (массив хэштегов без #), "
-    "sources (массив ссылок или кратких указаний на источники)."
+    "Верните валидный JSON только с полями: title (строка, до 120 символов) и text "
+    "(основной текст заметки; допускается строка или массив абзацев или фрагментов). "
+    "Не добавляйте другие поля, не используйте преамбулы и формируйте строго корректный JSON."
 )
+
+ALLOWED_IMAGE_SIZES = {choice[0] for choice in IMAGE_SIZE_CHOICES}
+
+
+def normalize_image_size(value: str | None) -> str:
+    """Возвращает безопасный размер изображения."""
+
+    if not value:
+        return IMAGE_DEFAULT_SIZE
+    cleaned = str(value).strip().lower()
+    if cleaned in ALLOWED_IMAGE_SIZES:
+        return cleaned
+    return IMAGE_DEFAULT_SIZE
 
 
 @dataclass(slots=True)
@@ -254,11 +271,14 @@ class StoryRewriter:
                 provider_response = self.provider.run(messages=messages)
                 result = RewriteResult.from_dict(provider_response.result)
                 payload = {
-                    "structured": provider_response.result,
+                    "structured": {
+                        "title": result.title,
+                        "text": result.content,
+                    },
                     "raw": provider_response.raw,
-                    "hashtags": result.hashtags,
-                    "sources": result.sources,
                 }
+                if provider_response.result != payload["structured"]:
+                    payload["provider_result"] = provider_response.result
                 task.mark_success(
                     result=provider_response.result,
                     response_id=provider_response.response_id,
@@ -391,15 +411,27 @@ class OpenAIImageProvider:
         model: str | None = None,
         size: str | None = None,
         quality: str | None = None,
+        response_format: str | None = None,
     ) -> None:
         self.api_url = api_url or os.getenv(
             "OPENAI_IMAGE_URL", "https://api.openai.com/v1/images/generations"
         )
         self.model = model or os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
-        self.size = size or os.getenv("OPENAI_IMAGE_SIZE", "1024x1024")
+        self.size = normalize_image_size(size or os.getenv("OPENAI_IMAGE_SIZE", IMAGE_DEFAULT_SIZE))
         self.quality = quality or os.getenv("OPENAI_IMAGE_QUALITY", "standard")
+        if response_format is None:
+            response_format = os.getenv("OPENAI_IMAGE_RESPONSE_FORMAT", "b64_json")
+        self.response_format = (response_format or "").strip()
 
-    def generate(self, *, prompt: str) -> GeneratedImage:
+    def generate(
+        self,
+        *,
+        prompt: str,
+        model: str | None = None,
+        size: str | None = None,
+        quality: str | None = None,
+        _allow_without_format: bool = False,
+    ) -> GeneratedImage:
         prompt = prompt.strip()
         if not prompt:
             raise ImageGenerationFailed("Описание не может быть пустым")
@@ -409,13 +441,17 @@ class OpenAIImageProvider:
             data = _placeholder_image_bytes(prompt or "placeholder")
             return GeneratedImage(data=data, mime_type="image/png")
 
+        use_model = model or self.model
+        use_size = normalize_image_size(size or self.size)
+        use_quality = quality or self.quality
         payload = {
-            "model": self.model,
+            "model": use_model,
             "prompt": prompt,
-            "size": self.size,
-            "quality": self.quality,
-            "response_format": "b64_json",
+            "size": use_size,
+            "quality": use_quality,
         }
+        if self.response_format and not _allow_without_format:
+            payload["response_format"] = self.response_format
         body = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(self.api_url, data=body, method="POST")
         request.add_header("Content-Type", "application/json")
@@ -426,6 +462,19 @@ class OpenAIImageProvider:
                 raw_body = response.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as exc:  # pragma: no cover - требует живого API
             message = exc.read().decode("utf-8", "replace")
+            if (
+                not _allow_without_format
+                and self.response_format
+                and exc.code == 400
+                and "response_format" in message.lower()
+            ):
+                return self.generate(
+                    prompt=prompt,
+                    model=model,
+                    size=size,
+                    quality=quality,
+                    _allow_without_format=True,
+                )
             raise ImageGenerationFailed(f"OpenAI HTTP {exc.code}: {message}") from exc
         except OSError as exc:  # pragma: no cover
             raise ImageGenerationFailed(str(exc)) from exc
@@ -433,8 +482,13 @@ class OpenAIImageProvider:
         try:
             parsed = json.loads(raw_body)
             item = parsed["data"][0]
-            encoded = item.get("b64_json", "")
+            encoded = item.get("b64_json") or item.get("base64_data") or ""
             mime_type = item.get("mime_type", "image/png") or "image/png"
+            if not encoded and item.get("url"):
+                raise ImageGenerationFailed(
+                    "Провайдер вернул ссылку на изображение. "
+                    "Установите OPENAI_IMAGE_RESPONSE_FORMAT=b64_json для встроенного ответа."
+                )
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
             raise ImageGenerationFailed("Некорректный ответ OpenAI") from exc
 
@@ -455,8 +509,20 @@ class StoryImageGenerator:
 
     provider: ImageGenerationProvider
 
-    def generate(self, *, prompt: str) -> GeneratedImage:
-        return self.provider.generate(prompt=prompt)
+    def generate(
+        self,
+        *,
+        prompt: str,
+        model: str | None = None,
+        size: str | None = None,
+        quality: str | None = None,
+    ) -> GeneratedImage:
+        return self.provider.generate(
+            prompt=prompt,
+            model=model,
+            size=size,
+            quality=quality,
+        )
 
 
 def default_image_generator() -> StoryImageGenerator:

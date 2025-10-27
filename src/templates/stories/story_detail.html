@@ -7,187 +7,352 @@
     <div>
       <h1 class="h3 mb-1">{{ story.title|default:"Сюжет без названия" }}</h1>
       <p class="text-muted mb-0">
-        Проект: {{ story.project.name }} • Статус: <span class="badge text-bg-secondary">{{ story.get_status_display }}</span>
+        Проект: {{ story.project.name }} • Статус:
+        <span class="badge text-bg-secondary">{{ story.get_status_display }}</span>
       </p>
       {% if last_task %}
-        <p class="small text-muted mt-1">Последний рерайт: {{ last_task.created_at|date:"d.m.Y H:i" }} ({{ last_task.get_status_display }})</p>
+        <p class="small text-muted mt-1">
+          Последний рерайт: {{ last_task.created_at|date:"d.m.Y H:i" }}
+          ({{ last_task.get_status_display }})
+        </p>
       {% endif %}
     </div>
-    <div class="d-flex gap-2">
-      <a class="btn btn-outline-secondary" href="{% url 'stories:list' %}">К списку</a>
-    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'stories:list' %}">К списку</a>
   </div>
 
-  <div class="row g-4">
-    <div class="col-lg-8">
-      <div class="card shadow-sm mb-4">
-        <div class="card-body">
-          <h2 class="h5">Содержимое</h2>
-          {% if story.summary %}
-            <p class="text-muted">{{ story.summary }}</p>
-          {% endif %}
-          {% if story.body %}
-            <div class="border rounded p-3 bg-light-subtle">
-              {{ story.body|linebreaks }}
-            </div>
-          {% else %}
-            <p class="text-muted">Рерайт ещё не выполнен.</p>
-          {% endif %}
-          <div class="mt-3 d-flex flex-column gap-3">
-            {% if story.image_file %}
-              <div>
-                <h3 class="h6">Изображение сюжета</h3>
-                <img
-                  src="{{ story.image_file.url }}"
-                  alt="{{ story.image_prompt|default:"Сгенерированное изображение" }}"
-                  class="img-fluid rounded border"
-                />
-                {% if story.image_prompt %}
-                  <p class="small text-muted mt-2">{{ story.image_prompt }}</p>
-                {% endif %}
-              </div>
-            {% endif %}
-            <div>
-              <a class="btn btn-outline-primary" href="{% url 'stories:image' story.pk %}">
-                Сгенерировать изображение
-              </a>
-            </div>
-          </div>
-          {% if story.hashtags %}
-            <p class="mt-3 mb-0"><strong>Хэштеги:</strong> {{ story.hashtags|join:", " }}</p>
-          {% endif %}
-          {% if story.sources %}
-            <p class="mt-2 mb-0"><strong>Источники:</strong> {{ story.sources|join:", " }}</p>
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="card shadow-sm mb-4">
-        <div class="card-body">
-          <h2 class="h5">Посты сюжета</h2>
-          {% for story_post in story.story_posts.all %}
-            <article class="mb-3">
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Выбранные новости</h2>
+      {% if story_posts %}
+        {% for story_post in story_posts %}
+          <article class="mb-4 pb-4 {% if not forloop.last %}border-bottom{% endif %}">
+            <header class="mb-2">
               <h3 class="h6 mb-1">Пост #{{ story_post.post.telegram_id }}</h3>
-              <p class="text-muted small mb-2">{{ story_post.post.posted_at|date:"d.m.Y H:i" }}</p>
-              <div class="border rounded p-3">{{ story_post.post.message|linebreaks }}</div>
-            </article>
-          {% empty %}
-            <p class="text-muted">Сюжет пока без постов.</p>
-          {% endfor %}
-        </div>
-      </div>
-
-      <div class="card shadow-sm">
-        <div class="card-body">
-          <h2 class="h5">Публикации</h2>
-          {% if publications %}
-            <div class="table-responsive">
-              <table class="table">
-                <thead>
-                  <tr>
-                    <th>Статус</th>
-                    <th>Цель</th>
-                    <th>Дата</th>
-                    <th>Сообщения</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for publication in publications %}
-                    <tr>
-                      <td><span class="badge text-bg-secondary">{{ publication.get_status_display }}</span></td>
-                      <td>{{ publication.target }}</td>
-                      <td>
-                        {% if publication.status == 'scheduled' and publication.scheduled_for %}
-                          {{ publication.scheduled_for|date:"d.m.Y H:i" }}
-                        {% else %}
-                          {{ publication.published_at|date:"d.m.Y H:i"|default:"—" }}
-                        {% endif %}
-                      </td>
-                      <td>
-                        {% if publication.message_ids %}
-                          {{ publication.message_ids|join:", " }}
-                        {% else %}
-                          —
-                        {% endif %}
-                      </td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
+              <p class="small text-muted mb-0">
+                {{ story_post.post.posted_at|date:"d.m.Y H:i" }} •
+                {{ story_post.post.source.title|default:story_post.post.source.username|default:story_post.post.source.telegram_id|default:"Источник" }}
+              </p>
+            </header>
+            <div class="border rounded bg-light-subtle p-3">
+              {{ story_post.post.message|default:""|linebreaks }}
             </div>
-          {% else %}
-            <p class="text-muted">Публикаций пока нет.</p>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-
-    <div class="col-lg-4">
-      <div class="card shadow-sm mb-4">
-        <div class="card-body">
-          <h2 class="h5">Рерайт</h2>
-          <form method="post">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="rewrite" />
-            {% if rewrite_form.non_field_errors %}
-              <div class="alert alert-danger">{{ rewrite_form.non_field_errors }}</div>
-            {% endif %}
-            {% if rewrite_form.preset.field.queryset %}
-              <div class="mb-3">
-                {{ rewrite_form.preset.label_tag }}
-                {{ rewrite_form.preset }}
-                {% if rewrite_form.preset.help_text %}
-                  <div class="form-text">{{ rewrite_form.preset.help_text }}</div>
-                {% endif %}
-                {% if rewrite_form.preset.errors %}
-                  <div class="text-danger small">{{ rewrite_form.preset.errors|join:', ' }}</div>
+            {% if story_post.post.has_media %}
+              <div class="mt-3">
+                {% if story_post.post.media_url %}
+                  <img
+                    src="{{ story_post.post.media_url }}"
+                    alt="Медиа поста"
+                    class="img-fluid rounded border"
+                  />
+                {% else %}
+                  <span class="badge text-bg-secondary">
+                    Вложение: {{ story_post.post.media_type|default:"медиа" }}
+                  </span>
                 {% endif %}
               </div>
             {% endif %}
-            <div class="mb-3">
-              {{ rewrite_form.editor_comment.label_tag }}
-              {{ rewrite_form.editor_comment }}
-              <div class="form-text">При необходимости уточните задачу для модели.</div>
-              {% if rewrite_form.editor_comment.errors %}
-                <div class="text-danger small">{{ rewrite_form.editor_comment.errors|join:', ' }}</div>
-              {% endif %}
-            </div>
-            <button class="btn btn-primary mt-3" type="submit">Запустить рерайт</button>
-          </form>
-        </div>
-      </div>
-
-      <div class="card shadow-sm">
-        <div class="card-body">
-          <h2 class="h5">Публикация</h2>
-          <form method="post">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="publish" />
-            <div class="mb-3">
-              {{ publish_form.target.label_tag }}
-              {{ publish_form.target }}
-              <div class="form-text">{{ publish_form.target.help_text }}</div>
-              {% if publish_form.target.errors %}
-                <div class="text-danger small">{{ publish_form.target.errors|join:', ' }}</div>
-              {% endif %}
-            </div>
-            <div class="mb-3">
-              {{ publish_form.publish_at.label_tag }}
-              {{ publish_form.publish_at }}
-              <div class="form-text">{{ publish_form.publish_at.help_text }}</div>
-              {% if publish_form.publish_at.errors %}
-                <div class="text-danger small">{{ publish_form.publish_at.errors|join:', ' }}</div>
-              {% endif %}
-            </div>
-            <button class="btn btn-success" type="submit" {% if story.status != 'ready' and story.status != 'published' %}disabled{% endif %}>
-              Опубликовать в Telegram
-            </button>
-            {% if story.status != 'ready' and story.status != 'published' %}
-              <p class="small text-muted mt-2">Для публикации сначала выполните рерайт.</p>
-            {% endif %}
-          </form>
-        </div>
-      </div>
+          </article>
+        {% endfor %}
+      {% else %}
+        <p class="text-muted mb-0">Сюжет пока без постов.</p>
+      {% endif %}
     </div>
   </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Рерайт</h2>
+      {% if messages %}
+        {% for message in messages %}
+          {% if 'inline' in message.tags and 'rewrite' in message.tags %}
+            <div
+              class="alert {% if message.level_tag == 'error' %}alert-danger{% elif message.level_tag == 'warning' %}alert-warning{% elif message.level_tag == 'success' %}alert-success{% else %}alert-info{% endif %} mb-3 d-flex align-items-start gap-3"
+              role="alert"
+            >
+              <span
+                class="badge rounded-pill {% if message.level_tag == 'error' %}text-bg-danger{% elif message.level_tag == 'warning' %}text-bg-warning text-dark{% elif message.level_tag == 'success' %}text-bg-success{% else %}text-bg-info{% endif %} pt-2 px-3"
+              >
+                {% if message.level_tag == 'error' %}
+                  Ошибка
+                {% elif message.level_tag == 'warning' %}
+                  Внимание
+                {% elif message.level_tag == 'success' %}
+                  Готово
+                {% else %}
+                  Сообщение
+                {% endif %}
+              </span>
+              <div>
+                <div class="text-uppercase small fw-semibold text-muted mb-1">Рерайт</div>
+                <p class="mb-0">{{ message }}</p>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+      <div
+        id="rewrite-progress"
+        class="alert alert-info d-flex align-items-center {% if story.status != 'rewriting' %}d-none{% endif %}"
+        role="status"
+        data-active="{% if story.status == 'rewriting' %}1{% else %}0{% endif %}"
+      >
+        <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+        <span>Рерайт выполняется <span class="fw-semibold" data-role="timer">0</span> c</span>
+      </div>
+      <form method="post" id="rewrite-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="rewrite" />
+        {% if rewrite_form.non_field_errors %}
+          <div class="alert alert-danger">
+            {{ rewrite_form.non_field_errors|join:' ' }}
+          </div>
+        {% endif %}
+        {% if rewrite_form.preset.field.queryset %}
+          <div class="mb-3">
+            {{ rewrite_form.preset.label_tag }}
+            {{ rewrite_form.preset }}
+            {% if rewrite_form.preset.help_text %}
+              <div class="form-text">{{ rewrite_form.preset.help_text }}</div>
+            {% endif %}
+            {% if rewrite_form.preset.errors %}
+              <div class="text-danger small">{{ rewrite_form.preset.errors|join:', ' }}</div>
+            {% endif %}
+          </div>
+        {% endif %}
+        <div class="mb-3">
+          {{ rewrite_form.editor_comment.label_tag }}
+          {{ rewrite_form.editor_comment }}
+          <div class="form-text">Добавьте инструкции для рерайта (опционально).</div>
+          {% if rewrite_form.editor_comment.errors %}
+            <div class="text-danger small">{{ rewrite_form.editor_comment.errors|join:', ' }}</div>
+          {% endif %}
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <button
+            class="btn btn-primary"
+            type="submit"
+            data-role="rewrite-submit"
+            {% if story.status == 'rewriting' %}disabled{% endif %}
+          >
+            Переписать
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            type="submit"
+            name="preview"
+            value="1"
+            data-role="rewrite-submit"
+            {% if story.status == 'rewriting' %}disabled{% endif %}
+          >
+            Посмотреть промт целиком
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Генерация изображения</h2>
+      {% if story.image_file %}
+        <div class="border rounded p-3 bg-light-subtle mb-3">
+          <h3 class="h6">Прикреплённое изображение</h3>
+          <img
+            src="{{ story.image_file.url }}"
+            alt="{{ story.image_prompt|default:"Сгенерированное изображение" }}"
+            class="img-fluid rounded border"
+          />
+          {% if story.image_prompt %}
+            <p class="small text-muted mt-2">{{ story.image_prompt }}</p>
+          {% endif %}
+        </div>
+      {% endif %}
+      <p class="text-muted">Перейдите к генератору, чтобы создать новое изображение или заменить текущее.</p>
+      <a class="btn btn-outline-primary" href="{% url 'stories:image' story.pk %}">
+        Открыть генератор изображений
+      </a>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Переписанный текст</h2>
+      {% if can_edit_content or story.body or content_form.errors %}
+        <form method="post" class="mb-4" id="content-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save" />
+          {% if content_form.non_field_errors %}
+            <div class="alert alert-danger">
+              {{ content_form.non_field_errors|join:' ' }}
+            </div>
+          {% endif %}
+          <div class="mb-3">
+            {{ content_form.title.label_tag }}
+            {{ content_form.title }}
+            <div class="form-text">Заголовок попадёт в публикацию и предпросмотр.</div>
+            {% if content_form.title.errors %}
+              <div class="text-danger small">{{ content_form.title.errors|join:', ' }}</div>
+            {% endif %}
+          </div>
+          <div class="mb-3">
+            {{ content_form.body.label_tag }}
+            {{ content_form.body }}
+            {% if content_form.body.errors %}
+              <div class="text-danger small">{{ content_form.body.errors|join:', ' }}</div>
+            {% endif %}
+          </div>
+          <div class="d-flex flex-wrap gap-2 justify-content-end">
+            <button class="btn btn-primary" type="submit">Сохранить изменения</button>
+          </div>
+        </form>
+      {% else %}
+        <p class="text-muted mb-0">Запустите рерайт, чтобы получить текст для редактирования.</p>
+      {% endif %}
+
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Публикация</h2>
+      <form method="post" id="publish-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="publish" />
+        <div class="mb-3">
+          {{ publish_form.target.label_tag }}
+          {{ publish_form.target }}
+          <div class="form-text">{{ publish_form.target.help_text }}</div>
+          {% if publish_form.target.errors %}
+            <div class="text-danger small">{{ publish_form.target.errors|join:', ' }}</div>
+          {% endif %}
+        </div>
+        <div class="mb-3">
+          {{ publish_form.publish_at.label_tag }}
+          {{ publish_form.publish_at }}
+          <div class="form-text">{{ publish_form.publish_at.help_text }}</div>
+          {% if publish_form.publish_at.errors %}
+            <div class="text-danger small">{{ publish_form.publish_at.errors|join:', ' }}</div>
+          {% endif %}
+        </div>
+        <button
+          class="btn btn-success"
+          type="submit"
+          {% if story.status != 'ready' and story.status != 'published' %}disabled{% endif %}
+        >
+          Опубликовать
+        </button>
+        {% if story.status != 'ready' and story.status != 'published' %}
+          <p class="small text-muted mt-2">
+            Сначала получите готовый текст рерайта.
+          </p>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h2 class="h5">История публикаций</h2>
+      {% if publications %}
+        <div class="table-responsive">
+          <table class="table mb-0">
+            <thead>
+              <tr>
+                <th>Статус</th>
+                <th>Цель</th>
+                <th>Дата</th>
+                <th>Сообщения</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for publication in publications %}
+                <tr>
+                  <td>
+                    <span class="badge text-bg-secondary">
+                      {{ publication.get_status_display }}
+                    </span>
+                  </td>
+                  <td>{{ publication.target }}</td>
+                  <td>
+                    {% if publication.status == 'scheduled' and publication.scheduled_for %}
+                      {{ publication.scheduled_for|date:"d.m.Y H:i" }}
+                    {% else %}
+                      {{ publication.published_at|date:"d.m.Y H:i"|default:"—" }}
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if publication.message_ids %}
+                      {{ publication.message_ids|join:", " }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="text-muted mb-0">Публикаций пока нет.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const form = document.getElementById('rewrite-form');
+      const progress = document.getElementById('rewrite-progress');
+      const timerEl = progress ? progress.querySelector('[data-role="timer"]') : null;
+      const submitButtons = form ? form.querySelectorAll('[data-role="rewrite-submit"]') : [];
+      let timerId = null;
+
+      function stopTimer() {
+        if (timerId !== null) {
+          clearInterval(timerId);
+          timerId = null;
+        }
+      }
+
+      function startTimer() {
+        if (!progress || !timerEl) {
+          return;
+        }
+        let seconds = 0;
+        progress.classList.remove('d-none');
+        timerEl.textContent = '0';
+        submitButtons.forEach((button) => button.setAttribute('disabled', 'disabled'));
+        stopTimer();
+        timerId = window.setInterval(() => {
+          seconds += 1;
+          timerEl.textContent = String(seconds);
+        }, 1000);
+      }
+
+      if (form && progress) {
+        if (progress.dataset.active === '1') {
+          startTimer();
+        }
+        form.addEventListener('submit', () => {
+          startTimer();
+        });
+      }
+
+      window.addEventListener('pageshow', () => {
+        stopTimer();
+        if (!progress) {
+          submitButtons.forEach((button) => button.removeAttribute('disabled'));
+          return;
+        }
+        if (progress.dataset.active === '1') {
+          progress.classList.remove('d-none');
+          submitButtons.forEach((button) => button.setAttribute('disabled', 'disabled'));
+        } else {
+          progress.classList.add('d-none');
+          submitButtons.forEach((button) => button.removeAttribute('disabled'));
+        }
+      });
+
+      window.addEventListener('beforeunload', stopTimer);
+    })();
+  </script>
 {% endblock %}

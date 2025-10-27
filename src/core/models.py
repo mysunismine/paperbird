@@ -20,6 +20,12 @@ from core.constants import (
     IMAGE_BASE_RETRY_DELAY,
     IMAGE_MAX_ATTEMPTS,
     IMAGE_MAX_RETRY_DELAY,
+    MAINTENANCE_BASE_RETRY_DELAY,
+    MAINTENANCE_MAX_ATTEMPTS,
+    MAINTENANCE_MAX_RETRY_DELAY,
+    SOURCE_BASE_RETRY_DELAY,
+    SOURCE_MAX_ATTEMPTS,
+    SOURCE_MAX_RETRY_DELAY,
     PUBLISH_BASE_RETRY_DELAY,
     PUBLISH_MAX_ATTEMPTS,
     PUBLISH_MAX_RETRY_DELAY,
@@ -37,6 +43,8 @@ class WorkerTask(models.Model):
         REWRITE = "rewrite", "Rewrite"
         PUBLISH = "publish", "Publish"
         IMAGE = "image", "Image"
+        MAINTENANCE = "maintenance", "Maintenance"
+        SOURCE = "source", "Source"
         DEFAULT = "default", "Default"
 
     class Status(models.TextChoices):
@@ -376,6 +384,16 @@ QUEUE_DEFAULTS: dict[str, QueueSettings] = {
         max_attempts=IMAGE_MAX_ATTEMPTS,
         base_retry_delay=IMAGE_BASE_RETRY_DELAY,
         max_retry_delay=IMAGE_MAX_RETRY_DELAY,
+    ),
+    WorkerTask.Queue.MAINTENANCE: QueueSettings(
+        max_attempts=MAINTENANCE_MAX_ATTEMPTS,
+        base_retry_delay=MAINTENANCE_BASE_RETRY_DELAY,
+        max_retry_delay=MAINTENANCE_MAX_RETRY_DELAY,
+    ),
+    WorkerTask.Queue.SOURCE: QueueSettings(
+        max_attempts=SOURCE_MAX_ATTEMPTS,
+        base_retry_delay=SOURCE_BASE_RETRY_DELAY,
+        max_retry_delay=SOURCE_MAX_RETRY_DELAY,
     ),
     WorkerTask.Queue.DEFAULT: QueueSettings(),
 }
