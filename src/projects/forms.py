@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from django import forms
+from django.forms import BaseInlineFormSet, inlineformset_factory
 
 from core.constants import (
     IMAGE_MODEL_CHOICES,
     IMAGE_QUALITY_CHOICES,
     IMAGE_SIZE_CHOICES,
+    REWRITE_DEFAULT_MAX_TOKENS,
     REWRITE_MODEL_CHOICES,
 )
 from projects.models import Project, Source
 from projects.services.source_metadata import enqueue_source_refresh
+from stories.paperbird_stories.models import RewritePreset
 
 
 class ProjectCreateForm(forms.ModelForm):
@@ -250,3 +253,182 @@ class SourceCreateForm(SourceBaseForm):
 
 class SourceUpdateForm(SourceBaseForm):
     """Редактирование существующего источника."""
+
+
+class ProjectPromptForm(forms.ModelForm):
+    """Форма редактирования промтов рерайта проекта."""
+
+    output_format = forms.JSONField(
+        label="Формат вывода",
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control font-monospace",
+                "rows": 4,
+                "placeholder": '{"title": "...", "text": ["..."]}',
+            }
+        ),
+        help_text="JSON-структура, которую должна вернуть модель. Оставьте пустым, чтобы использовать формат по умолчанию.",
+        error_messages={
+            "invalid": "Введите корректный JSON или оставьте поле пустым.",
+        },
+    )
+
+    class Meta:
+        model = RewritePreset
+        fields = [
+            "name",
+            "description",
+            "style",
+            "editor_comment",
+            "max_length_tokens",
+            "output_format",
+            "is_active",
+        ]
+        widgets = {
+            "name": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "Название промта",
+                    "maxlength": RewritePreset._meta.get_field("name").max_length,
+                }
+            ),
+            "description": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 3,
+                    "placeholder": "Расскажите, когда использовать этот промт и какие цели он решает",
+                }
+            ),
+            "style": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "Например, «деловой, но дружелюбный тон»",
+                }
+            ),
+            "editor_comment": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 4,
+                    "placeholder": "Дополнительные инструкции, которые будут добавлены к запросу",
+                }
+            ),
+            "max_length_tokens": forms.NumberInput(
+                attrs={
+                    "class": "form-control",
+                    "min": 100,
+                    "step": 50,
+                }
+            ),
+            "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+        labels = {
+            "name": "Название",
+            "description": "Описание",
+            "style": "Стиль",
+            "editor_comment": "Комментарий редактора",
+            "max_length_tokens": "Лимит токенов",
+            "is_active": "Активен",
+        }
+        help_texts = {
+            "name": "Название отображается в списке пресетов.",
+            "style": "Короткая характеристика желаемого тона или формата текста.",
+            "editor_comment": "Эти инструкции добавятся к пользовательскому промту перед рерайтом.",
+            "max_length_tokens": "Ограничение длины ответа модели. Для GPT-4o-mini 1000 токенов обычно достаточно.",
+            "is_active": "Неактивные промты скрываются из выбора при рерайте.",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        token_field = self.fields["max_length_tokens"]
+        token_field.required = False
+        if token_field.min_value is None or token_field.min_value < 100:
+            token_field.min_value = 100
+        self.fields["name"].required = False
+
+    def _has_any_content(self, exclude: set[str] | None = None) -> bool:
+        exclude = exclude or set()
+        baseline_tokens = (
+            self.instance.max_length_tokens if self.instance.pk else None
+        )
+        for field_name, value in self.cleaned_data.items():
+            if field_name in exclude or field_name in {"id", "DELETE"}:
+                continue
+            if field_name == "is_active":
+                if bool(value):
+                    return True
+                continue
+            if field_name == "max_length_tokens":
+                if value not in (None, "", baseline_tokens):
+                    return True
+                continue
+            if value not in (None, "", [], {}):
+                return True
+        return False
+
+    def clean_name(self) -> str:
+        raw_name = (self.cleaned_data.get("name") or "").strip()
+        if not raw_name:
+            if self.empty_permitted and not self.has_changed():
+                return ""
+            if not self._has_any_content(exclude={"name"}):
+                return ""
+            raise forms.ValidationError("Укажите название промта")
+        return raw_name
+
+    def clean_max_length_tokens(self) -> int | None:
+        value = self.cleaned_data.get("max_length_tokens")
+        if value in (None, ""):
+            if self.instance.pk:
+                return self.instance.max_length_tokens
+            return None
+        if value < 100:
+            raise forms.ValidationError("Минимальный лимит — 100 токенов, чтобы сохранить качество ответа.")
+        return value
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if self._has_any_content():
+            if not cleaned_data.get("max_length_tokens"):
+                cleaned_data["max_length_tokens"] = REWRITE_DEFAULT_MAX_TOKENS
+        return cleaned_data
+
+    def clean_output_format(self) -> dict:
+        value = self.cleaned_data.get("output_format")
+        if not value:
+            return {}
+        if not isinstance(value, dict):
+            raise forms.ValidationError("Укажите объект JSON с ключами и значениями, которые ожидает публикация.")
+        return value
+
+
+class ProjectPromptInlineFormSet(BaseInlineFormSet):
+    """Проверки для набора промтов проекта."""
+
+    def clean(self) -> None:
+        super().clean()
+        seen: set[str] = set()
+        for form in self.forms:
+            if getattr(form, "cleaned_data", None) is None:
+                continue
+            if form.cleaned_data.get("DELETE"):
+                continue
+            name = form.cleaned_data.get("name")
+            if not name:
+                continue
+            normalized = name.strip().lower()
+            if normalized in seen:
+                form.add_error("name", "Названия промтов должны быть уникальными внутри проекта.")
+            else:
+                seen.add(normalized)
+
+
+ProjectPromptFormSet = inlineformset_factory(
+    Project,
+    RewritePreset,
+    form=ProjectPromptForm,
+    formset=ProjectPromptInlineFormSet,
+    fields=ProjectPromptForm.Meta.fields,
+    extra=1,
+    can_delete=False,
+)

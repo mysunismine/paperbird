@@ -129,5 +129,139 @@
         </div>
       </div>
     </div>
+    <div class="col-lg-8 col-xl-6">
+      <div class="card shadow-sm mt-4">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start mb-3">
+            <div>
+              <h2 class="h4 mb-1">Промты проекта</h2>
+              <p class="text-muted mb-0">
+                Управляйте инструкциями, которые используются для рерайта сюжетов. Изменения сохраняются для всех будущих рерайтов.
+              </p>
+            </div>
+          </div>
+          <form method="post" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="prompts" />
+            {{ prompt_formset.management_form }}
+            {% if prompt_formset.non_form_errors %}
+              <div class="alert alert-danger" role="alert">
+                {% for error in prompt_formset.non_form_errors %}
+                  <div>{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+            {% for form in prompt_formset %}
+              {% for hidden in form.hidden_fields %}
+                {{ hidden }}
+              {% endfor %}
+              <div class="border rounded p-3 mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <h3 class="h6 mb-0">
+                    {% with title=form.name.value|default:form.instance.name %}
+                      {% if title %}
+                        {{ title }}
+                      {% else %}
+                        Новый промт
+                      {% endif %}
+                    {% endwith %}
+                  </h3>
+                  <span class="badge text-bg-light">#{{ forloop.counter }}</span>
+                </div>
+                {% if form.non_field_errors %}
+                  <div class="alert alert-danger small mb-3">
+                    {% for error in form.non_field_errors %}
+                      <div>{{ error }}</div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                <div class="row">
+                  <div class="col-md-8">
+                    <label class="form-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+                    {{ form.name }}
+                    {% if form.name.help_text %}
+                      <div class="form-text">{{ form.name.help_text }}</div>
+                    {% endif %}
+                    {% for error in form.name.errors %}
+                      <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                  </div>
+                  <div class="col-md-4">
+                    <div class="form-check mt-md-4 pt-2">
+                      {{ form.is_active }}
+                      <label class="form-check-label" for="{{ form.is_active.id_for_label }}">
+                        {{ form.is_active.label }}
+                      </label>
+                    </div>
+                    {% if form.is_active.help_text %}
+                      <div class="form-text">{{ form.is_active.help_text }}</div>
+                    {% endif %}
+                    {% for error in form.is_active.errors %}
+                      <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                  </div>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+                  {{ form.description }}
+                  {% if form.description.help_text %}
+                    <div class="form-text">{{ form.description.help_text }}</div>
+                  {% endif %}
+                  {% for error in form.description.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </div>
+                <div class="mb-3">
+                  <label class="form-label" for="{{ form.style.id_for_label }}">{{ form.style.label }}</label>
+                  {{ form.style }}
+                  {% if form.style.help_text %}
+                    <div class="form-text">{{ form.style.help_text }}</div>
+                  {% endif %}
+                  {% for error in form.style.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </div>
+                <div class="mb-3">
+                  <label class="form-label" for="{{ form.editor_comment.id_for_label }}">{{ form.editor_comment.label }}</label>
+                  {{ form.editor_comment }}
+                  {% if form.editor_comment.help_text %}
+                    <div class="form-text">{{ form.editor_comment.help_text }}</div>
+                  {% endif %}
+                  {% for error in form.editor_comment.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </div>
+                <div class="mb-3">
+                  <label class="form-label" for="{{ form.output_format.id_for_label }}">{{ form.output_format.label }}</label>
+                  {{ form.output_format }}
+                  {% if form.output_format.help_text %}
+                    <div class="form-text">{{ form.output_format.help_text }}</div>
+                  {% endif %}
+                  {% for error in form.output_format.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </div>
+                <div class="mb-0">
+                  <label class="form-label" for="{{ form.max_length_tokens.id_for_label }}">{{ form.max_length_tokens.label }}</label>
+                  {{ form.max_length_tokens }}
+                  {% if form.max_length_tokens.help_text %}
+                    <div class="form-text">{{ form.max_length_tokens.help_text }}</div>
+                  {% endif %}
+                  {% for error in form.max_length_tokens.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endfor %}
+            <div class="d-flex justify-content-between align-items-center">
+              <div class="text-muted small">
+                Чтобы добавить новый промт, заполните пустую карточку и сохраните изменения.
+              </div>
+              <button type="submit" class="btn btn-primary">Сохранить промты</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
   </div>
 {% endblock %}

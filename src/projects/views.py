@@ -22,7 +22,12 @@ from projects.services.post_filters import (
     apply_post_filters,
     collect_keyword_hits,
 )
-from .forms import ProjectCreateForm, SourceCreateForm, SourceUpdateForm
+from .forms import (
+    ProjectCreateForm,
+    ProjectPromptFormSet,
+    SourceCreateForm,
+    SourceUpdateForm,
+)
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -260,6 +265,7 @@ class ProjectSettingsView(LoginRequiredMixin, UpdateView):
     template_name = "projects/project_settings.html"
     context_object_name = "project"
     success_url = reverse_lazy("projects:list")
+    prompt_formset_class = ProjectPromptFormSet
 
     def get_queryset(self):
         return Project.objects.filter(owner=self.request.user)
@@ -269,6 +275,32 @@ class ProjectSettingsView(LoginRequiredMixin, UpdateView):
         kwargs["owner"] = self.request.user
         return kwargs
 
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context.setdefault(
+            "prompt_formset",
+            getattr(self, "_prompt_formset", self.get_prompt_formset()),
+        )
+        return context
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if request.POST.get("form_type") == "prompts":
+            formset = self.get_prompt_formset(data=request.POST)
+            if formset.is_valid():
+                formset.save()
+                messages.success(
+                    request,
+                    f"Промты проекта «{self.object.name}» сохранены.",
+                )
+                return redirect(request.path)
+            self._prompt_formset = formset
+            form = self.get_form()
+            return self.render_to_response(
+                self.get_context_data(form=form, prompt_formset=formset)
+            )
+        return super().post(request, *args, **kwargs)
+
     def form_valid(self, form):  # type: ignore[override]
         response = super().form_valid(form)
         messages.success(
@@ -276,6 +308,18 @@ class ProjectSettingsView(LoginRequiredMixin, UpdateView):
             f"Настройки проекта «{self.object.name}» обновлены.",
         )
         return response
+
+    def get_prompt_formset(self, data=None):
+        if not hasattr(self, "object") or self.object is None:
+            self.object = self.get_object()
+        formset = self.prompt_formset_class(
+            data=data,
+            instance=self.object,
+            prefix="prompts",
+        )
+        if data is not None or not hasattr(self, "_prompt_formset"):
+            self._prompt_formset = formset
+        return formset
 
 
 class ProjectSourcesView(LoginRequiredMixin, TemplateView):
