@@ -108,7 +108,8 @@
     <div class="text-muted small">Последнее обновление: <span id="last-updated">{{ last_refreshed|date:"H:i:s" }}</span></div>
     <div class="d-flex gap-2 align-items-center">
       <span id="selected-counter" class="text-muted small">Ничего не выбрано</span>
-      <form id="create-story-form" action="{% url 'stories:create' %}" method="get" class="d-inline">
+      <form id="create-story-form" action="{% url 'stories:create' %}" method="post" class="d-inline">
+        {% csrf_token %}
         <input type="hidden" name="project" value="{{ project.id }}" />
       </form>
       <button type="button" class="btn btn-primary" id="create-story-btn" disabled>Сделать сюжет</button>
@@ -123,10 +124,10 @@
     (function () {
       const projectId = {{ project.id }};
       const tableContainer = document.getElementById("post-table");
-      const createBtn = document.getElementById("create-story-btn");
-      const createForm = document.getElementById("create-story-form");
       const counter = document.getElementById("selected-counter");
       const lastUpdatedEl = document.getElementById("last-updated");
+      const createBtn = document.getElementById("create-story-btn");
+      const createForm = document.getElementById("create-story-form");
       const storageKey = `paperbird:selected:${projectId}`;
       const selected = new Set(JSON.parse(localStorage.getItem(storageKey) || "[]"));
       const autoRefreshEnabled = '{{ collector.enabled|yesno:"true,false" }}' === 'true';
@@ -137,12 +138,10 @@
 
       function updateCounter() {
         const count = selected.size;
-        if (count === 0) {
-          counter.textContent = "Ничего не выбрано";
-        } else {
-          counter.textContent = `Выбрано ${count}`;
+        counter.textContent = count === 0 ? "Ничего не выбрано" : `Выбрано ${count}`;
+        if (createBtn) {
+          createBtn.disabled = count === 0;
         }
-        createBtn.disabled = count === 0;
       }
 
       function toggleSelection(id, checked) {
@@ -204,19 +203,6 @@
         selectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
       }
 
-      function submitStory() {
-        // remove previous post inputs
-        createForm.querySelectorAll('input[name="posts"]').forEach((node) => node.remove());
-        selected.forEach((id) => {
-          const input = document.createElement('input');
-          input.type = 'hidden';
-          input.name = 'posts';
-          input.value = id;
-          createForm.appendChild(input);
-        });
-        createForm.submit();
-      }
-
       function refreshTable() {
         fetch(window.location.href, {
           headers: {
@@ -240,7 +226,24 @@
           });
       }
 
-      createBtn.addEventListener('click', submitStory);
+      function submitStory() {
+        if (!createForm) {
+          return;
+        }
+        createForm.querySelectorAll('input[name="posts"]').forEach((node) => node.remove());
+        selected.forEach((id) => {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'posts';
+          input.value = id;
+          createForm.appendChild(input);
+        });
+        createForm.submit();
+      }
+
+      if (createBtn) {
+        createBtn.addEventListener('click', submitStory);
+      }
       attachCheckboxHandlers();
       updateCounter();
       if (autoRefreshEnabled) {

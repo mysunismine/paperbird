@@ -12,7 +12,7 @@ from projects.models import Post, Project
 
 
 def _expired_posts_queryset(project: Project, *, cutoff):
-    queryset = Post.objects.filter(project=project, collected_at__lt=cutoff)
+    queryset = Post.objects.filter(project=project, posted_at__lt=cutoff)
     return queryset.filter(stories__isnull=True)
 
 

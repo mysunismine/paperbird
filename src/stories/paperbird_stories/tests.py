@@ -268,7 +268,7 @@ class StoryPromptPreviewTests(TestCase):
 
     def test_preview_displays_prompt_form(self) -> None:
         url = reverse("stories:detail", args=[self.story.pk])
-        response = self.client.post(url, {"action": "rewrite"})
+        response = self.client.post(url, {"action": "rewrite", "preview": "1"})
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertTemplateUsed(response, "stories/story_prompt_preview.html")
@@ -295,7 +295,7 @@ class StoryPromptPreviewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, HTTPStatus.FOUND)
-        mocked_default_rewriter.assert_called_once()
+        mocked_default_rewriter.assert_called_once_with(project=self.story.project)
         rewriter.rewrite.assert_called_once()
         _, kwargs = rewriter.rewrite.call_args
         self.assertEqual(kwargs["editor_comment"], "Оставь цифры")
@@ -509,6 +509,16 @@ class StoryPublishFormTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("publish_at", form.errors)
 
+    def test_normalizes_target_links(self) -> None:
+        form = StoryPublishForm(data={"target": "https://t.me/example"})
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["target"], "@example")
+
+    def test_requires_target(self) -> None:
+        form = StoryPublishForm(data={"target": "   "})
+        self.assertFalse(form.is_valid())
+        self.assertIn("target", form.errors)
+
 
 class StoryImageFormsTests(TestCase):
     def test_generate_form_requires_prompt(self) -> None:
@@ -650,23 +660,60 @@ class StoryViewTests(TestCase):
     def test_story_list_view(self) -> None:
         response = self.client.get(reverse("stories:list"))
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertIn("Сюжеты", response.content.decode("utf-8"))
+        html = response.content.decode("utf-8")
+        self.assertIn("Сюжеты", html)
+        self.assertIn("Удалить", html)
+        self.assertNotIn('<h2 class="h5">Проекты</h2>', html)
+        self.assertNotIn("Создать сюжет", html)
 
-    def test_create_story_view(self) -> None:
+    def test_create_story_via_selection(self) -> None:
+        url = reverse("stories:create")
         response = self.client.post(
-            reverse("stories:create"),
-            data={
-                "project": self.project.id,
-                "posts": [self.post.id],
-                "title": "Новый сюжет",
-                "editor_comment": "",
-            },
+            url,
+            data={"project": self.project.id, "posts": [self.post.id]},
             follow=True,
         )
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        story = Story.objects.order_by("-created_at").first()
+        story = Story.objects.order_by('-created_at').first()
         assert story is not None
-        self.assertEqual(story.title, "Новый сюжет")
+        self.assertEqual(story.project, self.project)
+        self.assertEqual(list(story.ordered_posts().values_list('id', flat=True)), [self.post.id])
+
+    def test_delete_story_from_list(self) -> None:
+        delete_url = reverse("stories:delete", kwargs={"pk": self.story.pk})
+        response = self.client.post(delete_url, follow=True)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertFalse(Story.objects.filter(pk=self.story.pk).exists())
+        self.assertContains(response, "Сюжет «Story» удалён.")
+
+    def test_delete_story_requires_owner(self) -> None:
+        delete_url = reverse("stories:delete", kwargs={"pk": self.story.pk})
+        other = User.objects.create_user("outsider", password="pass")
+        self.client.logout()
+        self.client.force_login(other)
+        response = self.client.post(delete_url)
+        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
+        self.assertTrue(Story.objects.filter(pk=self.story.pk).exists())
+
+    def test_prompt_snapshot_requires_existing(self) -> None:
+        url = reverse("stories:prompt", kwargs={"pk": self.story.pk})
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, "У сюжета ещё нет сохранённого промпта.")
+
+    def test_prompt_snapshot_displays_last_prompt(self) -> None:
+        self.story.prompt_snapshot = [
+            {"role": "system", "content": "System snapshot"},
+            {"role": "user", "content": "User snapshot"},
+        ]
+        self.story.editor_comment = "Комментарий"
+        self.story.save(update_fields=["prompt_snapshot", "editor_comment", "updated_at"])
+        url = reverse("stories:prompt", kwargs={"pk": self.story.pk})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        html = response.content.decode("utf-8")
+        self.assertIn("System snapshot", html)
+        self.assertIn("User snapshot", html)
 
     @patch("stories.paperbird_stories.views.default_rewriter")
     def test_rewrite_preview_shows_prompt(self, mock_rewriter) -> None:
@@ -680,6 +727,7 @@ class StoryViewTests(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         content = response.content.decode("utf-8")
         self.assertIn("Проверьте промпт перед отправкой", content)
+        mock_rewriter.assert_not_called()
         mock_instance.rewrite.assert_not_called()
 
     def test_preview_shows_last_prompt_snapshot(self) -> None:
@@ -718,6 +766,7 @@ class StoryViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
+        mock_rewriter.assert_called_once_with(project=self.story.project)
         mock_instance.rewrite.assert_called_once()
         args, kwargs = mock_instance.rewrite.call_args
         self.assertEqual(args[0], self.story)
@@ -741,6 +790,7 @@ class StoryViewTests(TestCase):
             follow=True,
         )
         self.assertEqual(response.status_code, HTTPStatus.OK)
+        mock_rewriter.assert_called_once_with(project=self.story.project)
         mock_instance.rewrite.assert_called_once()
         _args, kwargs = mock_instance.rewrite.call_args
         self.assertEqual(kwargs.get("messages_override"), [

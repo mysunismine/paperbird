@@ -18,6 +18,8 @@ from core.constants import (
     IMAGE_MODEL_CHOICES,
     IMAGE_QUALITY_CHOICES,
     IMAGE_SIZE_CHOICES,
+    REWRITE_DEFAULT_MODEL,
+    REWRITE_MODEL_CHOICES,
 )
 from projects.services.language import detect_language
 
@@ -43,6 +45,13 @@ class Project(models.Model):
         max_length=255,
         blank=True,
         help_text="Например, @my_channel или ссылка на чат",
+    )
+    rewrite_model = models.CharField(
+        "Модель рерайта",
+        max_length=100,
+        choices=REWRITE_MODEL_CHOICES,
+        default=REWRITE_DEFAULT_MODEL,
+        help_text="Выберите модель GPT, которая будет использоваться при переписывании текста.",
     )
     image_model = models.CharField(
         "Модель генерации изображений",

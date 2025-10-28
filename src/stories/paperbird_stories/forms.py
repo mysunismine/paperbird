@@ -14,46 +14,7 @@ from core.constants import (
     IMAGE_QUALITY_CHOICES,
     IMAGE_SIZE_CHOICES,
 )
-from projects.models import Post, Project
 from stories.paperbird_stories.models import RewritePreset, Story
-
-
-class StoryCreateForm(forms.Form):
-    project = forms.ModelChoiceField(label="Проект", queryset=Project.objects.none())
-    posts = forms.ModelMultipleChoiceField(
-        label="Посты",
-        queryset=Post.objects.none(),
-        widget=forms.SelectMultiple(attrs={"size": 12}),
-        help_text="Выберите один или несколько постов для сюжета.",
-    )
-    title = forms.CharField(label="Заголовок", max_length=255, required=False)
-    editor_comment = forms.CharField(
-        label="Комментарий редактора",
-        required=False,
-        widget=forms.Textarea(attrs={"rows": 4}),
-        help_text="Опционально: добавьте инструкции для рерайта.",
-    )
-
-    def __init__(self, *args: Any, user, project_id: int | None = None, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        projects = Project.objects.filter(owner=user).order_by("name")
-        self.fields["project"].queryset = projects
-        if project_id:
-            self.fields["project"].initial = projects.filter(id=project_id).first()
-
-        posts_qs = Post.objects.filter(project__owner=user).order_by("-posted_at")
-        if project_id:
-            posts_qs = posts_qs.filter(project_id=project_id)
-        self.fields["posts"].queryset = posts_qs
-
-    def clean_posts(self):
-        posts = self.cleaned_data["posts"]
-        if not posts:
-            raise forms.ValidationError("Нужно выбрать хотя бы один пост")
-        project: Project = self.cleaned_data.get("project")
-        if project and any(post.project_id != project.id for post in posts):
-            raise forms.ValidationError("Все посты должны принадлежать выбранному проекту")
-        return posts
 
 
 class StoryRewriteForm(forms.Form):
@@ -175,6 +136,19 @@ class StoryPublishForm(forms.Form):
         if publish_at <= timezone.now():
             raise forms.ValidationError("Укажите время в будущем")
         return publish_at
+
+    def clean_target(self) -> str:
+        target = (self.cleaned_data.get("target") or "").strip()
+        if not target:
+            raise forms.ValidationError("Укажите канал или чат для публикации")
+        normalized = target
+        if normalized.startswith(("http://", "https://")):
+            if "t.me/" in normalized:
+                normalized = normalized.split("t.me/", 1)[1]
+            normalized = normalized.strip("/")
+        if normalized and not normalized.startswith("@") and not normalized.startswith("-"):
+            normalized = f"@{normalized}"
+        return normalized
 
 
 class StoryContentForm(forms.ModelForm):

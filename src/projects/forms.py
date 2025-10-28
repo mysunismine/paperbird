@@ -8,6 +8,7 @@ from core.constants import (
     IMAGE_MODEL_CHOICES,
     IMAGE_QUALITY_CHOICES,
     IMAGE_SIZE_CHOICES,
+    REWRITE_MODEL_CHOICES,
 )
 from projects.models import Project, Source
 from projects.services.source_metadata import enqueue_source_refresh
@@ -16,6 +17,12 @@ from projects.services.source_metadata import enqueue_source_refresh
 class ProjectCreateForm(forms.ModelForm):
     """Form to create a project owned by the current user."""
 
+    rewrite_model = forms.ChoiceField(
+        label="Модель рерайта",
+        choices=REWRITE_MODEL_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        help_text="Определяет, какая модель GPT будет использоваться для переписывания текста сюжетов.",
+    )
     image_model = forms.ChoiceField(
         label="Модель генерации изображений",
         choices=IMAGE_MODEL_CHOICES,
@@ -41,6 +48,7 @@ class ProjectCreateForm(forms.ModelForm):
             "name",
             "description",
             "publish_target",
+            "rewrite_model",
             "image_model",
             "image_size",
             "image_quality",
@@ -76,6 +84,7 @@ class ProjectCreateForm(forms.ModelForm):
             "name": "Название",
             "description": "Описание",
             "publish_target": "Целевой канал",
+            "rewrite_model": "Модель рерайта",
             "image_model": "Модель генерации изображений",
             "image_size": "Размер изображения",
             "image_quality": "Качество",
@@ -85,6 +94,7 @@ class ProjectCreateForm(forms.ModelForm):
             "name": "Название должно быть уникальным в рамках вашей команды",
             "description": "Необязательно, но помогает запомнить контекст и критерии сбора",
             "publish_target": "Используется по умолчанию при публикации сюжетов",
+            "rewrite_model": "Меняйте модель, если требуется более точный или быстрый рерайт.",
             "retention_days": "Посты старше этого значения будут автоматически удаляться",
         }
 

@@ -146,6 +146,14 @@
           >
             Посмотреть промт целиком
           </button>
+          {% if story.prompt_snapshot %}
+            <a
+              class="btn btn-outline-secondary"
+              href="{% url 'stories:prompt' story.pk %}?source=latest"
+            >
+              Последний промт
+            </a>
+          {% endif %}
         </div>
       </form>
     </div>
@@ -332,7 +340,11 @@
         if (progress.dataset.active === '1') {
           startTimer();
         }
-        form.addEventListener('submit', () => {
+        form.addEventListener('submit', (event) => {
+          const submitter = event.submitter;
+          if (submitter && submitter.name === 'preview') {
+            return;
+          }
           startTimer();
         });
       }

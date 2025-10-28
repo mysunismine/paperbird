@@ -52,18 +52,28 @@ class PostCollector:
                         continue
                     entity = await client.get_entity(target)
                     last_message_id = source.last_synced_id or 0
+                    cutoff = source.project.retention_cutoff()
                     async for message in client.iter_messages(
                         entity,
-                        limit=self.options.limit,
+                        limit=None,
                         min_id=last_message_id,
-                        reverse=True,
                     ):
                         if not isinstance(message, Message):
                             continue
+                        message_date = getattr(message, "date", None)
+                        if cutoff and message_date is not None:
+                            aware_date = message_date
+                            if timezone.is_naive(aware_date):
+                                aware_date = timezone.make_aware(
+                                    aware_date,
+                                    timezone.utc,
+                                )
+                            if aware_date < cutoff:
+                                break
                         processed = await self._process_message(message=message, source=source)
+                        last_message_id = max(last_message_id, message.id)
                         if processed:
                             fetched += 1
-                            last_message_id = max(last_message_id, message.id)
                         else:
                             skipped += 1
                     source.last_synced_at = timezone.now()

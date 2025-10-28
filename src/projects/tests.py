@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 from datetime import timedelta
 from http import HTTPStatus
@@ -11,7 +12,7 @@ from types import SimpleNamespace
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -22,6 +23,8 @@ from core.constants import (
     IMAGE_MODEL_CHOICES,
     IMAGE_QUALITY_CHOICES,
     IMAGE_SIZE_CHOICES,
+    REWRITE_DEFAULT_MODEL,
+    REWRITE_MODEL_CHOICES,
 )
 from core.models import WorkerTask
 from projects.models import Post, Project, Source
@@ -31,7 +34,7 @@ from projects.services.post_filters import (
     collect_keyword_hits,
     summarize_keyword_hits,
 )
-from projects.services.collector import _normalize_raw
+from projects.services.collector import PostCollector, _normalize_raw
 from projects.services.retention import purge_expired_posts, schedule_retention_cleanup
 from projects.workers import (
     collect_project_posts_task,
@@ -340,12 +343,14 @@ class ProjectCreateViewTests(TestCase):
         alt_model = IMAGE_MODEL_CHOICES[1][0]
         alt_size = IMAGE_SIZE_CHOICES[1][0]
         alt_quality = IMAGE_QUALITY_CHOICES[1][0]
+        rewrite_choice = REWRITE_MODEL_CHOICES[1][0]
         response = self.client.post(
             reverse("projects:create"),
             data={
                 "name": "Мониторинг",
                 "description": "Telegram-лента",
                 "publish_target": "@paperbird",
+                "rewrite_model": rewrite_choice,
                 "image_model": alt_model,
                 "image_size": alt_size,
                 "image_quality": alt_quality,
@@ -357,6 +362,7 @@ class ProjectCreateViewTests(TestCase):
         project = Project.objects.get(owner=self.user, name="Мониторинг")
         self.assertEqual(project.publish_target, "@paperbird")
         self.assertEqual(project.retention_days, 45)
+        self.assertEqual(project.rewrite_model, rewrite_choice)
         self.assertEqual(project.image_model, alt_model)
         self.assertEqual(project.image_size, alt_size)
         self.assertEqual(project.image_quality, alt_quality)
@@ -368,6 +374,7 @@ class ProjectCreateViewTests(TestCase):
             data={
                 "name": "Мониторинг",
                 "description": "",
+                "rewrite_model": REWRITE_DEFAULT_MODEL,
                 "image_model": IMAGE_DEFAULT_MODEL,
                 "image_size": IMAGE_DEFAULT_SIZE,
                 "image_quality": IMAGE_DEFAULT_QUALITY,
@@ -408,12 +415,14 @@ class ProjectSettingsViewTests(TestCase):
         new_model = IMAGE_MODEL_CHOICES[1][0]
         new_size = IMAGE_SIZE_CHOICES[-1][0]
         new_quality = IMAGE_QUALITY_CHOICES[1][0]
+        new_rewrite = REWRITE_MODEL_CHOICES[-1][0]
         response = self.client.post(
             reverse("projects:settings", args=[self.project.pk]),
             data={
                 "name": "Новости",
                 "description": "Обновлённое описание",
                 "publish_target": "@fresh",
+                "rewrite_model": new_rewrite,
                 "image_model": new_model,
                 "image_size": new_size,
                 "image_quality": new_quality,
@@ -426,6 +435,7 @@ class ProjectSettingsViewTests(TestCase):
         self.assertEqual(self.project.publish_target, "@fresh")
         self.assertEqual(self.project.retention_days, 60)
         self.assertEqual(self.project.description, "Обновлённое описание")
+        self.assertEqual(self.project.rewrite_model, new_rewrite)
         self.assertEqual(self.project.image_model, new_model)
         self.assertEqual(self.project.image_size, new_size)
         self.assertEqual(self.project.image_quality, new_quality)
@@ -564,6 +574,95 @@ class CollectorSanitizationTests(TestCase):
 
         json.dumps(normalized)  # should not raise
         self.assertIsInstance(normalized["date"], str)
+
+
+class CollectorRetentionWindowTests(TransactionTestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("window", password="secret")
+        self.project = Project.objects.create(
+            owner=self.user,
+            name="Окно сбора",
+            retention_days=180,
+        )
+        self.source = Source.objects.create(
+            project=self.project,
+            username="channel",
+        )
+
+    @patch("projects.services.collector.TelethonClientFactory.connect")
+    def test_skips_messages_older_than_retention(self, mock_connect) -> None:
+        class FakeMessage(SimpleNamespace):
+            def to_dict(self):
+                return {}
+
+        now = timezone.now()
+        historical = FakeMessage(
+            id=101,
+            message="Очень старый пост",
+            date=now - timedelta(days=190),
+            media=None,
+        )
+        recent = FakeMessage(
+            id=202,
+            message="Свежий пост",
+            date=now - timedelta(days=5),
+            media=None,
+        )
+        newer = FakeMessage(
+            id=303,
+            message="Новое сообщение",
+            date=now - timedelta(days=2),
+            media=None,
+        )
+
+        class FakeClient:
+            def __init__(self, produced):
+                self._produced = produced
+
+            async def get_entity(self, target):
+                return target
+
+            async def iter_messages(self, *args, **kwargs):
+                min_id = kwargs.get("min_id") or 0
+                for item in self._produced:
+                    if item.id <= min_id:
+                        continue
+                    yield item
+
+        class FakeContext:
+            def __init__(self, client):
+                self.client = client
+
+            async def __aenter__(self):
+                return self.client
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        mock_connect.side_effect = [
+            FakeContext(FakeClient([recent, historical])),
+            FakeContext(FakeClient([newer, recent, historical])),
+        ]
+
+        with patch("projects.services.collector.Message", FakeMessage):
+            collector = PostCollector(user=self.user)
+            asyncio.run(collector.collect_for_project(self.project))
+            asyncio.run(collector.collect_for_project(self.project))
+
+        stored_posts = list(
+            Post.objects.filter(source=self.source)
+            .order_by("telegram_id")
+            .values_list("telegram_id", flat=True)
+        )
+        self.assertEqual(stored_posts, [202, 303])
+
+        self.source.refresh_from_db()
+        self.assertEqual(self.source.last_synced_id, 303)
+
+        logs = list(self.source.sync_logs.order_by("-started_at")[:2])
+        self.assertEqual(len(logs), 2)
+        self.assertEqual(logs[0].fetched_messages, 1)
+        self.assertEqual(logs[0].skipped_messages, 0)
 
 
 class RetentionServiceTests(TestCase):

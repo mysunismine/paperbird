@@ -8,16 +8,16 @@ from typing import Any, Sequence
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import redirect
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
-from django.views.generic import DetailView, FormView, ListView
+from django.views import View
+from django.views.generic import DetailView, ListView, TemplateView
 from django.template.response import TemplateResponse
 from django.utils import timezone
 
 from projects.models import Post, Project
 from projects.services.telethon_client import TelethonCredentialsMissingError
 from stories.paperbird_stories.forms import (
-    StoryCreateForm,
     StoryContentForm,
     StoryImageAttachForm,
     StoryImageDeleteForm,
@@ -53,73 +53,47 @@ class StoryListView(LoginRequiredMixin, ListView):
     def get_queryset(self):
         return Story.objects.filter(project__owner=self.request.user).select_related("project")
 
-    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-        context = super().get_context_data(**kwargs)
-        context["projects"] = Project.objects.filter(owner=self.request.user).order_by("name")
-        return context
 
+class StoryCreateView(LoginRequiredMixin, View):
+    """Создание сюжета из выбранных постов без промежуточной страницы."""
 
-class StoryCreateView(LoginRequiredMixin, FormView):
-    """Создание нового сюжета из выбранных постов."""
+    def post(self, request, *args, **kwargs):
+        post_ids_raw = request.POST.getlist("posts")
+        project_id = request.POST.get("project")
+        if not post_ids_raw:
+            messages.error(request, "Выберите посты для сюжета")
+            return self._redirect_back(project_id)
+        try:
+            selected_ids = [int(value) for value in post_ids_raw]
+        except ValueError:
+            messages.error(request, "Некорректный список постов")
+            return self._redirect_back(project_id)
 
-    template_name = "stories/story_form.html"
-    form_class = StoryCreateForm
-
-    def get(self, request, *args, **kwargs):
-        post_ids = request.GET.getlist("posts")
-        if post_ids:
-            return self._create_from_selection(request, post_ids)
-        return super().get(request, *args, **kwargs)
-
-    def get_form_kwargs(self) -> dict[str, Any]:
-        kwargs = super().get_form_kwargs()
-        project_id = self.request.GET.get("project") or self.request.POST.get("project")
-        kwargs["user"] = self.request.user
-        kwargs["project_id"] = int(project_id) if project_id else None
-        return kwargs
-
-    def _create_from_selection(self, request, post_ids: list[str]):
-        cleaned_ids: list[int] = [int(value) for value in post_ids if value.isdigit()]
-        fallback = request.GET.get("project")
-        if not cleaned_ids:
-            messages.error(request, "Не выбраны посты для сюжета")
-            return self._redirect_to_project(fallback)
-
+        project = get_object_or_404(
+            Project.objects.filter(owner=request.user),
+            pk=project_id,
+        )
         posts = list(
-            Post.objects.filter(project__owner=request.user, pk__in=cleaned_ids)
+            Post.objects.filter(project=project, pk__in=selected_ids)
             .select_related("project")
         )
-        if not posts:
+        if len(posts) == 0:
             messages.error(request, "Не удалось найти выбранные посты")
-            return self._redirect_to_project(fallback)
-
-        posts_map = {post.pk: post for post in posts}
-        ordered_posts: list[Post] = []
-        for pk in cleaned_ids:
-            post = posts_map.get(pk)
-            if post is None:
-                messages.error(request, "Некоторые посты недоступны")
-                return self._redirect_to_project(posts[0].project_id)
-            ordered_posts.append(post)
-
-        project = ordered_posts[0].project
-        if any(post.project_id != project.id for post in ordered_posts):
-            messages.error(request, "Все посты должны принадлежать одному проекту")
-            return self._redirect_to_project(project.id)
-
+            return self._redirect_back(project.pk)
+        order_map = {pk: index for index, pk in enumerate(selected_ids)}
+        posts.sort(key=lambda post: order_map.get(post.pk, 0))
         try:
             story = StoryFactory(project=project).create(
-                post_ids=[post.pk for post in ordered_posts],
+                post_ids=[post.pk for post in posts],
                 title="",
             )
         except StoryCreationError as exc:
             messages.error(request, str(exc))
-            return self._redirect_to_project(project.id)
-
+            return self._redirect_back(project.pk)
         messages.success(request, "Сюжет создан. Добавьте комментарий и запустите рерайт.")
         return redirect("stories:detail", pk=story.pk)
 
-    def _redirect_to_project(self, project_id: str | int | None):
+    def _redirect_back(self, project_id: int | str | None):
         if project_id and str(project_id).isdigit():
             return redirect("projects:post-list", int(project_id))
         first_project = self.request.user.projects.order_by("id").first()
@@ -127,26 +101,55 @@ class StoryCreateView(LoginRequiredMixin, FormView):
             return redirect("projects:post-list", first_project.id)
         return redirect("projects:list")
 
-    def form_valid(self, form: StoryCreateForm):
-        project: Project = form.cleaned_data["project"]
-        posts = form.cleaned_data["posts"]
-        title = form.cleaned_data.get("title", "")
-        editor_comment = form.cleaned_data.get("editor_comment", "")
-        try:
-            story = StoryFactory(project=project).create(
-                post_ids=list(posts.values_list("id", flat=True)),
-                title=title,
-                editor_comment=editor_comment,
-            )
-        except StoryCreationError as exc:
-            form.add_error(None, str(exc))
-            return self.form_invalid(form)
-        messages.success(self.request, "Сюжет создан. Запустите рерайт, чтобы получить текст.")
-        self.created_story_pk = story.pk
-        return super().form_valid(form)
 
-    def get_success_url(self) -> str:  # noqa: D401 - нужен доступ к созданному pk
-        return reverse("stories:detail", kwargs={"pk": self.created_story_pk})
+class StoryDeleteView(LoginRequiredMixin, View):
+    """Удаление сюжета пользователя."""
+
+    def post(self, request, pk: int, *args, **kwargs):
+        story = get_object_or_404(
+            Story.objects.select_related("project"),
+            pk=pk,
+            project__owner=request.user,
+        )
+        title = story.title.strip() if story.title else ""
+        story.delete()
+        display = title or f"Сюжет #{pk}"
+        messages.success(request, f"Сюжет «{display}» удалён.")
+        return redirect("stories:list")
+
+
+class StoryPromptSnapshotView(LoginRequiredMixin, TemplateView):
+    """Отображает последний промпт рерайта."""
+
+    template_name = "stories/story_prompt_preview.html"
+
+    def get(self, request, pk: int, *args, **kwargs):
+        story = get_object_or_404(
+            Story.objects.select_related("project"),
+            pk=pk,
+            project__owner=request.user,
+        )
+        if not story.prompt_snapshot:
+            messages.info(request, "У сюжета ещё нет сохранённого промпта.")
+            return redirect("stories:detail", pk=story.pk)
+        prompt_messages = list(story.prompt_snapshot)
+        prompt_form = StoryPromptConfirmForm(
+            story=story,
+            initial={
+                "prompt_system": StoryDetailView._extract_message(prompt_messages, "system"),
+                "prompt_user": StoryDetailView._extract_message(prompt_messages, "user"),
+                "preset": story.last_rewrite_preset,
+                "editor_comment": story.editor_comment or "",
+            },
+        )
+        context = {
+            "story": story,
+            "prompt_form": prompt_form,
+            "editor_comment": story.editor_comment or "",
+            "preset": story.last_rewrite_preset,
+            "preview_source": "latest",
+        }
+        return self.render_to_response(context)
 
 
 class StoryDetailView(LoginRequiredMixin, DetailView):
@@ -227,7 +230,7 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
                 {"role": "user", "content": prompt_form.cleaned_data["prompt_user"]},
             ]
             try:
-                rewriter: StoryRewriter = default_rewriter()
+                rewriter: StoryRewriter = default_rewriter(project=self.object.project)
                 rewriter.rewrite(
                     self.object,
                     editor_comment=comment,
@@ -276,11 +279,11 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
                     "editor_comment": comment,
                 },
             )
-            context = self._prompt_context(prompt_form=prompt_form)
+            context = self._prompt_context(prompt_form=prompt_form, source="preview")
             return TemplateResponse(request, "stories/story_prompt_preview.html", context)
 
         try:
-            rewriter: StoryRewriter = default_rewriter()
+            rewriter: StoryRewriter = default_rewriter(project=self.object.project)
             rewriter.rewrite(
                 self.object,
                 editor_comment=comment,
@@ -307,12 +310,14 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         self,
         *,
         prompt_form: StoryPromptConfirmForm,
+        source: str = "draft",
     ) -> dict[str, Any]:
         return {
             "story": self.object,
             "editor_comment": prompt_form.editor_comment_value,
             "preset": prompt_form.selected_preset,
             "prompt_form": prompt_form,
+            "preview_source": source,
         }
 
     @staticmethod

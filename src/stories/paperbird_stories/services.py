@@ -366,10 +366,15 @@ class OpenAIChatProvider:
         return ProviderResponse(result=parsed, raw=data, response_id=response_id)
 
 
-def default_rewriter() -> StoryRewriter:
-    """Фабрика стандартного рерайтера с OpenAI провайдером."""
+def default_rewriter(*, project: Project | None = None) -> StoryRewriter:
+    """Фабрика стандартного рерайтера с OpenAI провайдером для проекта."""
 
-    provider = OpenAIChatProvider()
+    provider_kwargs = {}
+    if project is not None:
+        rewrite_model = getattr(project, "rewrite_model", "") or ""
+        if rewrite_model:
+            provider_kwargs["model"] = rewrite_model
+    provider = OpenAIChatProvider(**provider_kwargs)
     return StoryRewriter(provider=provider)
 
 
@@ -588,21 +593,13 @@ class StoryPublisher:
                     target=target,
                     result_text=text,
                     scheduled_for=scheduled_for,
-                    status=(
-                        Publication.Status.SCHEDULED
-                        if scheduled_for
-                        else Publication.Status.PUBLISHING
-                    ),
+                    status=Publication.Status.SCHEDULED,
                 )
 
             if scheduled_for:
                 enqueue_task(
                     WorkerTask.Queue.PUBLISH,
-                    payload={
-                        "publication_id": publication.pk,
-                        "project_id": story.project_id,
-                        "story_id": story.pk,
-                    },
+                    payload={"publication_id": publication.pk},
                     scheduled_for=scheduled_for,
                 )
                 self.logger.info(
@@ -618,6 +615,7 @@ class StoryPublisher:
                 publication_id=publication.pk,
                 target=target,
             )
+            publication.mark_publishing()
             return self.deliver(publication)
 
     def deliver(self, publication: Publication) -> Publication:
@@ -626,8 +624,6 @@ class StoryPublisher:
         story = publication.story
         if publication.status == Publication.Status.PUBLISHED:
             return publication
-        if publication.status == Publication.Status.PUBLISHING:
-            return publication
         if publication.status == Publication.Status.FAILED:
             raise PublicationFailed("Публикация уже завершилась с ошибкой")
         if not publication.result_text:
@@ -635,7 +631,8 @@ class StoryPublisher:
 
         with logging_context(project_id=story.project_id, story_id=story.pk):
             try:
-                publication.mark_publishing()
+                if publication.status != Publication.Status.PUBLISHING:
+                    publication.mark_publishing()
                 result = self.backend.send(
                     story=story, text=publication.result_text, target=publication.target
                 )
@@ -678,6 +675,8 @@ class TelethonPublisherBackend:
         async with factory.connect() as client:
             message = await client.send_message(target, text)
             message_id = int(getattr(message, "id", 0))
+            if message_id <= 0:
+                raise PublicationFailed("Telegram не вернул идентификатор сообщения")
             published_at = getattr(message, "date", None) or timezone.now()
             raw = message.to_dict() if hasattr(message, "to_dict") else None
             return PublishResult(message_ids=[message_id], published_at=published_at, raw=raw)
