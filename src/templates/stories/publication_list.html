@@ -3,49 +3,150 @@
 {% block title %}Публикации — Paperbird{% endblock %}
 
 {% block content %}
-  <div class="d-flex justify-content-between align-items-start mb-4">
-    <div>
-      <h1 class="h3 mb-1">Публикации</h1>
-      <p class="text-muted mb-0">История отправленных и запланированных публикаций по вашим проектам.</p>
-    </div>
-    <a class="btn btn-outline-secondary" href="{% url 'stories:list' %}">К сюжетам</a>
+  <div class="mb-4">
+    <h1 class="h3 mb-1">Публикации</h1>
+    <p class="text-muted mb-0">История отправленных и запланированных публикаций по вашим проектам.</p>
   </div>
 
-  {% if publications %}
-    <div class="table-responsive">
-      <table class="table align-middle">
-        <thead>
-          <tr>
-            <th>Сюжет</th>
-            <th>Проект</th>
-            <th>Цель</th>
-            <th>Статус</th>
-            <th>Дата публикации</th>
-            <th>Сообщения</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for publication in publications %}
-            <tr>
-              <td>
+  {% if publication_forms %}
+    {% for item in publication_forms %}
+      {% with publication=item.0 form=item.1 %}
+        <div class="card shadow-sm mb-4">
+          <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div>
+              <div class="fw-semibold">
                 <a href="{% url 'stories:detail' publication.story_id %}">{{ publication.story.title|default:"Сюжет" }}</a>
-              </td>
-              <td>{{ publication.story.project.name }}</td>
-              <td>{{ publication.target }}</td>
-              <td><span class="badge text-bg-secondary">{{ publication.get_status_display }}</span></td>
-              <td>{{ publication.published_at|date:"d.m.Y H:i"|default:"—" }}</td>
-              <td>
-                {% if publication.message_ids %}
-                  {{ publication.message_ids|join:", " }}
-                {% else %}
-                  —
+              </div>
+              <div class="text-muted small">
+                {{ publication.story.project.name }} · Создана {{ publication.created_at|date:"d.m.Y H:i" }}
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge text-bg-secondary">{{ publication.get_status_display }}</span>
+              {% if publication.message_url %}
+                <a class="btn btn-sm btn-outline-primary" href="{{ publication.message_url }}" target="_blank" rel="noopener">
+                  Открыть сообщение
+                </a>
+              {% endif %}
+            </div>
+          </div>
+          <div class="card-body">
+            <form method="post" class="mb-0">
+              {% csrf_token %}
+              <input type="hidden" name="publication_id" value="{{ publication.id }}" />
+              {% if page_obj %}
+                <input type="hidden" name="page" value="{{ page_obj.number }}" />
+              {% endif %}
+              {% for hidden in form.hidden_fields %}
+                {{ hidden }}
+              {% endfor %}
+              {% if form.non_field_errors %}
+                <div class="alert alert-danger">
+                  {% for error in form.non_field_errors %}
+                    <div>{{ error }}</div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label" for="{{ form.status.id_for_label }}">{{ form.status.label }}</label>
+                  {{ form.status }}
+                  {% if form.status.help_text %}
+                    <div class="form-text">{{ form.status.help_text }}</div>
+                  {% endif %}
+                  {% for error in form.status.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label" for="{{ form.target.id_for_label }}">{{ form.target.label }}</label>
+                  {{ form.target }}
+                  {% if form.target.help_text %}
+                    <div class="form-text">{{ form.target.help_text }}</div>
+                  {% endif %}
+                  {% for error in form.target.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label" for="{{ form.scheduled_for.id_for_label }}">{{ form.scheduled_for.label }}</label>
+                  {{ form.scheduled_for }}
+                  {% if form.scheduled_for.help_text %}
+                    <div class="form-text">{{ form.scheduled_for.help_text }}</div>
+                  {% endif %}
+                  {% for error in form.scheduled_for.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="row g-3 mt-0">
+                <div class="col-md-4">
+                  <label class="form-label" for="{{ form.published_at.id_for_label }}">{{ form.published_at.label }}</label>
+                  {{ form.published_at }}
+                  {% if form.published_at.help_text %}
+                    <div class="form-text">{{ form.published_at.help_text }}</div>
+                  {% endif %}
+                  {% for error in form.published_at.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </div>
+                <div class="col-md-8">
+                  <div class="small text-muted">
+                    {% if publication.message_ids %}
+                      Идентификаторы сообщений: {{ publication.message_ids|join:", " }}
+                    {% else %}
+                      Сообщения ещё не созданы.
+                    {% endif %}
+                  </div>
+                  <div class="small text-muted">
+                    Попытки отправки: {{ publication.attempts }} · Обновлено {{ publication.updated_at|date:"d.m.Y H:i" }}
+                  </div>
+                </div>
+              </div>
+              <div class="mt-3">
+                <label class="form-label" for="{{ form.result_text.id_for_label }}">{{ form.result_text.label }}</label>
+                {{ form.result_text }}
+                {% if form.result_text.help_text %}
+                  <div class="form-text">{{ form.result_text.help_text }}</div>
                 {% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+                {% for error in form.result_text.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="mt-3">
+                <label class="form-label" for="{{ form.error_message.id_for_label }}">{{ form.error_message.label }}</label>
+                {{ form.error_message }}
+                {% if form.error_message.help_text %}
+                  <div class="form-text">{{ form.error_message.help_text }}</div>
+                {% endif %}
+                {% for error in form.error_message.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-4">
+                <div class="text-muted small">
+                  ID публикации: {{ publication.id }}
+                </div>
+                <div class="d-flex gap-2">
+                  <button type="submit" name="submit_action" value="save" class="btn btn-primary">
+                    Сохранить
+                  </button>
+                  <button
+                    type="submit"
+                    name="submit_action"
+                    value="delete"
+                    class="btn btn-outline-danger"
+                    onclick="return confirm('Удалить публикацию?')"
+                  >
+                    Удалить
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      {% endwith %}
+    {% endfor %}
 
     {% if is_paginated %}
       <nav aria-label="Навигация по публикациям" class="mt-4">

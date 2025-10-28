@@ -340,42 +340,20 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
             self._create_form = SourceCreateForm(project=self.project)
         return self._create_form
 
-    def _get_edit_form(self, source: Source | None):
-        if source is None:
-            return None
-        if getattr(self, "_edit_form_source", None) == source:
-            return self._edit_form
-        self._edit_form_source = source
-        self._edit_form = SourceUpdateForm(project=self.project, instance=source)
-        return self._edit_form
-
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        edit_source = None
-        source_id = self.request.GET.get("source")
-        if source_id and source_id.isdigit():
-            edit_source = self.project.sources.filter(pk=int(source_id)).first()
         context.update(
             {
                 "project": self.project,
                 "form": getattr(self, "_create_form", self._get_create_form()),
-                "edit_form": getattr(
-                    self,
-                    "_edit_form",
-                    self._get_edit_form(edit_source),
-                ),
-                "editing_source": edit_source,
                 "sources": self.project.sources.order_by("title", "telegram_id"),
             }
         )
         return context
 
     def post(self, request, *args, **kwargs):
-        action = request.POST.get("action", "create")
-        if action == "delete":
+        if request.POST.get("action") == "delete":
             return self._handle_delete(request)
-        if action == "update":
-            return self._handle_update(request)
         return self._handle_create(request)
 
     def _handle_create(self, request):
@@ -388,22 +366,6 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
         self._create_form = form
         return self.get(request, pk=self.project.pk)
 
-    def _handle_update(self, request):
-        source_id = request.POST.get("source_id")
-        source = self.project.sources.filter(pk=source_id).first()
-        if source is None:
-            messages.error(request, "Источник не найден")
-            return redirect("projects:sources", pk=self.project.pk)
-        form = SourceUpdateForm(request.POST, project=self.project, instance=source)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Источник обновлён.")
-            return redirect("projects:sources", pk=self.project.pk)
-        messages.error(request, "Исправьте ошибки формы")
-        self._edit_form = form
-        self._edit_form_source = source
-        return self.get(request, pk=self.project.pk)
-
     def _handle_delete(self, request):
         source_id = request.POST.get("source_id")
         source = self.project.sources.filter(pk=source_id).first()
@@ -413,3 +375,33 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
             source.delete()
             messages.success(request, "Источник удалён.")
         return redirect("projects:sources", pk=self.project.pk)
+
+
+class ProjectSourceUpdateView(LoginRequiredMixin, UpdateView):
+    """Отдельная страница редактирования источника."""
+
+    model = Source
+    form_class = SourceUpdateForm
+    template_name = "projects/project_source_form.html"
+    context_object_name = "source"
+
+    def get_queryset(self):
+        return Source.objects.filter(
+            project__owner=self.request.user,
+            project_id=self.kwargs["project_pk"],
+        ).select_related("project")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["project"] = self.object.project
+        return context
+
+    def get_form_kwargs(self) -> dict[str, Any]:
+        kwargs = super().get_form_kwargs()
+        kwargs["project"] = self.get_object().project
+        return kwargs
+
+    def form_valid(self, form):  # type: ignore[override]
+        source = form.save()
+        messages.success(self.request, "Источник обновлён.")
+        return redirect("projects:sources", pk=source.project_id)

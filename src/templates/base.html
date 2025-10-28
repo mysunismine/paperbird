@@ -18,10 +18,10 @@
         <div class="collapse navbar-collapse show">
           <ul class="navbar-nav ms-auto">
             {% if user.is_authenticated %}
-              {% with current_app=request.resolver_match.app_name current_url=request.resolver_match.url_name %}
+              {% with current_app=request.resolver_match.app_name|default_if_none:"" current_url=request.resolver_match.url_name|default_if_none:"" %}
               <li class="nav-item">
                 <a
-                  class="nav-link {% if current_app == 'projects' %}active{% endif %}"
+                  class="nav-link {% if current_app == 'projects' and current_url != 'post-list' %}active{% endif %}"
                   href="{% url 'projects:list' %}"
                 >
                   Проекты
@@ -29,7 +29,7 @@
               </li>
               <li class="nav-item">
                 <a
-                  class="nav-link {% if current_url == 'feed' %}active{% endif %}"
+                  class="nav-link {% if current_url == 'feed' or current_app == 'projects' and current_url == 'post-list' %}active{% endif %}"
                   href="{% url 'feed' %}"
                 >
                   Лента

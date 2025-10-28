@@ -14,7 +14,7 @@ from core.constants import (
     IMAGE_QUALITY_CHOICES,
     IMAGE_SIZE_CHOICES,
 )
-from stories.paperbird_stories.models import RewritePreset, Story
+from stories.paperbird_stories.models import Publication, RewritePreset, Story
 
 
 class StoryRewriteForm(forms.Form):
@@ -245,3 +245,118 @@ class StoryImageAttachForm(forms.Form):
 
 class StoryImageDeleteForm(forms.Form):
     confirm = forms.BooleanField(required=True, widget=forms.HiddenInput(), initial=True)
+
+
+class PublicationManageForm(forms.ModelForm):
+    """Форма для ручного управления публикацией."""
+
+    scheduled_for = forms.DateTimeField(
+        label="Запланировано",
+        required=False,
+        input_formats=["%Y-%m-%dT%H:%M"],
+        widget=forms.DateTimeInput(
+            attrs={"type": "datetime-local", "class": "form-control"}
+        ),
+        help_text="Укажите время, если хотите отложить публикацию. Оставьте пустым для немедленного запуска.",
+    )
+    published_at = forms.DateTimeField(
+        label="Опубликовано",
+        required=False,
+        input_formats=["%Y-%m-%dT%H:%M"],
+        widget=forms.DateTimeInput(
+            attrs={"type": "datetime-local", "class": "form-control"}
+        ),
+        help_text="Заполните, если публикация была выполнена вручную и нужно зафиксировать дату.",
+    )
+
+    class Meta:
+        model = Publication
+        fields = [
+            "status",
+            "target",
+            "scheduled_for",
+            "published_at",
+            "result_text",
+            "error_message",
+        ]
+        widgets = {
+            "status": forms.Select(attrs={"class": "form-select"}),
+            "target": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "@channel или ссылка",
+                }
+            ),
+            "result_text": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 4,
+                    "placeholder": "Текст, который будет отправлен в канал",
+                }
+            ),
+            "error_message": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 3,
+                    "placeholder": "Опишите причину ошибки, чтобы коллеги могли разобраться",
+                }
+            ),
+        }
+        labels = {
+            "status": "Статус",
+            "target": "Целевой канал",
+            "result_text": "Текст публикации",
+            "error_message": "Ошибка",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound:
+            for field_name in ("scheduled_for", "published_at"):
+                value = getattr(self.instance, field_name, None)
+                if value:
+                    localized = timezone.localtime(value, timezone.get_current_timezone())
+                    self.initial[field_name] = localized.strftime("%Y-%m-%dT%H:%M")
+
+    def clean_target(self) -> str:
+        target = (self.cleaned_data.get("target") or "").strip()
+        if not target:
+            raise forms.ValidationError("Укажите канал или чат для публикации")
+        normalized = target
+        if normalized.startswith(("http://", "https://")):
+            if "t.me/" in normalized:
+                normalized = normalized.split("t.me/", 1)[1]
+            normalized = normalized.strip("/")
+        if normalized.startswith("@"):
+            normalized = normalized.rstrip()
+        if normalized and not normalized.startswith("@") and not normalized.startswith("-"):
+            normalized = f"@{normalized}"
+        return normalized
+
+    def _clean_datetime(self, field: str):
+        value = self.cleaned_data.get(field)
+        if value is None:
+            return None
+        current_tz = timezone.get_current_timezone()
+        if timezone.is_naive(value):
+            value = timezone.make_aware(value, current_tz)
+        return value.astimezone(current_tz)
+
+    def clean_scheduled_for(self):
+        scheduled = self.cleaned_data.get("scheduled_for")
+        if not scheduled:
+            return None
+        return self._clean_datetime("scheduled_for")
+
+    def clean_published_at(self):
+        published = self.cleaned_data.get("published_at")
+        if not published:
+            return None
+        return self._clean_datetime("published_at")
+
+    def clean(self):
+        cleaned_data = super().clean()
+        status = cleaned_data.get("status")
+        if status == Publication.Status.PUBLISHED and not cleaned_data.get("published_at"):
+            cleaned_data["published_at"] = timezone.now()
+        return cleaned_data

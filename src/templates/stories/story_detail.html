@@ -3,21 +3,18 @@
 {% block title %}{{ story.title|default:"Сюжет" }} — Paperbird{% endblock %}
 
 {% block content %}
-  <div class="d-flex justify-content-between align-items-start mb-4">
-    <div>
-      <h1 class="h3 mb-1">{{ story.title|default:"Сюжет без названия" }}</h1>
-      <p class="text-muted mb-0">
-        Проект: {{ story.project.name }} • Статус:
-        <span class="badge text-bg-secondary">{{ story.get_status_display }}</span>
+  <div class="mb-4">
+    <h1 class="h3 mb-1">{{ story.title|default:"Сюжет без названия" }}</h1>
+    <p class="text-muted mb-0">
+      Проект: {{ story.project.name }} • Статус:
+      <span class="badge text-bg-secondary">{{ story.get_status_display }}</span>
+    </p>
+    {% if last_task %}
+      <p class="small text-muted mt-1">
+        Последний рерайт: {{ last_task.created_at|date:"d.m.Y H:i" }}
+        ({{ last_task.get_status_display }})
       </p>
-      {% if last_task %}
-        <p class="small text-muted mt-1">
-          Последний рерайт: {{ last_task.created_at|date:"d.m.Y H:i" }}
-          ({{ last_task.get_status_display }})
-        </p>
-      {% endif %}
-    </div>
-    <a class="btn btn-outline-secondary" href="{% url 'stories:list' %}">К списку</a>
+    {% endif %}
   </div>
 
   <div class="card shadow-sm mb-4">

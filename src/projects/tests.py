@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import io
 from datetime import timedelta
 from http import HTTPStatus
@@ -224,6 +225,40 @@ class ProjectPostListViewTests(TestCase):
         self.assertGreaterEqual(posts[0].posted_at, posts[1].posted_at)
         self.assertEqual(posts[0].id, newest.id)
         self.assertEqual(posts[-1].id, older.id)
+
+
+class NavigationMenuTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("navigator", password="secret")
+        self.client.force_login(self.user)
+        self.project = Project.objects.create(owner=self.user, name="Навигация")
+
+    def _active_nav_links(self, html: str) -> list[tuple[str, str]]:
+        pattern = re.compile(
+            r'<a\s+class="nav-link active"\s+href="([^"]+)"\s*>\s*([^<]+)',
+            re.IGNORECASE,
+        )
+        return [(href, label.strip()) for href, label in pattern.findall(html)]
+
+    def test_projects_nav_active_on_project_list(self) -> None:
+        response = self.client.get(reverse("projects:list"))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        projects_href = reverse("projects:list")
+        feed_href = reverse("feed")
+        html = response.content.decode("utf-8")
+        active_links = self._active_nav_links(html)
+        self.assertIn((projects_href, "Проекты"), active_links)
+        self.assertNotIn((feed_href, "Лента"), active_links)
+
+    def test_feed_nav_active_on_project_feed(self) -> None:
+        response = self.client.get(reverse("projects:post-list", args=[self.project.id]))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        projects_href = reverse("projects:list")
+        feed_href = reverse("feed")
+        html = response.content.decode("utf-8")
+        active_links = self._active_nav_links(html)
+        self.assertIn((feed_href, "Лента"), active_links)
+        self.assertNotIn((projects_href, "Проекты"), active_links)
 
 
 class CollectorControlViewTests(TestCase):
@@ -599,31 +634,24 @@ class ProjectSourcesViewTests(TestCase):
         mock_refresh.assert_called_once()
 
     @patch("projects.forms.enqueue_source_refresh")
-    def test_update_source(self, mock_refresh) -> None:
-        source = Source.objects.create(
-            project=self.project,
-            title="Old title",
-            username="old",
-        )
+    def test_create_source_autofills_title(self, mock_refresh) -> None:
         response = self.client.post(
             reverse("projects:sources", args=[self.project.pk]),
             data={
-                "action": "update",
-                "source_id": source.pk,
-                "title": "New title",
-                "username": "@newusername",
+                "title": "",
+                "telegram_id": "",
+                "username": "https://t.me/techsource",
                 "invite_link": "",
                 "deduplicate_text": "on",
                 "deduplicate_media": "on",
-                "retention_days": 5,
+                "retention_days": 12,
             },
             follow=True,
         )
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        source.refresh_from_db()
-        self.assertEqual(source.title, "New title")
-        self.assertEqual(source.username, "newusername")
-        self.assertEqual(mock_refresh.call_count, 1)
+        created = Source.objects.get(project=self.project, username="techsource")
+        self.assertEqual(created.title, "@techsource")
+        mock_refresh.assert_called_once_with(created)
 
     def test_delete_source(self) -> None:
         source = Source.objects.create(project=self.project, title="Temp", username="temp")
@@ -641,6 +669,55 @@ class ProjectSourcesViewTests(TestCase):
     def test_other_user_cannot_access(self) -> None:
         self.client.force_login(self.other)
         response = self.client.get(reverse("projects:sources", args=[self.project.pk]))
+        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
+
+
+class ProjectSourceUpdateViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("editor", password="secret")
+        self.other = User.objects.create_user("outsider", password="secret")
+        self.client.force_login(self.user)
+        self.project = Project.objects.create(owner=self.user, name="Апдейты")
+        self.source = Source.objects.create(
+            project=self.project,
+            title="Новости",
+            username="news",
+            retention_days=5,
+        )
+
+    def test_get_edit_page(self) -> None:
+        url = reverse("projects:source-edit", args=[self.project.pk, self.source.pk])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, "Редактирование источника")
+        self.assertContains(response, "Новости")
+
+    @patch("projects.forms.enqueue_source_refresh")
+    def test_post_updates_source(self, mock_refresh) -> None:
+        url = reverse("projects:source-edit", args=[self.project.pk, self.source.pk])
+        response = self.client.post(
+            url,
+            data={
+                "title": "",
+                "username": "@updated",
+                "invite_link": "",
+                "telegram_id": "",
+                "deduplicate_text": "on",
+                "deduplicate_media": "",
+                "retention_days": 12,
+            },
+        )
+        self.assertRedirects(response, reverse("projects:sources", args=[self.project.pk]))
+        self.source.refresh_from_db()
+        self.assertEqual(self.source.title, "@updated")
+        self.assertEqual(self.source.username, "updated")
+        self.assertEqual(self.source.retention_days, 12)
+        mock_refresh.assert_called_once_with(self.source)
+
+    def test_other_user_cannot_edit(self) -> None:
+        self.client.force_login(self.other)
+        url = reverse("projects:source-edit", args=[self.project.pk, self.source.pk])
+        response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
 
 

@@ -478,6 +478,59 @@ class Publication(models.Model):
         self.status = self.Status.FAILED
         self.error_message = error
         self.save(update_fields=["status", "error_message", "updated_at"])
+
+    def resolved_target(self) -> str:
+        """Возвращает целевой канал, учитывая настройки проекта."""
+
+        project_target = (self.story.project.publish_target or "").strip()
+        if project_target:
+            return project_target
+        return (self.target or "").strip()
+
+    def _target_alias(self) -> str | None:
+        """Приводит целевой канал к alias для формирования ссылки."""
+
+        target = self.resolved_target()
+        if not target:
+            return None
+        normalized = target.strip()
+        if normalized.startswith("@"):
+            alias = normalized[1:]
+            return alias or None
+        lowered = normalized.lower()
+        if lowered.startswith(("https://t.me/", "http://t.me/")):
+            start = lowered.index("t.me/") + len("t.me/")
+            alias = normalized[start:].strip("/")
+            if alias.startswith("+") or not alias:
+                return None
+            return alias
+        if lowered.startswith("tg://resolve?domain="):
+            alias = normalized.split("domain=", 1)[1]
+            alias = alias.split("&", 1)[0]
+            return alias or None
+        return None
+
+    def primary_message_id(self) -> int | None:
+        """Возвращает первый ID сообщения из публикации."""
+
+        for value in self.message_ids or []:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def message_url(self) -> str | None:
+        """Формирует ссылку на опубликованное сообщение, если возможно."""
+
+        if self.status != self.Status.PUBLISHED:
+            return None
+        alias = self._target_alias()
+        message_id = self.primary_message_id()
+        if not alias or not message_id:
+            return None
+        return f"https://t.me/{alias}/{message_id}"
+
 class RewritePreset(models.Model):
     """Настраиваемый пресет рерайта для проекта."""
 

@@ -8,6 +8,7 @@ from .views import (
     ProjectPostListView,
     ProjectSettingsView,
     ProjectSourcesView,
+    ProjectSourceUpdateView,
 )
 
 app_name = "projects"
@@ -18,4 +19,9 @@ urlpatterns = [
     path("<int:pk>/posts/", ProjectPostListView.as_view(), name="post-list"),
     path("<int:pk>/settings/", ProjectSettingsView.as_view(), name="settings"),
     path("<int:pk>/sources/", ProjectSourcesView.as_view(), name="sources"),
+    path(
+        "<int:project_pk>/sources/<int:pk>/edit/",
+        ProjectSourceUpdateView.as_view(),
+        name="source-edit",
+    ),
 ]

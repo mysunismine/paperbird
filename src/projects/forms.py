@@ -241,10 +241,26 @@ class SourceBaseForm(forms.ModelForm):
     def save(self, commit: bool = True) -> Source:
         source: Source = super().save(commit=False)
         source.project = self.project
+        if not (source.title or "").strip():
+            source.title = self._generate_title(source)
         if commit:
             source.save()
         enqueue_source_refresh(source)
         return source
+
+    def _generate_title(self, source: Source) -> str:
+        username = (source.username or "").strip()
+        if username:
+            if not username.startswith("@"):
+                return f"@{username}"
+            return username
+        telegram_id = source.telegram_id
+        if telegram_id:
+            return f"Канал {telegram_id}"
+        invite = (source.invite_link or "").strip()
+        if invite:
+            return invite
+        return "Источник"
 
 
 class SourceCreateForm(SourceBaseForm):
