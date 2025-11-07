@@ -452,6 +452,26 @@ class StoryPublisherTests(TestCase):
         self.story.refresh_from_db()
         self.assertEqual(self.story.status, Story.Status.DRAFT)
 
+    def test_publish_serializes_raw_response(self) -> None:
+        sample_dt = timezone.now()
+
+        class RawBackend:
+            def send(self, *, story, text, target):
+                return PublishResult(
+                    message_ids=[1],
+                    published_at=sample_dt,
+                    raw={
+                        "sent_at": sample_dt,
+                        "history": (sample_dt - timedelta(minutes=5), sample_dt),
+                    },
+                )
+
+        publisher = StoryPublisher(backend=RawBackend())
+        publication = publisher.publish(self.story, target="@channel")
+        self.assertEqual(publication.status, Publication.Status.PUBLISHED)
+        self.assertEqual(publication.raw_response["sent_at"], sample_dt.isoformat())
+        self.assertIsInstance(publication.raw_response["history"], list)
+
 
 class StoryRewriteFormTests(TestCase):
     def setUp(self) -> None:
@@ -635,7 +655,11 @@ class StoryViewTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("viewer", password="pass")
         self.client.force_login(self.user)
-        self.project = Project.objects.create(owner=self.user, name="Newsroom")
+        self.project = Project.objects.create(
+            owner=self.user,
+            name="Newsroom",
+            publish_target="@newsroom",
+        )
         self.source = Source.objects.create(project=self.project, telegram_id=500)
         self.post = Post.objects.create(
             project=self.project,
@@ -665,6 +689,29 @@ class StoryViewTests(TestCase):
         self.assertIn("Удалить", html)
         self.assertNotIn('<h2 class="h5">Проекты</h2>', html)
         self.assertNotIn("Создать сюжет", html)
+
+    def test_story_detail_has_no_back_to_list_button(self) -> None:
+        response = self.client.get(reverse("stories:detail", args=[self.story.pk]))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, self.story.title)
+        self.assertNotContains(response, "К списку")
+
+    def test_publish_blocked_without_project_target(self) -> None:
+        self.project.publish_target = ""
+        self.project.save(update_fields=["publish_target"])
+        url = reverse("stories:detail", args=[self.story.pk])
+        response = self.client.get(url)
+        self.assertContains(response, "Укажите целевой канал", status_code=HTTPStatus.OK)
+        publish_response = self.client.post(
+            url,
+            data={"action": "publish", "target": "@custom"},
+            follow=True,
+        )
+        self.assertEqual(publish_response.status_code, HTTPStatus.OK)
+        self.assertContains(
+            publish_response,
+            "Укажите целевой канал в настройках проекта",
+        )
 
     def test_create_story_via_selection(self) -> None:
         url = reverse("stories:create")

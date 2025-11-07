@@ -14,7 +14,7 @@ import urllib.request
 import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol
 
 from django.conf import settings
@@ -57,6 +57,20 @@ RESPONSE_REQUIREMENTS = (
 )
 
 ALLOWED_IMAGE_SIZES = {choice[0] for choice in IMAGE_SIZE_CHOICES}
+
+
+def _json_safe(value):
+    """Преобразует произвольные объекты в JSON-совместимый вид."""
+
+    if isinstance(value, dict):
+        return {str(key): _json_safe(inner) for key, inner in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, (bytes, bytearray)):
+        return base64.b64encode(value).decode("ascii")
+    return value
 
 
 def normalize_image_size(value: str | None) -> str:
@@ -648,10 +662,11 @@ class StoryPublisher:
                 raise PublicationFailed(str(exc)) from exc
 
             published_at = result.published_at or timezone.now()
+            safe_raw = _json_safe(result.raw) if result.raw is not None else None
             publication.mark_published(
                 message_ids=result.message_ids,
                 published_at=published_at,
-                raw=result.raw,
+                raw=safe_raw,
             )
             story.mark_published()
             self.logger.info(

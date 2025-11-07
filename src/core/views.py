@@ -23,10 +23,10 @@ class FeedView(LoginRequiredMixin, RedirectView):
         if project_id and project_id.isdigit():
             project = projects.filter(pk=int(project_id)).first()
             if project:
-                return reverse("projects:post-list", args=[project.pk])
+                return reverse("feed-detail", args=[project.pk])
         project = projects.first()
         if project:
-            return reverse("projects:post-list", args=[project.pk])
+            return reverse("feed-detail", args=[project.pk])
         return reverse("projects:list")
 
 

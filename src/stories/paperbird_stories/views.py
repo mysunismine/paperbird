@@ -97,10 +97,10 @@ class StoryCreateView(LoginRequiredMixin, View):
 
     def _redirect_back(self, project_id: int | str | None):
         if project_id and str(project_id).isdigit():
-            return redirect("projects:post-list", int(project_id))
+            return redirect("feed-detail", int(project_id))
         first_project = self.request.user.projects.order_by("id").first()
         if first_project:
-            return redirect("projects:post-list", first_project.id)
+            return redirect("feed-detail", first_project.id)
         return redirect("projects:list")
 
 
@@ -187,6 +187,10 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         if self.object.project.publish_target:
             publish_initial["target"] = self.object.project.publish_target
         context.setdefault("publish_form", StoryPublishForm(initial=publish_initial))
+        context["publish_blocked"] = not bool(self.object.project.publish_target)
+        context["project_settings_url"] = reverse(
+            "projects:settings", args=[self.object.project_id]
+        )
         context["publications"] = self.object.publications.order_by("-created_at")
         context["last_task"] = self.object.rewrite_tasks.first()
         context["story_posts"] = self.object.story_posts.select_related("post", "post__source")
@@ -330,6 +334,12 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         return ""
 
     def _handle_publish(self, request):
+        if not self.object.project.publish_target:
+            messages.error(
+                request,
+                "Укажите целевой канал в настройках проекта, прежде чем публиковать сюжет.",
+            )
+            return redirect(self.get_success_url())
         form = StoryPublishForm(request.POST)
         if not form.is_valid():
             messages.error(request, "Укажите канал или чат для публикации")

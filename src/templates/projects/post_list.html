@@ -59,7 +59,7 @@
       {% for item in projects %}
         <a
           class="btn btn-sm {% if item.id == project.id %}btn-primary{% else %}btn-outline-secondary{% endif %}"
-          href="{% url 'projects:post-list' item.id %}"
+          href="{% url 'feed-detail' item.id %}"
         >
           {{ item.name }}
         </a>
@@ -90,7 +90,7 @@
       </div>
       <div class="d-flex gap-2">
         <button class="btn btn-primary" type="submit">Применить</button>
-        <a class="btn btn-outline-secondary" href="{% url 'projects:post-list' project.id %}">Сбросить</a>
+        <a class="btn btn-outline-secondary" href="{% url 'feed-detail' project.id %}">Сбросить</a>
       </div>
     </div>
   </form>

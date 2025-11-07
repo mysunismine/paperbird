@@ -151,12 +151,12 @@ class FeedViewTests(TestCase):
 
     def test_feed_lists_latest_posts(self) -> None:
         response = self.client.get(reverse("feed"))
-        expected = reverse("projects:post-list", args=[self.other_project.pk])
+        expected = reverse("feed-detail", args=[self.other_project.pk])
         self.assertRedirects(response, expected)
 
     def test_feed_filters_by_project(self) -> None:
         response = self.client.get(reverse("feed"), data={"project": self.project.id})
-        expected = reverse("projects:post-list", args=[self.project.pk])
+        expected = reverse("feed-detail", args=[self.project.pk])
         self.assertRedirects(response, expected)
 
 

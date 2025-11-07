@@ -188,7 +188,7 @@ class ProjectPostListViewTests(TestCase):
         )
 
     def test_post_list_page_renders(self) -> None:
-        response = self.client.get(reverse("projects:post-list", args=[self.project.id]))
+        response = self.client.get(reverse("feed-detail", args=[self.project.id]))
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertContains(response, "Лента проекта")
         self.assertContains(response, "Apple представила")
@@ -196,7 +196,7 @@ class ProjectPostListViewTests(TestCase):
 
     def test_post_list_filters_by_search(self) -> None:
         response = self.client.get(
-            reverse("projects:post-list", args=[self.project.id]),
+            reverse("feed-detail", args=[self.project.id]),
             data={"search": "Google"},
         )
         self.assertContains(response, "Google updated the service")
@@ -219,7 +219,7 @@ class ProjectPostListViewTests(TestCase):
             posted_at=older_time,
         )
 
-        response = self.client.get(reverse("projects:post-list", args=[self.project.id]))
+        response = self.client.get(reverse("feed-detail", args=[self.project.id]))
 
         posts = response.context["posts"]
         self.assertGreaterEqual(posts[0].posted_at, posts[1].posted_at)
@@ -251,7 +251,7 @@ class NavigationMenuTests(TestCase):
         self.assertNotIn((feed_href, "Лента"), active_links)
 
     def test_feed_nav_active_on_project_feed(self) -> None:
-        response = self.client.get(reverse("projects:post-list", args=[self.project.id]))
+        response = self.client.get(reverse("feed-detail", args=[self.project.id]))
         self.assertEqual(response.status_code, HTTPStatus.OK)
         projects_href = reverse("projects:list")
         feed_href = reverse("feed")
@@ -279,7 +279,7 @@ class CollectorControlViewTests(TestCase):
 
     def test_start_collector_enqueues_task(self) -> None:
         response = self.client.post(
-            reverse("projects:post-list", args=[self.project.id]),
+            reverse("feed-detail", args=[self.project.id]),
             data={"action": "collector_start"},
             follow=True,
         )
@@ -302,7 +302,7 @@ class CollectorControlViewTests(TestCase):
             payload={"project_id": self.project.id},
         )
         response = self.client.post(
-            reverse("projects:post-list", args=[self.project.id]),
+            reverse("feed-detail", args=[self.project.id]),
             data={"action": "collector_stop"},
             follow=True,
         )
@@ -316,7 +316,7 @@ class CollectorControlViewTests(TestCase):
         self.user.telethon_session = ""
         self.user.save(update_fields=["telethon_session"])
         response = self.client.post(
-            reverse("projects:post-list", args=[self.project.id]),
+            reverse("feed-detail", args=[self.project.id]),
             data={"action": "collector_start"},
             follow=True,
         )

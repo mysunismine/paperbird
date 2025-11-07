@@ -223,30 +223,43 @@
       <form method="post" id="publish-form">
         {% csrf_token %}
         <input type="hidden" name="action" value="publish" />
-        <div class="mb-3">
-          {{ publish_form.target.label_tag }}
-          {{ publish_form.target }}
-          <div class="form-text">{{ publish_form.target.help_text }}</div>
-          {% if publish_form.target.errors %}
-            <div class="text-danger small">{{ publish_form.target.errors|join:', ' }}</div>
-          {% endif %}
-        </div>
-        <div class="mb-3">
-          {{ publish_form.publish_at.label_tag }}
-          {{ publish_form.publish_at }}
-          <div class="form-text">{{ publish_form.publish_at.help_text }}</div>
-          {% if publish_form.publish_at.errors %}
-            <div class="text-danger small">{{ publish_form.publish_at.errors|join:', ' }}</div>
-          {% endif %}
-        </div>
+        {% if publish_blocked %}
+          <div class="alert alert-warning mb-3">
+            Укажите целевой канал в
+            <a class="alert-link" href="{{ project_settings_url }}">настройках проекта</a>,
+            чтобы публиковать сюжеты.
+          </div>
+        {% endif %}
+        <fieldset class="p-0 m-0 border-0" {% if publish_blocked %}disabled{% endif %}>
+          <div class="mb-3">
+            {{ publish_form.target.label_tag }}
+            {{ publish_form.target }}
+            <div class="form-text">{{ publish_form.target.help_text }}</div>
+            {% if publish_form.target.errors %}
+              <div class="text-danger small">{{ publish_form.target.errors|join:', ' }}</div>
+            {% endif %}
+          </div>
+          <div class="mb-3">
+            {{ publish_form.publish_at.label_tag }}
+            {{ publish_form.publish_at }}
+            <div class="form-text">{{ publish_form.publish_at.help_text }}</div>
+            {% if publish_form.publish_at.errors %}
+              <div class="text-danger small">{{ publish_form.publish_at.errors|join:', ' }}</div>
+            {% endif %}
+          </div>
+        </fieldset>
         <button
           class="btn btn-success"
           type="submit"
-          {% if story.status != 'ready' and story.status != 'published' %}disabled{% endif %}
+          {% if publish_blocked or story.status != 'ready' and story.status != 'published' %}disabled{% endif %}
         >
           Опубликовать
         </button>
-        {% if story.status != 'ready' and story.status != 'published' %}
+        {% if publish_blocked %}
+          <p class="small text-muted mt-2">
+            Сначала добавьте целевой канал в настройках проекта.
+          </p>
+        {% elif story.status != 'ready' and story.status != 'published' %}
           <p class="small text-muted mt-2">
             Сначала получите готовый текст рерайта.
           </p>
