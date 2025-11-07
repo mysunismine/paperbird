@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Промты проекта — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-xl-9 col-lg-10">
+      <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center mb-4 gap-3">
+        <div>
+          <h1 class="h3 mb-1">Промты проекта «{{ project.name }}»</h1>
+          <p class="text-muted mb-0">
+            Настройте основной шаблон, который отправляется в модель. Каждый блок редактируется отдельно.
+          </p>
+        </div>
+        <div class="d-flex gap-2">
+          <a class="btn btn-outline-secondary" href="{% url 'projects:settings' project.pk %}">К настройкам</a>
+          <a class="btn btn-outline-primary" href="{% url 'projects:prompts-export' project.pk %}">Экспорт превью</a>
+        </div>
+      </div>
+      <div class="alert alert-info">
+        <div class="fw-semibold mb-1">Как использовать шаблон</div>
+        <div class="mb-0">
+          Paperbird автоматически подставит текущее название проекта, список собранных постов и комментарий редактора.
+          Список доступных плейсхолдеров указан ниже. Изменения влияют на все будущие рерайты.
+        </div>
+      </div>
+      <div class="card shadow-sm mb-4">
+        <div class="card-body">
+          <p class="fw-semibold mb-2">Доступные плейсхолдеры</p>
+          <div class="table-responsive">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th scope="col">Токен</th>
+                  <th scope="col">Значение</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for token, description in token_help %}
+                  <tr>
+                    <td><code>{{ token }}</code></td>
+                    <td>{{ description }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <form method="post" novalidate>
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger" role="alert">
+                {% for error in form.non_field_errors %}
+                  <div>{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+            {% for section in sections %}
+              <div class="border rounded p-3 mb-3">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                  <h2 class="h6 mb-0">{{ section.heading }}</h2>
+                </div>
+                {% if section.hint %}
+                  <p class="text-muted small mb-3">{{ section.hint }}</p>
+                {% endif %}
+                <label class="form-label" for="{{ section.field.id_for_label }}">{{ section.field.label }}</label>
+                {{ section.field }}
+                {% if section.field.help_text %}
+                  <div class="form-text">{{ section.field.help_text }}</div>
+                {% endif %}
+                {% for error in section.field.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endfor %}
+            <div class="d-flex justify-content-end">
+              <button type="submit" class="btn btn-primary">Сохранить промт</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

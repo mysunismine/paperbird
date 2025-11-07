@@ -116,7 +116,9 @@ class PromptBuilderTests(TestCase):
             title="Заголовок",
         )
         self.assertEqual(messages[0]["role"], "system")
-        self.assertIn("Документы", messages[1]["content"])
+        self.assertIn("1. [СИСТЕМНАЯ РОЛЬ]", messages[0]["content"])
+        self.assertIn("3. [ИСТОЧНИКИ / ДОКУМЕНТЫ]", messages[1]["content"])
+        self.assertIn("НОВОСТЬ #1", messages[1]["content"])
         self.assertIn("Сжать до 5 предложений", messages[1]["content"])
         self.assertIn("Заголовок", messages[1]["content"])
 
@@ -182,6 +184,14 @@ class StoryRewriterTests(TestCase):
             ["новости"],
         )
         self.assertTrue(provider.calls)
+        system_prompt = provider.calls[0][0]["content"]
+        user_prompt = provider.calls[0][1]["content"]
+        self.assertIn("1. [СИСТЕМНАЯ РОЛЬ]", system_prompt)
+        self.assertIn(self.project.name, system_prompt)
+        self.assertIn("3. [ИСТОЧНИКИ / ДОКУМЕНТЫ]", user_prompt)
+        self.assertIn("НОВОСТЬ #1", user_prompt)
+        self.assertIn("Оригинальный текст", user_prompt)
+        self.assertIn("Переделай в деловой стиль", user_prompt)
         self.assertIsNone(story.last_rewrite_preset)
 
     def test_rewrite_parses_text_array_payload(self) -> None:
@@ -241,8 +251,8 @@ class StoryRewriterTests(TestCase):
         task = rewriter.rewrite(self.story, editor_comment="", preset=preset)
 
         user_message = provider.calls[0][1]["content"]
-        self.assertIn("Настройки пресета", user_message)
-        self.assertIn("деловой", user_message)
+        self.assertIn("Описание: Сосредоточиться на цифрах", user_message)
+        self.assertIn("деловой, формальный", user_message)
         self.assertIn("Сфокусируйся на ключевых метриках", user_message)
 
         story = Story.objects.get(pk=self.story.pk)
@@ -774,6 +784,9 @@ class StoryViewTests(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         content = response.content.decode("utf-8")
         self.assertIn("Проверьте промпт перед отправкой", content)
+        self.assertIn("1. [СИСТЕМНАЯ РОЛЬ]", content)
+        self.assertIn("НОВОСТЬ #1", content)
+        self.assertIn("Текст для истории", content)
         mock_rewriter.assert_not_called()
         mock_instance.rewrite.assert_not_called()
 

@@ -218,6 +218,33 @@ class Source(models.Model):
         return False
 
 
+class ProjectPromptConfig(models.Model):
+    """Набор фрагментов основного промта проекта."""
+
+    project = models.OneToOneField(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="prompt_config",
+        verbose_name="Проект",
+    )
+    system_role = models.TextField("Системная роль", blank=True)
+    task_instruction = models.TextField("Задание", blank=True)
+    documents_intro = models.TextField("Описание документов", blank=True)
+    style_requirements = models.TextField("Требования к стилю", blank=True)
+    output_format = models.TextField("Формат ответа", blank=True)
+    output_example = models.TextField("Пример вывода", blank=True)
+    editor_comment_note = models.TextField("Комментарий редактора", blank=True)
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+    updated_at = models.DateTimeField("Обновлено", auto_now=True)
+
+    class Meta:
+        verbose_name = "Шаблон промтов проекта"
+        verbose_name_plural = "Шаблоны промтов проекта"
+
+    def __str__(self) -> str:
+        return f"Промт проекта «{self.project.name}»"
+
+
 class PostQuerySet(models.QuerySet):
     def for_processing(self) -> PostQuerySet:
         return self.filter(status=Post.Status.NEW)

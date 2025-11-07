@@ -8,15 +8,30 @@ from typing import Any
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse_lazy
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from django.urls import reverse_lazy
-from django.views.generic import CreateView, ListView, TemplateView, UpdateView
+from django.views.generic import (
+    CreateView,
+    FormView,
+    ListView,
+    TemplateView,
+    UpdateView,
+    View,
+)
 
 from core.models import WorkerTask
 from core.services.worker import enqueue_task
 from projects.models import Post, Project, Source
+from projects.services.prompt_config import (
+    PROMPT_SECTION_HINTS,
+    PROMPT_SECTION_ORDER,
+    ensure_prompt_config,
+    render_prompt,
+    tokens_help,
+)
 from projects.services.post_filters import (
     PostFilterOptions,
     apply_post_filters,
@@ -24,7 +39,7 @@ from projects.services.post_filters import (
 )
 from .forms import (
     ProjectCreateForm,
-    ProjectPromptFormSet,
+    ProjectPromptConfigForm,
     SourceCreateForm,
     SourceUpdateForm,
 )
@@ -265,7 +280,6 @@ class ProjectSettingsView(LoginRequiredMixin, UpdateView):
     template_name = "projects/project_settings.html"
     context_object_name = "project"
     success_url = reverse_lazy("projects:list")
-    prompt_formset_class = ProjectPromptFormSet
 
     def get_queryset(self):
         return Project.objects.filter(owner=self.request.user)
@@ -275,32 +289,6 @@ class ProjectSettingsView(LoginRequiredMixin, UpdateView):
         kwargs["owner"] = self.request.user
         return kwargs
 
-    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-        context = super().get_context_data(**kwargs)
-        context.setdefault(
-            "prompt_formset",
-            getattr(self, "_prompt_formset", self.get_prompt_formset()),
-        )
-        return context
-
-    def post(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        if request.POST.get("form_type") == "prompts":
-            formset = self.get_prompt_formset(data=request.POST)
-            if formset.is_valid():
-                formset.save()
-                messages.success(
-                    request,
-                    f"Промты проекта «{self.object.name}» сохранены.",
-                )
-                return redirect(request.path)
-            self._prompt_formset = formset
-            form = self.get_form()
-            return self.render_to_response(
-                self.get_context_data(form=form, prompt_formset=formset)
-            )
-        return super().post(request, *args, **kwargs)
-
     def form_valid(self, form):  # type: ignore[override]
         response = super().form_valid(form)
         messages.success(
@@ -309,17 +297,91 @@ class ProjectSettingsView(LoginRequiredMixin, UpdateView):
         )
         return response
 
-    def get_prompt_formset(self, data=None):
-        if not hasattr(self, "object") or self.object is None:
-            self.object = self.get_object()
-        formset = self.prompt_formset_class(
-            data=data,
-            instance=self.object,
-            prefix="prompts",
+
+class ProjectPromptsView(LoginRequiredMixin, FormView):
+    """Отдельная страница управления основным промтом проекта."""
+
+    template_name = "projects/project_prompts.html"
+    form_class = ProjectPromptConfigForm
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(
+            Project, pk=kwargs["pk"], owner=request.user
         )
-        if data is not None or not hasattr(self, "_prompt_formset"):
-            self._prompt_formset = formset
-        return formset
+        self.config = ensure_prompt_config(self.project)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self) -> dict[str, Any]:
+        kwargs = super().get_form_kwargs()
+        kwargs["instance"] = self.config
+        return kwargs
+
+    def form_valid(self, form):  # type: ignore[override]
+        form.save()
+        messages.success(
+            self.request,
+            f"Промт проекта «{self.project.name}» сохранён.",
+        )
+        return redirect("projects:prompts", pk=self.project.pk)
+
+    def form_invalid(self, form):
+        messages.error(
+            self.request,
+            "Исправьте ошибки в шаблоне промта и попробуйте снова.",
+        )
+        return super().form_invalid(form)
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        form = context.get("form") or self.get_form()
+        context.update(
+            {
+                "project": self.project,
+                "sections": self._build_sections(form),
+                "token_help": tokens_help(),
+            }
+        )
+        return context
+
+    def _build_sections(self, form):
+        sections = []
+        for field_name, heading in PROMPT_SECTION_ORDER:
+            field = form[field_name]
+            sections.append(
+                {
+                    "heading": heading,
+                    "field": field,
+                    "hint": PROMPT_SECTION_HINTS.get(field_name, ""),
+                }
+            )
+        return sections
+
+
+class ProjectPromptExportView(LoginRequiredMixin, View):
+    """Формирует предпросмотр промтов в текстовом виде."""
+
+    def get(self, request, *args, **kwargs):
+        project = get_object_or_404(
+            Project, pk=kwargs["pk"], owner=request.user
+        )
+        ensure_prompt_config(project)
+        content = self._render_export(project)
+        filename = f"project-{project.pk}-prompt.txt"
+        response = HttpResponse(
+            content,
+            content_type="text/plain; charset=utf-8",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    def _render_export(self, project: Project) -> str:
+        rendered = render_prompt(
+            project=project,
+            posts=[],
+            preview_mode=True,
+            editor_comment="",
+        )
+        return rendered.full_text
 
 
 class ProjectSourcesView(LoginRequiredMixin, TemplateView):

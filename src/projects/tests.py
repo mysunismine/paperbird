@@ -28,13 +28,14 @@ from core.constants import (
     REWRITE_MODEL_CHOICES,
 )
 from core.models import WorkerTask
-from projects.models import Post, Project, Source
+from projects.models import Post, Project, ProjectPromptConfig, Source
 from projects.services.post_filters import (
     PostFilterOptions,
     apply_post_filters,
     collect_keyword_hits,
     summarize_keyword_hits,
 )
+from projects.services.prompt_config import ensure_prompt_config
 from projects.services.collector import PostCollector, _normalize_raw
 from projects.services.retention import purge_expired_posts, schedule_retention_cleanup
 from projects.workers import (
@@ -46,7 +47,6 @@ from projects.services.telethon_client import (
     TelethonClientFactory,
     TelethonCredentialsMissingError,
 )
-from stories.paperbird_stories.models import RewritePreset
 from stories.paperbird_stories.services import StoryFactory
 
 User = get_user_model()
@@ -445,6 +445,7 @@ class ProjectSettingsViewTests(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertContains(response, "Настройки проекта")
         self.assertContains(response, "@old")
+        self.assertContains(response, "Перейти к промтам")
 
     def test_post_updates_settings(self) -> None:
         self.client.force_login(self.user)
@@ -484,84 +485,72 @@ class ProjectSettingsViewTests(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
 
 
-class ProjectSettingsPromptsTests(TestCase):
+class ProjectPromptsViewTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("prompts", password="secret")
         self.client.force_login(self.user)
-        self.project = Project.objects.create(owner=self.user, name="Редакция")
-        self.preset = RewritePreset.objects.create(
-            project=self.project,
-            name="Стандартный рерайт",
-            description="Быстрые новости без аналитики",
-            style="Информационный, короткие абзацы",
-            editor_comment="Сохраняйте даты и ссылки точно так, как в источниках.",
-            max_length_tokens=900,
-            output_format={"title": "string", "text": []},
-            is_active=True,
+        self.project = Project.objects.create(
+            owner=self.user,
+            name="Редакция",
+            description="Новости технологий",
         )
+        ensure_prompt_config(self.project)
 
-    def _prompt_post_data(self, overrides: dict[str, str] | None = None) -> dict[str, str]:
-        data: dict[str, str] = {
-            "form_type": "prompts",
-            "prompts-TOTAL_FORMS": "2",
-            "prompts-INITIAL_FORMS": "1",
-            "prompts-MIN_NUM_FORMS": "0",
-            "prompts-MAX_NUM_FORMS": "1000",
-            "prompts-0-id": str(self.preset.id),
-            "prompts-0-name": "Стандартный рерайт",
-            "prompts-0-description": "Быстрые новости без аналитики",
-            "prompts-0-style": "Информационный, короткие абзацы",
-            "prompts-0-editor_comment": "Сохраняйте даты и ссылки точно так, как в источниках.",
-            "prompts-0-max_length_tokens": "950",
-            "prompts-0-output_format": '{"title": "string", "text": []}',
-            "prompts-0-is_active": "on",
-            "prompts-1-id": "",
-            "prompts-1-name": "",
-            "prompts-1-description": "",
-            "prompts-1-style": "",
-            "prompts-1-editor_comment": "",
-            "prompts-1-max_length_tokens": "",
-            "prompts-1-output_format": "",
+    def _form_payload(self, overrides: dict[str, str] | None = None) -> dict[str, str]:
+        config = self.project.prompt_config
+        data = {
+            "system_role": config.system_role,
+            "task_instruction": config.task_instruction,
+            "documents_intro": config.documents_intro,
+            "style_requirements": config.style_requirements,
+            "output_format": config.output_format,
+            "output_example": config.output_example,
+            "editor_comment_note": config.editor_comment_note,
         }
         if overrides:
             data.update(overrides)
         return data
 
-    def test_prompts_section_visible(self) -> None:
-        response = self.client.get(reverse("projects:settings", args=[self.project.id]))
+    def test_prompts_page_lists_sections(self) -> None:
+        response = self.client.get(reverse("projects:prompts", args=[self.project.id]))
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertContains(response, "Промты проекта")
-        self.assertContains(response, "Стандартный рерайт")
+        self.assertContains(response, "1. [СИСТЕМНАЯ РОЛЬ]")
+        self.assertContains(response, "{{PROJECT_NAME}}")
+        self.assertContains(response, "Доступные плейсхолдеры")
 
     def test_prompt_update_persists(self) -> None:
-        url = reverse("projects:settings", args=[self.project.id])
-        data = self._prompt_post_data(
-            {"prompts-0-editor_comment": "Обновите факты и добавьте подзаголовки"}
-        )
-        data.pop("prompts-0-is_active", None)
-        response = self.client.post(url, data=data)
-        failure_msg = None
-        if getattr(response, "context", None):
-            failure_msg = response.context["prompt_formset"].errors
-        self.assertEqual(response.status_code, HTTPStatus.FOUND, msg=failure_msg)
-        self.assertEqual(response["Location"], url)
-        self.preset.refresh_from_db()
-        self.assertEqual(
-            self.preset.editor_comment,
-            "Обновите факты и добавьте подзаголовки",
-        )
-        self.assertFalse(self.preset.is_active)
-        self.assertEqual(self.preset.max_length_tokens, 950)
-
-    def test_prompt_invalid_json_shows_error(self) -> None:
+        url = reverse("projects:prompts", args=[self.project.id])
         response = self.client.post(
-            reverse("projects:settings", args=[self.project.id]),
-            data=self._prompt_post_data({"prompts-0-output_format": "{invalid"}),
+            url,
+            data=self._form_payload({"system_role": "Ты — редактор {{PROJECT_NAME}} и ведёшь канал."}),
+            follow=True,
         )
+        self.assertContains(response, "Промт проекта «Редакция» сохранён.")
+        self.project.refresh_from_db()
+        self.assertEqual(
+            self.project.prompt_config.system_role,
+            "Ты — редактор {{PROJECT_NAME}} и ведёшь канал.",
+        )
+
+    def test_default_config_created_when_missing(self) -> None:
+        ProjectPromptConfig.objects.filter(project=self.project).delete()
+        self.project = Project.objects.get(pk=self.project.pk)
+        response = self.client.get(reverse("projects:prompts", args=[self.project.id]))
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertContains(response, "Введите корректный JSON")
-        self.preset.refresh_from_db()
-        self.assertEqual(self.preset.output_format, {"title": "string", "text": []})
+        self.project.refresh_from_db()
+        self.assertTrue(hasattr(self.project, "prompt_config"))
+        self.assertIn(
+            "{{PROJECT_NAME}}",
+            self.project.prompt_config.system_role,
+        )
+
+    def test_export_contains_sections_in_order(self) -> None:
+        url = reverse("projects:prompts-export", args=[self.project.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        body = response.content.decode("utf-8")
+        self.assertTrue(body.startswith("1. [СИСТЕМНАЯ РОЛЬ]"))
+        self.assertIn("5. [ФОРМАТ ОТВЕТА — JSON]", body)
 
 
 class ProjectSourcesViewTests(TestCase):

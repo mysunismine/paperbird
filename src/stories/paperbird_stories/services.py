@@ -32,6 +32,7 @@ from core.models import WorkerTask
 from core.logging import event_logger, logging_context
 from core.services.worker import enqueue_task
 from projects.models import Post, Project
+from projects.services.prompt_config import render_prompt
 from projects.services.telethon_client import TelethonClientFactory
 
 from .models import (
@@ -40,20 +41,6 @@ from .models import (
     RewriteResult,
     RewriteTask,
     Story,
-)
-
-SYSTEM_PROMPT = (
-    "Вы — профессиональный редактор новостей. "
-    "Объединяйте предоставленные материалы в связный текст, сохраняйте факты, "
-    "исключайте домыслы и следуйте деловому стилю. "
-    "Отвечайте только структурированными данными и не добавляйте необязательные поля "
-    "(summary, hashtags, sources и т. д.)."
-)
-
-RESPONSE_REQUIREMENTS = (
-    "Верните валидный JSON только с полями: title (строка, до 120 символов) и text "
-    "(основной текст заметки; допускается строка или массив абзацев или фрагментов). "
-    "Не добавляйте другие поля, не используйте преамбулы и формируйте строго корректный JSON."
 )
 
 ALLOWED_IMAGE_SIZES = {choice[0] for choice in IMAGE_SIZE_CHOICES}
@@ -138,35 +125,21 @@ def build_prompt(
     title: str,
     preset_instruction: str = "",
 ) -> list[dict[str, str]]:
-    """Формирует сообщения для LLM по спецификации промптов."""
+    """Формирует сообщения для LLM, используя шаблон проекта."""
 
-    documents = []
-    for index, post in enumerate(posts, start=1):
-        body = (post.message or "").strip()
-        if not body:
-            body = "(пустой текст поста)"
-        documents.append(f"#{index}\n```\n{body}\n```")
-
-    comment = editor_comment.strip() or "Без дополнительных указаний."
-    preset_block = preset_instruction.strip()
-    if preset_block:
-        comment = (
-            f"{comment}\n\n"
-            f"Настройки пресета:\n{preset_block}"
-        )
-    title_context = title.strip() or "Подберите информативный заголовок."
-    user_prompt = (
-        "Собери из постов новую заметку и выполни рерайт."\
-        "\n\nТекущий заголовок: "
-        f"{title_context}\n\nДокументы:\n" + "\n\n".join(documents) + "\n\n"
-        f"Комментарий редактора: {comment}\n\n"
-        f"{RESPONSE_REQUIREMENTS}\n"
-        "Не добавляй преамбулу, ответ должен быть только JSON."
+    if not posts:
+        raise ValueError("Невозможно сформировать промт без постов")
+    project = posts[0].project
+    rendered = render_prompt(
+        project=project,
+        posts=posts,
+        title=title,
+        editor_comment=editor_comment,
+        preset_instruction=preset_instruction,
     )
-
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
+        {"role": "system", "content": rendered.system_message},
+        {"role": "user", "content": rendered.user_message},
     ]
 
 
