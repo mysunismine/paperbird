@@ -34,7 +34,7 @@ class PostCollector:
     async def collect_for_project(self, project: Project) -> None:
         factory = TelethonClientFactory(user=self.user)
         sources = await sync_to_async(list)(
-            project.sources.filter(is_active=True).order_by("id")
+            project.sources.filter(is_active=True, type=Source.Type.TELEGRAM).order_by("id")
         )
         async with factory.connect() as client:
             for source in sources:

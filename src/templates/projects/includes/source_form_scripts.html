@@ -1,0 +1,55 @@
+<script>
+  (function () {
+    const typeSelect = document.querySelector('[data-role="source-type"]');
+    if (!typeSelect) {
+      return;
+    }
+    const sections = document.querySelectorAll("[data-source-section]");
+    const importButton = document.querySelector('[data-role="preset-file-button"]');
+    const fileInput = document.querySelector('[data-role="preset-file-input"]') || document.querySelector('#id_preset_file');
+    const resultLabel = document.querySelector('[data-role="preset-import-result"]');
+    const payloadField = document.getElementById("id_preset_payload");
+
+    function toggleSections() {
+      const current = typeSelect.value;
+      sections.forEach((section) => {
+        const target = section.getAttribute("data-source-section");
+        const shouldShow = !target || target === current;
+        section.classList.toggle("d-none", !shouldShow);
+      });
+    }
+
+    typeSelect.addEventListener("change", toggleSections);
+    toggleSections();
+
+    if (importButton && fileInput && payloadField) {
+      fileInput.setAttribute("data-role", "preset-file-input");
+      importButton.addEventListener("click", () => {
+        fileInput.click();
+      });
+      fileInput.addEventListener("change", () => {
+        const [file] = fileInput.files || [];
+        if (!file) {
+          if (resultLabel) {
+            resultLabel.textContent = "";
+          }
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          payloadField.value = reader.result || "";
+          if (resultLabel) {
+            resultLabel.textContent = `Импортирован файл «${file.name}»`;
+          }
+        };
+        reader.onerror = () => {
+          if (resultLabel) {
+            resultLabel.textContent = "Не удалось прочитать файл. Попробуйте другой JSON.";
+            resultLabel.classList.add("text-danger");
+          }
+        };
+        reader.readAsText(file);
+      });
+    }
+  })();
+</script>

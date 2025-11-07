@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Очередь коллектора — {{ project.name }}{% endblock %}
+
+{% block content %}
+  <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-4">
+    <div>
+      <h1 class="h3 mb-1">Очередь коллектора проекта «{{ project.name }}»</h1>
+      <p class="text-muted mb-0">Задачи фонового сборщика Telegram и веб-парсера.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'feed-detail' project.pk %}">К ленте проекта</a>
+  </div>
+  <div class="card shadow-sm">
+    <div class="card-body">
+      {% if tasks %}
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <thead>
+              <tr>
+                <th>Очередь</th>
+                <th>Статус</th>
+                <th>Доступна</th>
+                <th>Попытки</th>
+                <th>Последняя ошибка</th>
+                <th>Параметры</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for task in tasks %}
+                <tr>
+                  <td>
+                    {% if task.queue == 'collector' %}
+                      <span class="badge text-bg-info">Telegram</span>
+                    {% else %}
+                      <span class="badge text-bg-success">Web</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ task.get_status_display }}</td>
+                  <td>
+                    <div>{{ task.available_at|date:"d.m.Y H:i" }}</div>
+                    {% if task.status == 'running' %}
+                      <div class="text-muted small">Начата: {{ task.started_at|date:"H:i:s" }}</div>
+                    {% endif %}
+                  </td>
+                  <td>{{ task.attempts }}/{{ task.max_attempts }}</td>
+                  <td>
+                    {% if task.last_error_message %}
+                      <div class="text-danger small">{{ task.last_error_message|truncatechars:80 }}</div>
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <pre class="small mb-0 text-wrap">{{ task.payload|pprint }}</pre>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="mb-0 text-muted">Очередь пуста.</p>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

@@ -13,18 +13,30 @@
       <div>
         <h2 class="h6 mb-1">Сборщик постов</h2>
         {% if collector.enabled %}
-          <p class="mb-1 text-success">Сборщик активен. Лента будет обновляться автоматически.</p>
+          <p class="mb-1 text-success">Сборщик активен. Telegram и веб-источники обновляются по расписанию.</p>
         {% else %}
           <p class="mb-1 text-warning">Сборщик остановлен. Посты не обновляются автоматически.</p>
         {% endif %}
-        <p class="text-muted small mb-0">
+        <p class="text-muted small mb-1">
           Последний запуск: {{ collector.last_run|date:"d.m.Y H:i"|default:"—" }}
           {% if collector.next_run and collector.enabled %}
             • Следующий запуск: {{ collector.next_run|date:"d.m.Y H:i" }}
           {% endif %}
         </p>
-        {% if not collector.has_credentials %}
-          <p class="text-danger small mb-0">Добавьте Telethon-ключи в профиле, чтобы включить автоматический сбор.</p>
+        {% if collector.has_web_sources %}
+          <p class="text-muted small mb-1">
+            Веб-парсер:
+            {% if collector.next_web_run and collector.enabled %}
+              следующий запуск {{ collector.next_web_run|date:"d.m.Y H:i" }}
+            {% else %}
+              ожидает запуска
+            {% endif %}
+          </p>
+        {% endif %}
+        {% if collector.requires_credentials and not collector.has_credentials %}
+          <p class="text-danger small mb-0">Добавьте Telethon-ключи в профиле, чтобы включить сбор Telegram-каналов.</p>
+        {% elif not collector.has_web_sources and not collector.has_telegram_sources %}
+          <p class="text-muted small mb-0">Добавьте Telegram-канал или веб-пресет на вкладке «Источники», чтобы запустить сборщик.</p>
         {% endif %}
       </div>
       <div class="d-flex flex-wrap gap-2">
@@ -34,7 +46,7 @@
           <button
             class="btn btn-sm btn-primary"
             type="submit"
-            {% if collector.enabled or not collector.has_credentials %}disabled{% endif %}
+            {% if collector.enabled or collector.requires_credentials and not collector.has_credentials %}disabled{% endif %}
           >
             Запустить сборщик
           </button>
@@ -50,6 +62,7 @@
             Остановить
           </button>
         </form>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:queue' project.pk %}">Очередь задач</a>
       </div>
     </div>
   </div>

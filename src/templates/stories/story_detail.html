@@ -24,10 +24,19 @@
         {% for story_post in story_posts %}
           <article class="mb-4 pb-4 {% if not forloop.last %}border-bottom{% endif %}">
             <header class="mb-2">
-              <h3 class="h6 mb-1">Пост #{{ story_post.post.telegram_id }}</h3>
+              <h3 class="h6 mb-1">
+                {% if story_post.post.origin_type == "telegram" %}
+                  Пост #{{ story_post.post.telegram_id|default:"—" }}
+                {% else %}
+                  Веб-материал
+                {% endif %}
+              </h3>
               <p class="small text-muted mb-0">
                 {{ story_post.post.posted_at|date:"d.m.Y H:i" }} •
                 {{ story_post.post.source.title|default:story_post.post.source.username|default:story_post.post.source.telegram_id|default:"Источник" }}
+                {% if story_post.post.external_link %}
+                  • <a href="{{ story_post.post.external_link }}" target="_blank" rel="noopener">Оригинал</a>
+                {% endif %}
               </p>
             </header>
             <div class="border rounded bg-light-subtle p-3">

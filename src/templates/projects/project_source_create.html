@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Добавить источник — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="mb-4">
+    <h1 class="h3 mb-1">Добавить источник</h1>
+    <p class="text-muted mb-0">Выберите тип источника и заполните параметры подключения.</p>
+  </div>
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <form method="post" enctype="multipart/form-data" novalidate>
+        {% csrf_token %}
+        {% include "projects/includes/source_form_fields.html" %}
+        <div class="d-flex justify-content-between mt-4">
+          <a class="btn btn-outline-secondary" href="{% url 'projects:sources' project.pk %}">Назад к списку</a>
+          <button type="submit" class="btn btn-primary">Сохранить источник</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% include "projects/includes/source_form_scripts.html" %}
+{% endblock %}

@@ -8,69 +8,15 @@
       <div class="mb-4">
         <h1 class="h3 mb-1">Редактирование источника</h1>
         <p class="text-muted mb-0">
-          Обновите параметры подключения канала «{{ source.title|default:"без названия" }}» для проекта «{{ project.name }}».
+          Обновите параметры подключения источника «{{ source.title|default:"без названия" }}» для проекта «{{ project.name }}».
         </p>
       </div>
       <div class="card shadow-sm">
         <div class="card-body">
-          <form method="post" novalidate>
+          <form method="post" enctype="multipart/form-data" novalidate>
             {% csrf_token %}
-            {% if form.non_field_errors %}
-              <div class="alert alert-danger" role="alert">
-                {% for error in form.non_field_errors %}
-                  <div>{{ error }}</div>
-                {% endfor %}
-              </div>
-            {% endif %}
-            <div class="mb-3">
-              <label for="{{ form.title.id_for_label }}" class="form-label">{{ form.title.label }}</label>
-              {{ form.title }}
-              <div class="form-text">Если оставить пустым, название подтянется автоматически.</div>
-              {% for error in form.title.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-3">
-              <label for="{{ form.username.id_for_label }}" class="form-label">{{ form.username.label }}</label>
-              {{ form.username }}
-              {% for error in form.username.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-3">
-              <label for="{{ form.invite_link.id_for_label }}" class="form-label">{{ form.invite_link.label }}</label>
-              {{ form.invite_link }}
-              {% for error in form.invite_link.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-3">
-              <label for="{{ form.telegram_id.id_for_label }}" class="form-label">{{ form.telegram_id.label }}</label>
-              {{ form.telegram_id }}
-              {% for error in form.telegram_id.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-3">
-              <div class="form-check form-switch">
-                {{ form.deduplicate_text }}
-                <label class="form-check-label" for="{{ form.deduplicate_text.id_for_label }}">{{ form.deduplicate_text.label }}</label>
-              </div>
-            </div>
-            <div class="mb-3">
-              <div class="form-check form-switch">
-                {{ form.deduplicate_media }}
-                <label class="form-check-label" for="{{ form.deduplicate_media.id_for_label }}">{{ form.deduplicate_media.label }}</label>
-              </div>
-            </div>
-            <div class="mb-4">
-              <label for="{{ form.retention_days.id_for_label }}" class="form-label">{{ form.retention_days.label }}</label>
-              {{ form.retention_days }}
-              {% for error in form.retention_days.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="d-flex justify-content-between">
+            {% include "projects/includes/source_form_fields.html" %}
+            <div class="d-flex justify-content-between mt-4">
               <a class="btn btn-outline-secondary" href="{% url 'projects:sources' project.pk %}">Назад к источникам</a>
               <button type="submit" class="btn btn-primary">Сохранить изменения</button>
             </div>
@@ -79,4 +25,5 @@
       </div>
     </div>
   </div>
+  {% include "projects/includes/source_form_scripts.html" %}
 {% endblock %}

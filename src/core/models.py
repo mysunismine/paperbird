@@ -40,6 +40,7 @@ class WorkerTask(models.Model):
 
     class Queue(models.TextChoices):
         COLLECTOR = "collector", "Collector"
+        COLLECTOR_WEB = "collector_web", "Collector Web"
         REWRITE = "rewrite", "Rewrite"
         PUBLISH = "publish", "Publish"
         IMAGE = "image", "Image"
@@ -366,6 +367,11 @@ class QueueSettings:
 
 QUEUE_DEFAULTS: dict[str, QueueSettings] = {
     WorkerTask.Queue.COLLECTOR: QueueSettings(
+        max_attempts=COLLECTOR_MAX_ATTEMPTS,
+        base_retry_delay=COLLECTOR_BASE_RETRY_DELAY,
+        max_retry_delay=COLLECTOR_MAX_RETRY_DELAY,
+    ),
+    WorkerTask.Queue.COLLECTOR_WEB: QueueSettings(
         max_attempts=COLLECTOR_MAX_ATTEMPTS,
         base_retry_delay=COLLECTOR_BASE_RETRY_DELAY,
         max_retry_delay=COLLECTOR_MAX_RETRY_DELAY,

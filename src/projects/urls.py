@@ -3,11 +3,13 @@
 from django.urls import path
 
 from .views import (
+    ProjectCollectorQueueView,
     ProjectCreateView,
     ProjectListView,
     ProjectPromptExportView,
     ProjectPromptsView,
     ProjectSettingsView,
+    ProjectSourceCreateView,
     ProjectSourcesView,
     ProjectSourceUpdateView,
 )
@@ -26,8 +28,14 @@ urlpatterns = [
     ),
     path("<int:pk>/sources/", ProjectSourcesView.as_view(), name="sources"),
     path(
+        "<int:project_pk>/sources/create/",
+        ProjectSourceCreateView.as_view(),
+        name="source-create",
+    ),
+    path(
         "<int:project_pk>/sources/<int:pk>/edit/",
         ProjectSourceUpdateView.as_view(),
         name="source-edit",
     ),
+    path("<int:pk>/queues/", ProjectCollectorQueueView.as_view(), name="queue"),
 ]

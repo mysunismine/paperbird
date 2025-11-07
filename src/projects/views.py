@@ -24,7 +24,7 @@ from django.views.generic import (
 
 from core.models import WorkerTask
 from core.services.worker import enqueue_task
-from projects.models import Post, Project, Source
+from projects.models import Post, Project, Source, WebPreset
 from projects.services.prompt_config import (
     PROMPT_SECTION_HINTS,
     PROMPT_SECTION_ORDER,
@@ -179,20 +179,42 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
             .order_by("available_at")
             .first()
         )
+        next_web_task = (
+            WorkerTask.objects.filter(
+                queue=WorkerTask.Queue.COLLECTOR_WEB,
+                status=WorkerTask.Status.QUEUED,
+                payload__project_id=self.project.id,
+            )
+            .order_by("available_at")
+            .first()
+        )
+        has_telegram_sources = self._has_telegram_sources()
+        has_web_sources = self._has_web_sources()
         return {
             "enabled": self.project.collector_enabled,
             "interval": self.project.collector_interval,
             "last_run": self.project.collector_last_run,
             "next_run": next_task.available_at if next_task else None,
+            "next_web_run": next_web_task.available_at if next_web_task else None,
             "has_credentials": self.request.user.has_telethon_credentials,
+            "requires_credentials": has_telegram_sources,
+            "has_web_sources": has_web_sources,
+            "has_telegram_sources": has_telegram_sources,
         }
 
     def _start_collector(self):
         project = self.project
-        if not self.request.user.has_telethon_credentials:
+        requires_telethon = self._has_telegram_sources()
+        if requires_telethon and not self.request.user.has_telethon_credentials:
             messages.error(
                 self.request,
                 "Сначала добавьте Telethon-ключи в профиль, чтобы запустить сборщик.",
+            )
+            return redirect(self.request.path)
+        if not requires_telethon and not self._has_web_sources():
+            messages.error(
+                self.request,
+                "Добавьте хотя бы один источник, прежде чем запускать сборщик.",
             )
             return redirect(self.request.path)
 
@@ -218,7 +240,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         project.save(update_fields=["collector_enabled", "updated_at"])
         now = timezone.now()
         WorkerTask.objects.filter(
-            queue=WorkerTask.Queue.COLLECTOR,
+            queue__in=[WorkerTask.Queue.COLLECTOR, WorkerTask.Queue.COLLECTOR_WEB],
             payload__project_id=project.id,
             status=WorkerTask.Status.QUEUED,
         ).update(
@@ -233,8 +255,14 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         return redirect(self.request.path)
 
     def _ensure_collector_task(self, *, delay: int) -> None:
+        if self._has_telegram_sources():
+            self._schedule_queue(WorkerTask.Queue.COLLECTOR, delay)
+        if self._has_web_sources():
+            self._schedule_queue(WorkerTask.Queue.COLLECTOR_WEB, delay)
+
+    def _schedule_queue(self, queue: str, delay: int) -> None:
         exists = WorkerTask.objects.filter(
-            queue=WorkerTask.Queue.COLLECTOR,
+            queue=queue,
             payload__project_id=self.project.id,
             status__in=[WorkerTask.Status.QUEUED, WorkerTask.Status.RUNNING],
         ).exists()
@@ -242,13 +270,23 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
             return
         scheduled_for = timezone.now() + timedelta(seconds=max(delay, 0))
         enqueue_task(
-            WorkerTask.Queue.COLLECTOR,
+            queue,
             payload={
                 "project_id": self.project.id,
                 "interval": self.project.collector_interval,
             },
             scheduled_for=scheduled_for,
         )
+
+    def _has_telegram_sources(self) -> bool:
+        return self.project.sources.filter(is_active=True, type=Source.Type.TELEGRAM).exists()
+
+    def _has_web_sources(self) -> bool:
+        return self.project.sources.filter(
+            is_active=True,
+            type=Source.Type.WEB,
+            web_preset__status=WebPreset.Status.ACTIVE,
+        ).exists()
 
 
 class ProjectCreateView(LoginRequiredMixin, CreateView):
@@ -385,7 +423,7 @@ class ProjectPromptExportView(LoginRequiredMixin, View):
 
 
 class ProjectSourcesView(LoginRequiredMixin, TemplateView):
-    """Список источников проекта и форма добавления новых."""
+    """Список источников проекта с действиями управления."""
 
     template_name = "projects/project_sources.html"
 
@@ -397,18 +435,13 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
         )
         return super().dispatch(request, *args, **kwargs)
 
-    def _get_create_form(self):
-        if not hasattr(self, "_create_form"):
-            self._create_form = SourceCreateForm(project=self.project)
-        return self._create_form
-
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context.update(
             {
                 "project": self.project,
-                "form": getattr(self, "_create_form", self._get_create_form()),
-                "sources": self.project.sources.order_by("title", "telegram_id"),
+                "sources": self.project.sources.order_by("type", "title", "telegram_id"),
+                "create_url": reverse_lazy("projects:source-create", kwargs={"project_pk": self.project.pk}),
             }
         )
         return context
@@ -416,17 +449,8 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
     def post(self, request, *args, **kwargs):
         if request.POST.get("action") == "delete":
             return self._handle_delete(request)
-        return self._handle_create(request)
-
-    def _handle_create(self, request):
-        form = SourceCreateForm(request.POST, project=self.project)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Источник добавлен к проекту.")
-            return redirect("projects:sources", pk=self.project.pk)
-        messages.error(request, "Исправьте ошибки формы")
-        self._create_form = form
-        return self.get(request, pk=self.project.pk)
+        messages.error(request, "Неизвестное действие.")
+        return redirect("projects:sources", pk=self.project.pk)
 
     def _handle_delete(self, request):
         source_id = request.POST.get("source_id")
@@ -437,6 +461,66 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
             source.delete()
             messages.success(request, "Источник удалён.")
         return redirect("projects:sources", pk=self.project.pk)
+
+
+class ProjectSourceCreateView(LoginRequiredMixin, FormView):
+    """Отдельная страница добавления нового источника."""
+
+    template_name = "projects/project_source_create.html"
+    form_class = SourceCreateForm
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(
+            Project,
+            pk=kwargs["project_pk"],
+            owner=request.user,
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self) -> dict[str, Any]:
+        kwargs = super().get_form_kwargs()
+        kwargs["project"] = self.project
+        return kwargs
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["project"] = self.project
+        return context
+
+    def form_valid(self, form):  # type: ignore[override]
+        source = form.save()
+        if source.type == Source.Type.WEB:
+            self._schedule_web_source_collection(source)
+        else:
+            messages.success(self.request, "Источник добавлен к проекту.")
+        return redirect("projects:sources", pk=source.project_id)
+
+    def form_invalid(self, form):
+        messages.error(self.request, "Исправьте ошибки формы и попробуйте снова.")
+        return super().form_invalid(form)
+
+    def _schedule_web_source_collection(self, source: Source) -> None:
+        payload = {
+            "project_id": source.project_id,
+            "interval": max(source.project.collector_interval, 60),
+            "source_id": source.pk,
+        }
+        try:
+            enqueue_task(
+                WorkerTask.Queue.COLLECTOR_WEB,
+                payload=payload,
+                scheduled_for=timezone.now(),
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            messages.error(
+                self.request,
+                f"Источник добавлен, но не удалось запустить парсер: {exc}",
+            )
+        else:
+            messages.info(
+                self.request,
+                "Источник добавлен. Запускаем парсер — посты скоро появятся в ленте.",
+            )
 
 
 class ProjectSourceUpdateView(LoginRequiredMixin, UpdateView):
@@ -467,3 +551,33 @@ class ProjectSourceUpdateView(LoginRequiredMixin, UpdateView):
         source = form.save()
         messages.success(self.request, "Источник обновлён.")
         return redirect("projects:sources", pk=source.project_id)
+
+
+class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
+    """Отображает очередь задач коллектора для проекта."""
+
+    template_name = "projects/project_queue.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(
+            Project,
+            pk=kwargs["pk"],
+            owner=request.user,
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        queues = [WorkerTask.Queue.COLLECTOR, WorkerTask.Queue.COLLECTOR_WEB]
+        tasks = (
+            WorkerTask.objects.filter(queue__in=queues, payload__project_id=self.project.id)
+            .order_by("queue", "status", "available_at")
+        )
+        context.update(
+            {
+                "project": self.project,
+                "tasks": tasks,
+                "queues": queues,
+            }
+        )
+        return context

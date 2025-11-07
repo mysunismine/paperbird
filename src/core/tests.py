@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import re
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -218,3 +221,47 @@ class ServerErrorViewTests(TestCase):
         self.assertIsNotNone(match)
         correlation_id = match.group(1)
         self.assertEqual(response["X-Correlation-ID"], correlation_id)
+
+
+class RunCollectorsCommandTests(TestCase):
+    @patch("core.management.commands.run_collectors.make_runner")
+    def test_run_collectors_once(self, mock_make_runner) -> None:
+        class FakeRunner:
+            def __init__(self, queue):
+                self.queue = queue
+                self.calls = 0
+
+            def run_once(self):
+                self.calls += 1
+                return 1 if self.queue == "collector" else 0
+
+        mock_make_runner.side_effect = lambda **kwargs: FakeRunner(kwargs["queue"])
+        stdout = io.StringIO()
+        call_command("run_collectors", "--once", stdout=stdout)
+        self.assertIn("Processed 1 tasks", stdout.getvalue())
+        self.assertEqual(mock_make_runner.call_count, 2)
+
+    @patch("core.management.commands.run_collectors.time.sleep")
+    @patch("core.management.commands.run_collectors.make_runner")
+    def test_iterations_limit(self, mock_make_runner, mock_sleep) -> None:
+        created_runners = []
+
+        class IdleRunner:
+            def __init__(self, queue):
+                self.queue = queue
+                self.calls = 0
+
+            def run_once(self):
+                self.calls += 1
+                return 0
+
+        def _side_effect(**kwargs):
+            runner = IdleRunner(kwargs["queue"])
+            created_runners.append(runner)
+            return runner
+
+        mock_make_runner.side_effect = _side_effect
+        call_command("run_collectors", "--iterations", "2", "--sleep", "0.1")
+        self.assertEqual(mock_make_runner.call_count, 2)
+        self.assertEqual(mock_sleep.call_count, 1)
+        self.assertTrue(all(r.calls == 2 for r in created_runners))

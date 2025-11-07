@@ -10,8 +10,9 @@ from core.constants import (
     IMAGE_SIZE_CHOICES,
     REWRITE_MODEL_CHOICES,
 )
-from projects.models import Project, ProjectPromptConfig, Source
+from projects.models import Project, ProjectPromptConfig, Source, WebPreset
 from projects.services.source_metadata import enqueue_source_refresh
+from projects.services.web_preset_registry import PresetValidationError, WebPresetRegistry
 
 
 class ProjectCreateForm(forms.ModelForm):
@@ -132,18 +133,48 @@ class ProjectCreateForm(forms.ModelForm):
 class SourceBaseForm(forms.ModelForm):
     """Базовая форма управления источником."""
 
+    preset_payload = forms.CharField(
+        label="Импорт JSON пресета",
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control font-monospace",
+                "rows": 6,
+                "placeholder": "{\n  \"name\": \"my_site\",\n  ...\n}",
+            }
+        ),
+        required=False,
+        help_text="Вставьте содержимое preset.json, если хотите добавить новый сайт.",
+    )
+
+    preset_file = forms.FileField(
+        label="Импорт пресета (файл)",
+        required=False,
+        widget=forms.ClearableFileInput(
+            attrs={
+                "class": "form-control",
+                "accept": ".json,application/json",
+            }
+        ),
+        help_text="Выберите JSON-файл с описанием пресета.",
+    )
+
     class Meta:
         model = Source
         fields = [
+            "type",
             "title",
             "telegram_id",
             "username",
             "invite_link",
+            "web_preset",
+            "preset_payload",
+            "preset_file",
             "deduplicate_text",
             "deduplicate_media",
             "retention_days",
         ]
         widgets = {
+            "type": forms.Select(attrs={"class": "form-select"}),
             "title": forms.TextInput(attrs={"class": "form-control", "placeholder": "Название (заполнится автоматически)"}),
             "telegram_id": forms.NumberInput(
                 attrs={"class": "form-control", "placeholder": "ID канала (опционально)"}
@@ -154,15 +185,18 @@ class SourceBaseForm(forms.ModelForm):
             "invite_link": forms.TextInput(
                 attrs={"class": "form-control", "placeholder": "https://t.me/+..."}
             ),
+            "web_preset": forms.Select(attrs={"class": "form-select"}),
             "deduplicate_text": forms.CheckboxInput(attrs={"class": "form-check-input"}),
             "deduplicate_media": forms.CheckboxInput(attrs={"class": "form-check-input"}),
             "retention_days": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
         }
         labels = {
+            "type": "Тип источника",
             "title": "Название",
             "telegram_id": "Telegram ID",
             "username": "Ссылка или @username",
             "invite_link": "Инвайт-ссылка",
+            "web_preset": "Пресет веб-парсера",
             "deduplicate_text": "Дедупликация текста",
             "deduplicate_media": "Дедупликация медиа",
             "retention_days": "Срок хранения (дней)",
@@ -170,11 +204,16 @@ class SourceBaseForm(forms.ModelForm):
 
     def __init__(self, *args, project: Project, **kwargs):
         self.project = project
+        self._preset_registry: WebPresetRegistry | None = None
         super().__init__(*args, **kwargs)
         self.fields["title"].required = False
         self.fields["username"].required = False
         self.fields["invite_link"].required = False
         self.fields["telegram_id"].required = False
+        self.fields["web_preset"].required = False
+        self.fields["type"].widget.attrs["data-role"] = "source-type"
+        self.fields["preset_file"].widget.attrs["data-role"] = "preset-file-input"
+        self.fields["web_preset"].queryset = WebPreset.objects.order_by("name", "version")
         if not self.initial.get("retention_days"):
             self.fields["retention_days"].initial = project.retention_days
 
@@ -231,21 +270,58 @@ class SourceBaseForm(forms.ModelForm):
                 cleaned["invite_link"] = raw_username
                 invite = raw_username
 
-        if not username and not invite and telegram_id is None:
-            raise forms.ValidationError("Укажите @username, ссылку на канал или инвайт-ссылку.")
+        file_field = self.files.get("preset_file")
+        if file_field:
+            try:
+                payload_text = file_field.read().decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise forms.ValidationError("Не удалось прочитать JSON из файла пресета.") from exc
+            cleaned["preset_payload"] = payload_text
+
+        source_type = cleaned.get("type") or Source.Type.TELEGRAM
+        if source_type == Source.Type.WEB:
+            preset = cleaned.get("web_preset")
+            payload = self.cleaned_data.get("preset_payload")
+            if payload:
+                try:
+                    preset = self._get_registry().import_payload(payload)
+                except PresetValidationError as exc:
+                    self.add_error("preset_payload", str(exc))
+                    raise forms.ValidationError("Пресет не прошёл валидацию.")
+            if not preset:
+                raise forms.ValidationError("Выберите пресет или импортируйте JSON-файл.")
+            cleaned["web_preset"] = preset
+            cleaned["username"] = ""
+            cleaned["invite_link"] = ""
+            cleaned["telegram_id"] = None
+        else:
+            if not username and not invite and telegram_id is None:
+                raise forms.ValidationError("Укажите @username, ссылку на канал или инвайт-ссылку.")
         return cleaned
 
     def save(self, commit: bool = True) -> Source:
         source: Source = super().save(commit=False)
         source.project = self.project
+        if source.type == Source.Type.WEB and source.web_preset:
+            source.web_preset_snapshot = source.web_preset.config
+            source.username = ""
+            source.invite_link = ""
+            source.telegram_id = None
         if not (source.title or "").strip():
             source.title = self._generate_title(source)
         if commit:
             source.save()
-        enqueue_source_refresh(source)
+        if source.type == Source.Type.TELEGRAM:
+            enqueue_source_refresh(source)
         return source
 
     def _generate_title(self, source: Source) -> str:
+        if source.type == Source.Type.WEB:
+            if source.web_preset and source.web_preset.title:
+                return source.web_preset.title
+            if source.web_preset:
+                return source.web_preset.name
+            return "Web-источник"
         username = (source.username or "").strip()
         if username:
             if not username.startswith("@"):
@@ -258,6 +334,11 @@ class SourceBaseForm(forms.ModelForm):
         if invite:
             return invite
         return "Источник"
+
+    def _get_registry(self) -> WebPresetRegistry:
+        if self._preset_registry is None:
+            self._preset_registry = WebPresetRegistry()
+        return self._preset_registry
 
 
 class SourceCreateForm(SourceBaseForm):

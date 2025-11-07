@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 
-from projects.models import Post, Project, Source, SourceSyncLog
+from projects.models import Post, Project, Source, SourceSyncLog, WebPreset
 
 
 @admin.register(Project)
@@ -18,20 +18,30 @@ class SourceAdmin(admin.ModelAdmin):
     list_display = (
         "project",
         "title",
+        "type",
         "username",
         "telegram_id",
+        "web_preset",
         "is_active",
         "last_synced_at",
     )
-    list_filter = ("is_active", "project")
-    search_fields = ("title", "username", "telegram_id")
-    readonly_fields = ("created_at", "updated_at", "last_synced_at", "last_synced_id")
+    list_filter = ("is_active", "project", "type")
+    search_fields = ("title", "username", "telegram_id", "web_preset__name")
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+        "last_synced_at",
+        "last_synced_id",
+        "web_last_synced_at",
+    )
 
 
 @admin.register(Post)
 class PostAdmin(admin.ModelAdmin):
     list_display = (
+        "origin_type",
         "telegram_id",
+        "external_id",
         "project",
         "source",
         "status",
@@ -39,9 +49,9 @@ class PostAdmin(admin.ModelAdmin):
         "collected_at",
         "has_media",
     )
-    list_filter = ("status", "project", "source", "has_media")
-    search_fields = ("telegram_id", "message")
-    readonly_fields = ("collected_at", "updated_at", "text_hash", "media_hash")
+    list_filter = ("status", "project", "source", "has_media", "origin_type")
+    search_fields = ("telegram_id", "message", "source_url", "canonical_url")
+    readonly_fields = ("collected_at", "updated_at", "text_hash", "media_hash", "content_hash")
     date_hierarchy = "posted_at"
 
 
@@ -51,3 +61,10 @@ class SourceSyncLogAdmin(admin.ModelAdmin):
     list_filter = ("status", "source__project")
     search_fields = ("source__title", "source__username")
     readonly_fields = ("started_at", "finished_at")
+
+
+@admin.register(WebPreset)
+class WebPresetAdmin(admin.ModelAdmin):
+    list_display = ("name", "version", "status", "schema_version", "updated_at")
+    list_filter = ("status",)
+    search_fields = ("name", "version", "description")

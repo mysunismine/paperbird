@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import re
+import hashlib
 import io
+import json
+import re
 from datetime import timedelta
 from http import HTTPStatus
+from unittest import skipUnless
 from unittest.mock import AsyncMock, MagicMock, patch
 from types import SimpleNamespace
 
@@ -28,7 +31,8 @@ from core.constants import (
     REWRITE_MODEL_CHOICES,
 )
 from core.models import WorkerTask
-from projects.models import Post, Project, ProjectPromptConfig, Source
+from projects.forms import SourceCreateForm
+from projects.models import Post, Project, ProjectPromptConfig, Source, WebPreset
 from projects.services.post_filters import (
     PostFilterOptions,
     apply_post_filters,
@@ -40,6 +44,7 @@ from projects.services.collector import PostCollector, _normalize_raw
 from projects.services.retention import purge_expired_posts, schedule_retention_cleanup
 from projects.workers import (
     collect_project_posts_task,
+    collect_project_web_sources_task,
     refresh_source_metadata_task,
     retention_cleanup_task,
 )
@@ -47,9 +52,51 @@ from projects.services.telethon_client import (
     TelethonClientFactory,
     TelethonCredentialsMissingError,
 )
+from projects.services.web_collector import WebCollector
+from projects.services.web_preset_registry import PresetValidationError, WebPresetRegistry
 from stories.paperbird_stories.services import StoryFactory
 
 User = get_user_model()
+try:  # pragma: no cover - optional dependency for tests
+    import bs4  # type: ignore
+
+    HAS_BS4 = True
+except ModuleNotFoundError:  # pragma: no cover
+    HAS_BS4 = False
+
+try:  # pragma: no cover - optional dependency for tests
+    import jsonschema  # type: ignore
+
+    HAS_JSONSCHEMA = True
+except ModuleNotFoundError:  # pragma: no cover
+    HAS_JSONSCHEMA = False
+
+
+def make_preset_payload(name: str = "web_example") -> dict:
+    return {
+        "name": name,
+        "version": "1.0.0",
+        "match": {"domains": ["example.com"]},
+        "fetch": {"timeout_sec": 5},
+        "list_page": {
+            "seeds": ["https://example.com/news"],
+            "selectors": {
+                "items": "article.item",
+                "url": "a@href",
+                "title": "a@text",
+            },
+            "pagination": {"type": "none"},
+        },
+        "article_page": {
+            "selectors": {
+                "title": "h1@text",
+                "content": "div.body",
+                "images": "div.body img@src*",
+            },
+            "cleanup": {"remove": ["div.ad"], "unwrap": []},
+            "normalize": {"html_to_md": True},
+        },
+    }
 
 
 class PostFilterServiceTests(TestCase):
@@ -564,83 +611,7 @@ class ProjectSourcesViewTests(TestCase):
         response = self.client.get(reverse("projects:sources", args=[self.project.pk]))
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertContains(response, "Источники проекта")
-
-    @patch("projects.forms.enqueue_source_refresh")
-    def test_post_creates_source(self, mock_refresh) -> None:
-        response = self.client.post(
-            reverse("projects:sources", args=[self.project.pk]),
-            data={
-                "title": "Tech",
-                "telegram_id": "",
-                "username": "https://t.me/technews",
-                "invite_link": "",
-                "deduplicate_text": "on",
-                "deduplicate_media": "on",
-                "retention_days": 15,
-            },
-            follow=True,
-        )
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        source = Source.objects.get(project=self.project, username="technews")
-        self.assertIsNone(source.telegram_id)
-        mock_refresh.assert_called_once_with(source)
-
-    @patch("projects.forms.enqueue_source_refresh")
-    def test_username_from_s_path_normalized(self, mock_refresh) -> None:
-        response = self.client.post(
-            reverse("projects:sources", args=[self.project.pk]),
-            data={
-                "title": "News",
-                "telegram_id": "",
-                "username": "https://t.me/s/bazabazon",
-                "invite_link": "",
-                "deduplicate_text": "on",
-                "deduplicate_media": "on",
-                "retention_days": 10,
-            },
-            follow=True,
-        )
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        source = Source.objects.get(project=self.project)
-        self.assertEqual(source.username, "bazabazon")
-        mock_refresh.assert_called_once()
-
-    @patch("projects.forms.enqueue_source_refresh")
-    def test_invite_link_detection_from_username_field(self, mock_refresh) -> None:
-        self.client.post(
-            reverse("projects:sources", args=[self.project.pk]),
-            data={
-                "title": "Private",
-                "telegram_id": "",
-                "username": "https://t.me/+abcdef",
-                "invite_link": "",
-                "retention_days": 7,
-            },
-            follow=True,
-        )
-        source = Source.objects.get(project=self.project, title="Private")
-        self.assertEqual(source.invite_link, "https://t.me/+abcdef")
-        mock_refresh.assert_called_once()
-
-    @patch("projects.forms.enqueue_source_refresh")
-    def test_create_source_autofills_title(self, mock_refresh) -> None:
-        response = self.client.post(
-            reverse("projects:sources", args=[self.project.pk]),
-            data={
-                "title": "",
-                "telegram_id": "",
-                "username": "https://t.me/techsource",
-                "invite_link": "",
-                "deduplicate_text": "on",
-                "deduplicate_media": "on",
-                "retention_days": 12,
-            },
-            follow=True,
-        )
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        created = Source.objects.get(project=self.project, username="techsource")
-        self.assertEqual(created.title, "@techsource")
-        mock_refresh.assert_called_once_with(created)
+        self.assertContains(response, "Добавить источник")
 
     def test_delete_source(self) -> None:
         source = Source.objects.create(project=self.project, title="Temp", username="temp")
@@ -659,6 +630,145 @@ class ProjectSourcesViewTests(TestCase):
         self.client.force_login(self.other)
         response = self.client.get(reverse("projects:sources", args=[self.project.pk]))
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
+
+
+class ProjectSourceCreateViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("curator", password="secret")
+        self.client.force_login(self.user)
+        self.project = Project.objects.create(owner=self.user, name="Мониторинг")
+
+    def test_get_create_page(self) -> None:
+        response = self.client.get(
+            reverse("projects:source-create", kwargs={"project_pk": self.project.pk})
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, "Добавить источник")
+
+    @patch("projects.forms.enqueue_source_refresh")
+    def test_post_creates_source(self, mock_refresh) -> None:
+        response = self.client.post(
+            reverse("projects:source-create", kwargs={"project_pk": self.project.pk}),
+            data={
+                "type": Source.Type.TELEGRAM,
+                "title": "Tech",
+                "telegram_id": "",
+                "username": "https://t.me/technews",
+                "invite_link": "",
+                "deduplicate_text": "on",
+                "deduplicate_media": "on",
+                "retention_days": 15,
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        source = Source.objects.get(project=self.project, username="technews")
+        self.assertIsNone(source.telegram_id)
+        mock_refresh.assert_called_once_with(source)
+
+    @patch("projects.forms.enqueue_source_refresh")
+    def test_username_from_s_path_normalized(self, mock_refresh) -> None:
+        response = self.client.post(
+            reverse("projects:source-create", kwargs={"project_pk": self.project.pk}),
+            data={
+                "type": Source.Type.TELEGRAM,
+                "title": "News",
+                "telegram_id": "",
+                "username": "https://t.me/s/bazabazon",
+                "invite_link": "",
+                "deduplicate_text": "on",
+                "deduplicate_media": "on",
+                "retention_days": 10,
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        source = Source.objects.get(project=self.project)
+        self.assertEqual(source.username, "bazabazon")
+        mock_refresh.assert_called_once()
+
+    @patch("projects.forms.enqueue_source_refresh")
+    def test_invite_link_detection_from_username_field(self, mock_refresh) -> None:
+        self.client.post(
+            reverse("projects:source-create", kwargs={"project_pk": self.project.pk}),
+            data={
+                "type": Source.Type.TELEGRAM,
+                "title": "Private",
+                "telegram_id": "",
+                "username": "https://t.me/+abcdef",
+                "invite_link": "",
+                "retention_days": 7,
+            },
+            follow=True,
+        )
+        source = Source.objects.get(project=self.project, title="Private")
+        self.assertEqual(source.invite_link, "https://t.me/+abcdef")
+        mock_refresh.assert_called_once()
+
+    @patch("projects.forms.enqueue_source_refresh")
+    def test_create_source_autofills_title(self, mock_refresh) -> None:
+        response = self.client.post(
+            reverse("projects:source-create", kwargs={"project_pk": self.project.pk}),
+            data={
+                "type": Source.Type.TELEGRAM,
+                "title": "",
+                "telegram_id": "",
+                "username": "https://t.me/techsource",
+                "invite_link": "",
+                "deduplicate_text": "on",
+                "deduplicate_media": "on",
+                "retention_days": 12,
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        created = Source.objects.get(project=self.project, username="techsource")
+        self.assertEqual(created.title, "@techsource")
+        mock_refresh.assert_called_once_with(created)
+
+    @patch("projects.views.enqueue_task")
+    def test_web_source_schedules_collection(self, mock_enqueue) -> None:
+        payload = json.dumps(make_preset_payload("site_feed"))
+        response = self.client.post(
+            reverse("projects:source-create", kwargs={"project_pk": self.project.pk}),
+            data={
+                "type": Source.Type.WEB,
+                "title": "Сайт",
+                "preset_payload": payload,
+                "deduplicate_text": "on",
+                "deduplicate_media": "on",
+                "retention_days": 30,
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        created = Source.objects.get(project=self.project)
+        self.assertEqual(created.type, Source.Type.WEB)
+        mock_enqueue.assert_called_once()
+        args, kwargs = mock_enqueue.call_args
+        self.assertEqual(args[0], WorkerTask.Queue.COLLECTOR_WEB)
+        payload_sent = kwargs["payload"]
+        self.assertEqual(payload_sent["project_id"], self.project.pk)
+        self.assertEqual(payload_sent["source_id"], created.pk)
+
+    @patch("projects.views.enqueue_task", side_effect=RuntimeError("boom"))
+    def test_web_source_enqueue_failure_shows_message(self, mock_enqueue) -> None:
+        payload = json.dumps(make_preset_payload("site_feed"))
+        response = self.client.post(
+            reverse("projects:source-create", kwargs={"project_pk": self.project.pk}),
+            data={
+                "type": Source.Type.WEB,
+                "title": "Сайт",
+                "preset_payload": payload,
+                "deduplicate_text": "on",
+                "deduplicate_media": "on",
+                "retention_days": 30,
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, "не удалось запустить парсер")
+        mock_enqueue.assert_called_once()
 
 
 class ProjectSourceUpdateViewTests(TestCase):
@@ -687,6 +797,7 @@ class ProjectSourceUpdateViewTests(TestCase):
         response = self.client.post(
             url,
             data={
+                "type": Source.Type.TELEGRAM,
                 "title": "",
                 "username": "@updated",
                 "invite_link": "",
@@ -708,6 +819,238 @@ class ProjectSourceUpdateViewTests(TestCase):
         url = reverse("projects:source-edit", args=[self.project.pk, self.source.pk])
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
+
+
+class ProjectCollectorQueueViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("ops", password="secret")
+        self.other = User.objects.create_user("guest", password="secret")
+        self.client.force_login(self.user)
+        self.project = Project.objects.create(owner=self.user, name="Мониторинг")
+
+    def test_queue_view_lists_tasks(self) -> None:
+        WorkerTask.objects.create(
+            queue=WorkerTask.Queue.COLLECTOR,
+            payload={"project_id": self.project.pk},
+        )
+        WorkerTask.objects.create(
+            queue=WorkerTask.Queue.COLLECTOR_WEB,
+            payload={"project_id": self.project.pk},
+            status=WorkerTask.Status.RUNNING,
+        )
+        response = self.client.get(reverse("projects:queue", args=[self.project.pk]))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, "Очередь коллектора проекта")
+        self.assertContains(response, "Telegram")
+        self.assertContains(response, "Web")
+
+    def test_other_user_cannot_view_queue(self) -> None:
+        self.client.force_login(self.other)
+        response = self.client.get(reverse("projects:queue", args=[self.project.pk]))
+        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
+
+
+@skipUnless(HAS_JSONSCHEMA, "jsonschema не установлена")
+class WebPresetRegistryTests(TestCase):
+    def test_import_and_reuse_preset(self) -> None:
+        registry = WebPresetRegistry()
+        payload = make_preset_payload()
+        preset = registry.import_payload(json.dumps(payload))
+        self.assertEqual(preset.name, "web_example")
+        self.assertEqual(preset.status, WebPreset.Status.ACTIVE)
+        again = registry.import_payload(json.dumps(payload))
+        self.assertEqual(WebPreset.objects.count(), 1)
+        self.assertEqual(preset.pk, again.pk)
+
+    def test_invalid_payload_raises(self) -> None:
+        registry = WebPresetRegistry()
+        with self.assertRaises(PresetValidationError):
+            registry.import_payload("{}")
+
+
+@skipUnless(HAS_JSONSCHEMA, "jsonschema не установлена")
+class WebSourceFormTests(TestCase):
+    @patch("projects.forms.enqueue_source_refresh")
+    def test_web_source_created_from_json_payload(self, mock_refresh) -> None:
+        user = User.objects.create_user("web", password="secret")
+        project = Project.objects.create(owner=user, name="Web feed")
+        payload = make_preset_payload("site_feed")
+        form = SourceCreateForm(
+            data={
+                "type": Source.Type.WEB,
+                "title": "",
+                "telegram_id": "",
+                "username": "",
+                "invite_link": "",
+                "web_preset": "",
+                "preset_payload": json.dumps(payload),
+                "deduplicate_text": "on",
+                "deduplicate_media": "on",
+                "retention_days": 5,
+            },
+            project=project,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        source = form.save()
+        self.assertEqual(source.type, Source.Type.WEB)
+        self.assertIsNotNone(source.web_preset)
+        self.assertTrue(source.web_preset_snapshot)
+        self.assertEqual(source.web_preset.name, "site_feed")
+        mock_refresh.assert_not_called()
+
+
+@skipUnless(HAS_BS4, "beautifulsoup4 не установлена")
+class WebCollectorTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("crawler", password="secret")
+        self.project = Project.objects.create(owner=self.user, name="Web Crawl")
+        self.preset_data = make_preset_payload("crawler")
+        checksum = hashlib.sha256(
+            json.dumps(self.preset_data, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        self.preset = WebPreset.objects.create(
+            name=self.preset_data["name"],
+            version=self.preset_data["version"],
+            schema_version=1,
+            status=WebPreset.Status.ACTIVE,
+            checksum=checksum,
+            config=self.preset_data,
+        )
+        self.source = Source.objects.create(
+            project=self.project,
+            type=Source.Type.WEB,
+            title="Crawler",
+            web_preset=self.preset,
+            web_preset_snapshot=self.preset_data,
+            is_active=True,
+        )
+        self.fetcher = self._make_fetcher()
+
+    def _make_fetcher(self):
+        listing = """
+        <html><body>
+          <article class="item"><a href="https://example.com/article-1">Новость дня</a></article>
+        </body></html>
+        """
+        article = """
+        <html><body>
+          <h1>Новость дня</h1>
+          <div class="body">
+            <p>Первый абзац текста</p>
+            <img src="/images/photo.jpg" />
+            <div class="ad">Реклама</div>
+          </div>
+        </body></html>
+        """
+        mapping = {
+            "https://example.com/news": listing,
+            "https://example.com/article-1": article,
+        }
+
+        class FakeFetcher:
+            def __init__(self, responses):
+                self.responses = responses
+
+            def fetch(self, url, _config):
+                return SimpleNamespace(
+                    url=url,
+                    final_url=url,
+                    status_code=200,
+                    content=self.responses[url],
+                )
+
+        return FakeFetcher(mapping)
+
+    def test_collect_creates_and_skips_duplicates(self) -> None:
+        collector = WebCollector(fetcher=self.fetcher)
+        stats = collector.collect(self.source)
+        self.assertEqual(stats["created"], 1)
+        post = Post.objects.get(source=self.source)
+        self.assertEqual(post.origin_type, Post.Origin.WEB)
+        self.assertEqual(post.source, self.source)
+        self.assertTrue(post.content_md)
+        self.assertTrue(post.external_link)
+        stats_repeat = collector.collect(self.source)
+        self.assertGreaterEqual(stats_repeat["skipped"], 1)
+
+
+class CollectProjectWebSourcesTaskTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("webber", password="secret")
+        self.project = Project.objects.create(
+            owner=self.user,
+            name="Web project",
+            collector_enabled=True,
+            collector_interval=120,
+        )
+
+    def _add_web_source(self) -> Source:
+        preset_data = make_preset_payload("worker_site")
+        checksum = hashlib.sha256(
+            json.dumps(preset_data, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        preset = WebPreset.objects.create(
+            name=preset_data["name"],
+            version=preset_data["version"],
+            schema_version=1,
+            status=WebPreset.Status.ACTIVE,
+            checksum=checksum,
+            config=preset_data,
+        )
+        return Source.objects.create(
+            project=self.project,
+            type=Source.Type.WEB,
+            title="Worker source",
+            web_preset=preset,
+            web_preset_snapshot=preset_data,
+            is_active=True,
+        )
+
+    def test_task_skips_without_sources(self) -> None:
+        task = WorkerTask.objects.create(
+            queue=WorkerTask.Queue.COLLECTOR_WEB,
+            payload={"project_id": self.project.id},
+        )
+        result = collect_project_web_sources_task(task)
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "no_sources")
+
+    @patch("projects.workers.WebCollector.collect")
+    def test_task_processes_sources_and_requeues(self, mock_collect) -> None:
+        self._add_web_source()
+        mock_collect.return_value = {"created": 1, "updated": 0, "skipped": 0}
+        task = WorkerTask.objects.create(
+            queue=WorkerTask.Queue.COLLECTOR_WEB,
+            payload={"project_id": self.project.id, "interval": 60},
+        )
+        result = collect_project_web_sources_task(task)
+        self.assertEqual(result["created"], 1)
+        queued = WorkerTask.objects.filter(
+            queue=WorkerTask.Queue.COLLECTOR_WEB,
+            payload__project_id=self.project.id,
+            status=WorkerTask.Status.QUEUED,
+        ).exclude(pk=task.pk)
+        self.assertTrue(queued.exists())
+
+    @patch("projects.workers.WebCollector.collect")
+    def test_task_handles_specific_source_without_reschedule(self, mock_collect) -> None:
+        source = self._add_web_source()
+        mock_collect.return_value = {"created": 1, "updated": 0, "skipped": 0}
+        task = WorkerTask.objects.create(
+            queue=WorkerTask.Queue.COLLECTOR_WEB,
+            payload={"project_id": self.project.id, "interval": 60, "source_id": source.id},
+        )
+        result = collect_project_web_sources_task(task)
+        self.assertEqual(result["created"], 1)
+        self.assertFalse(
+            WorkerTask.objects.filter(
+                queue=WorkerTask.Queue.COLLECTOR_WEB,
+                payload__project_id=self.project.id,
+                status=WorkerTask.Status.QUEUED,
+            )
+            .exclude(pk=task.pk)
+            .exists()
+        )
 
 
 class CollectorSanitizationTests(TestCase):

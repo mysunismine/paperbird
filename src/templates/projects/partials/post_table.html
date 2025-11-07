@@ -22,7 +22,17 @@
         </td>
         <td>
           <div class="fw-semibold">{{ post.source.title|default:post.source.username|default:post.source.telegram_id|default:"Источник" }}</div>
-          <div class="small text-muted">ID: {{ post.telegram_id }}</div>
+          <div class="small text-muted">
+            {% if post.origin_type == "telegram" %}
+              Telegram ID: {{ post.telegram_id|default:"—" }}
+            {% else %}
+              {% if post.external_link %}
+                <a href="{{ post.external_link }}" target="_blank" rel="noopener">Открыть оригинал</a>
+              {% else %}
+                Web: {{ post.origin_identifier|default:"—" }}
+              {% endif %}
+            {% endif %}
+          </div>
         </td>
         <td style="max-width: 620px;">
           {% if post.message %}

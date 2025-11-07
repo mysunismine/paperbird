@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterable
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
@@ -111,14 +112,67 @@ class Project(models.Model):
         return timezone.now() - timedelta(days=self.retention_days)
 
 
+class WebPreset(models.Model):
+    """Описывает JSON-пресет для универсального веб-парсера."""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Черновик"
+        ACTIVE = "active", "Активный"
+        BROKEN = "broken", "Сломан"
+
+    name = models.CharField("Системное имя", max_length=100)
+    version = models.CharField("Версия", max_length=50, default="1.0.0")
+    title = models.CharField("Название", max_length=255, blank=True)
+    description = models.TextField("Описание", blank=True)
+    schema_version = models.PositiveIntegerField("Версия схемы", default=1)
+    status = models.CharField(
+        "Статус",
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    checksum = models.CharField("Контрольная сумма", max_length=64)
+    config = models.JSONField("Конфигурация", default=dict, blank=True)
+    created_at = models.DateTimeField("Создан", auto_now_add=True)
+    updated_at = models.DateTimeField("Обновлён", auto_now=True)
+
+    class Meta:
+        verbose_name = "Веб-пресет"
+        verbose_name_plural = "Веб-пресеты"
+        ordering = ("name", "version")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("name", "version"),
+                name="web_preset_unique_version",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name}@{self.version}"
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == self.Status.ACTIVE
+
+
 class Source(models.Model):
-    """Источник данных из Telegram."""
+    """Источник данных: Telegram канал или веб-сайт с пресетом."""
+
+    class Type(models.TextChoices):
+        TELEGRAM = "telegram", "Telegram"
+        WEB = "web", "Web"
 
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
         related_name="sources",
         verbose_name="Проект",
+    )
+    type = models.CharField(
+        "Тип источника",
+        max_length=20,
+        choices=Type.choices,
+        default=Type.TELEGRAM,
     )
     title = models.CharField("Название", max_length=255, blank=True)
     telegram_id = models.BigIntegerField(
@@ -139,6 +193,22 @@ class Source(models.Model):
         blank=True,
         help_text="Ссылка-приглашение, если канал приватный.",
     )
+    web_preset = models.ForeignKey(
+        WebPreset,
+        on_delete=models.PROTECT,
+        related_name="sources",
+        blank=True,
+        null=True,
+        verbose_name="Пресет веб-парсера",
+    )
+    web_preset_snapshot = models.JSONField(
+        "Снимок пресета",
+        default=dict,
+        blank=True,
+        help_text="Конфигурация, с которой работает источник (фиксируется при импорте).",
+    )
+    web_last_synced_at = models.DateTimeField("Последний веб-сбор", blank=True, null=True)
+    web_last_status = models.CharField("Статус последнего веб-сбора", max_length=20, blank=True)
     include_keywords = models.JSONField(
         "Whitelist ключевых слов",
         default=list,
@@ -187,7 +257,42 @@ class Source(models.Model):
     def clean(self) -> None:
         self.include_keywords = self._normalize_keywords(self.include_keywords)
         self.exclude_keywords = self._normalize_keywords(self.exclude_keywords)
+        if self.type == self.Type.WEB:
+            if not self.web_preset_id:
+                raise ValidationError("Для веб-источника нужно прикрепить пресет.")
+            if not self.web_preset_snapshot:
+                self.web_preset_snapshot = self.web_preset.config
         super().clean()
+
+    def active_web_preset(self) -> dict:
+        """Возвращает снимок активного пресета."""
+
+        if self.web_preset_snapshot:
+            return self.web_preset_snapshot
+        if self.web_preset:
+            return self.web_preset.config
+        return {}
+
+    def has_web_duplicates(
+        self,
+        *,
+        source_url: str | None,
+        canonical_url: str | None,
+        content_hash: str | None,
+    ) -> bool:
+        """Проверяет, существует ли уже пост из веб-источника по одному из идентификаторов."""
+
+        query = Post.objects.filter(source=self, origin_type=Post.Origin.WEB)
+        filters = models.Q()
+        if source_url:
+            filters |= models.Q(source_url=source_url)
+        if canonical_url:
+            filters |= models.Q(canonical_url=canonical_url)
+        if content_hash:
+            filters |= models.Q(content_hash=content_hash)
+        if not filters:
+            return False
+        return query.filter(filters).exists()
 
     # --- Фильтрация постов -------------------------------------------------
 
@@ -258,7 +363,7 @@ class PostQuerySet(models.QuerySet):
 
 
 class Post(models.Model):
-    """Сохранённый пост из Telegram."""
+    """Сохранённый пост из источника (Telegram или Web)."""
 
     class Status(models.TextChoices):
         NEW = "new", "Новый"
@@ -270,6 +375,10 @@ class Post(models.Model):
         RU = "ru", "Русский"
         EN = "en", "Английский"
         UNKNOWN = "unknown", "Не определён"
+
+    class Origin(models.TextChoices):
+        TELEGRAM = "telegram", "Telegram"
+        WEB = "web", "Web"
 
     project = models.ForeignKey(
         Project,
@@ -283,9 +392,21 @@ class Post(models.Model):
         related_name="posts",
         verbose_name="Источник",
     )
-    telegram_id = models.BigIntegerField("Telegram ID")
+    origin_type = models.CharField(
+        "Тип источника",
+        max_length=20,
+        choices=Origin.choices,
+        default=Origin.TELEGRAM,
+    )
+    telegram_id = models.BigIntegerField("Telegram ID", blank=True, null=True)
+    external_id = models.CharField("Внешний ID", max_length=255, blank=True)
+    source_url = models.URLField("URL источника", max_length=1000, blank=True)
+    canonical_url = models.URLField("Канонический URL", max_length=1000, blank=True)
     message = models.TextField("Текст", blank=True)
     raw = models.JSONField("Сырые данные", default=dict, blank=True)
+    raw_html = models.TextField("Сырый HTML", blank=True)
+    content_html = models.TextField("HTML контент", blank=True)
+    content_md = models.TextField("Markdown контент", blank=True)
     status = models.CharField(
         "Статус",
         max_length=20,
@@ -300,6 +421,9 @@ class Post(models.Model):
     media_path = models.CharField("Путь к медиа", max_length=512, blank=True)
     text_hash = models.CharField("Хэш текста", max_length=64, blank=True)
     media_hash = models.CharField("Хэш медиа", max_length=64, blank=True)
+    content_hash = models.CharField("Хэш контента", max_length=64, blank=True)
+    images_manifest = models.JSONField("Изображения", default=list, blank=True)
+    external_metadata = models.JSONField("Метаданные источника", default=dict, blank=True)
     language = models.CharField(
         "Язык",
         max_length=16,
@@ -313,14 +437,34 @@ class Post(models.Model):
         verbose_name = "Пост"
         verbose_name_plural = "Посты"
         ordering = ("-posted_at",)
-        unique_together = ("source", "telegram_id")
         indexes = [
             models.Index(fields=("source", "status")),
             models.Index(fields=("project", "status")),
+            models.Index(fields=("origin_type", "source")),
+            models.Index(fields=("source_url",)),
+            models.Index(fields=("canonical_url",)),
+            models.Index(fields=("content_hash",)),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("source", "telegram_id"),
+                name="post_unique_telegram_source",
+                condition=models.Q(origin_type="telegram"),
+            ),
+            models.UniqueConstraint(
+                fields=("source", "external_id"),
+                name="post_unique_web_source_external",
+                condition=models.Q(origin_type="web"),
+            ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.source}: {self.telegram_id}"
+        identifier = (
+            self.telegram_id
+            if self.origin_type == self.Origin.TELEGRAM
+            else self.external_id or self.source_url or ""
+        )
+        return f"{self.source}: {identifier or 'post'}"
 
     @property
     def media_url(self) -> str | None:
@@ -334,6 +478,22 @@ class Post(models.Model):
         if not base:
             return f"/{relative}"
         return f"{base}/{relative}"
+
+    @property
+    def origin_identifier(self) -> str:
+        """Возвращает человекочитаемый идентификатор поста."""
+
+        if self.origin_type == self.Origin.TELEGRAM:
+            return str(self.telegram_id or "")
+        return self.canonical_url or self.source_url or self.external_id or ""
+
+    @property
+    def external_link(self) -> str | None:
+        """Ссылка на оригинальный материал для веб-постов."""
+
+        if self.origin_type != self.Origin.WEB:
+            return None
+        return self.canonical_url or self.source_url
 
     @staticmethod
     def make_hash(value: str | bytes | None) -> str:
@@ -366,6 +526,7 @@ class Post(models.Model):
         language = detect_language(message)
         defaults = {
             "project": project,
+            "origin_type": cls.Origin.TELEGRAM,
             "message": message or "",
             "raw": raw_data,
             "posted_at": posted_at,
@@ -382,6 +543,72 @@ class Post(models.Model):
             defaults=defaults,
         )
         return post
+
+    @classmethod
+    def create_or_update_web(
+        cls,
+        *,
+        project: Project,
+        source: Source,
+        source_url: str,
+        canonical_url: str | None,
+        title: str,
+        content_html: str,
+        content_md: str,
+        raw_html: str,
+        raw_data: dict,
+        posted_at,
+        images: list[str] | None = None,
+    ) -> tuple["Post", bool]:
+        """Создаёт или обновляет пост, полученный с веб-сайта."""
+
+        normalized_canonical = canonical_url or ""
+        normalized_source = source_url
+        body_for_hash = content_md or content_html or title
+        content_hash = cls.make_hash(body_for_hash)
+        text_hash = cls.make_hash(body_for_hash)
+        language = detect_language(body_for_hash)
+        lookup = models.Q(source_url=normalized_source)
+        if normalized_canonical:
+            lookup |= models.Q(canonical_url=normalized_canonical)
+        if content_hash:
+            lookup |= models.Q(content_hash=content_hash)
+        existing = (
+            cls.objects.filter(source=source, origin_type=cls.Origin.WEB)
+            .filter(lookup)
+            .order_by("-posted_at")
+            .first()
+        )
+        defaults: dict[str, Any] = {
+            "project": project,
+            "source": source,
+            "origin_type": cls.Origin.WEB,
+            "external_id": (normalized_canonical or normalized_source)[:255],
+            "source_url": normalized_source,
+            "canonical_url": normalized_canonical,
+            "message": content_md or content_html or title,
+            "raw": raw_data or {},
+            "raw_html": raw_html or "",
+            "content_html": content_html or "",
+            "content_md": content_md or "",
+            "posted_at": posted_at,
+            "has_media": bool(images),
+            "text_hash": text_hash,
+            "content_hash": content_hash,
+            "images_manifest": images or [],
+            "external_metadata": {"title": title, **(raw_data or {})},
+            "language": language,
+        }
+        update_fields = [field for field in defaults.keys() if field not in {"project"}]
+        if existing:
+            for field, value in defaults.items():
+                if field == "project":
+                    continue
+                setattr(existing, field, value)
+            existing.save(update_fields=[*update_fields, "updated_at"])
+            return existing, False
+        post = cls.objects.create(**defaults)
+        return post, True
 
     def mark_used(self) -> None:
         self.status = self.Status.USED
