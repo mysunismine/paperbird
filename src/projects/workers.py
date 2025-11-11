@@ -9,7 +9,7 @@ from typing import Any
 from django.db import transaction
 from django.utils import timezone
 
-from core.logging import logging_context
+from core.logging import event_logger, logging_context
 from core.models import WorkerTask
 from core.services.worker import TaskExecutionError, enqueue_task, register_handler
 from projects.models import Project, Source, SourceSyncLog, WebPreset
@@ -24,6 +24,7 @@ from projects.services.web_preset_registry import PresetValidationError
 
 
 _is_registered = False
+logger = event_logger("projects.collector_web")
 
 
 def retention_cleanup_task(task: WorkerTask) -> dict[str, Any]:
@@ -195,6 +196,13 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
     project_id = payload.get("project_id")
     interval = max(int(payload.get("interval", 300)), 60)
     source_id = payload.get("source_id")
+    logger.info(
+        "collector_web_task_received",
+        task_id=task.pk,
+        project_id=project_id,
+        interval=interval,
+        source_id=source_id,
+    )
     if not project_id:
         raise TaskExecutionError(
             "Payload must contain project_id",
@@ -210,8 +218,10 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
             retry=False,
         ) from exc
     if not project.is_active:
+        logger.info("collector_web_task_skipped", project_id=project.pk, reason="inactive")
         return {"status": "skipped", "reason": "inactive"}
     if not project.collector_enabled and not source_id:
+        logger.info("collector_web_task_skipped", project_id=project.pk, reason="disabled")
         return {"status": "skipped", "reason": "disabled"}
     sources_qs = project.sources.filter(
         is_active=True,
@@ -222,13 +232,26 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
         sources_qs = sources_qs.filter(pk=source_id)
     sources = list(sources_qs)
     if not sources:
+        logger.info("collector_web_task_skipped", project_id=project.pk, reason="no_sources")
         return {"status": "skipped", "reason": "no_sources"}
 
     collector = WebCollector()
     summary = {"created": 0, "updated": 0, "skipped": 0}
+    logger.info(
+        "collector_web_sources_selected",
+        project_id=project.pk,
+        source_count=len(sources),
+        source_id=source_id,
+    )
     for source in sources:
         log = SourceSyncLog.objects.create(source=source)
         with logging_context(project_id=project.pk, source_id=source.pk):
+            logger.info(
+                "collector_web_source_started",
+                source_id=source.pk,
+                project_id=project.pk,
+                preset_id=source.web_preset_id,
+            )
             try:
                 stats = collector.collect(source)
             except PresetValidationError as exc:
@@ -242,6 +265,12 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
                     web_last_synced_at=timezone.now(),
                     updated_at=timezone.now(),
                 )
+                logger.warning(
+                    "collector_web_source_broken",
+                    source_id=source.pk,
+                    project_id=project.pk,
+                    error=str(exc),
+                )
                 continue
             except Exception as exc:  # pragma: no cover - defensive logging
                 log.finish(status="failed", error=str(exc))
@@ -250,12 +279,26 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
                     web_last_synced_at=timezone.now(),
                     updated_at=timezone.now(),
                 )
+                logger.error(
+                    "collector_web_source_error",
+                    source_id=source.pk,
+                    project_id=project.pk,
+                    error=str(exc),
+                )
                 continue
             fetched = stats.get("created", 0) + stats.get("updated", 0)
             log.finish(status="ok", fetched=fetched, skipped=stats.get("skipped", 0))
             summary["created"] += stats.get("created", 0)
             summary["updated"] += stats.get("updated", 0)
             summary["skipped"] += stats.get("skipped", 0)
+            logger.info(
+                "collector_web_source_finished",
+                source_id=source.pk,
+                project_id=project.pk,
+                created=stats.get("created", 0),
+                updated=stats.get("updated", 0),
+                skipped=stats.get("skipped", 0),
+            )
 
     should_schedule = project.collector_enabled and not source_id
     if should_schedule:
@@ -265,4 +308,18 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
             payload={"project_id": project.pk, "interval": interval},
             scheduled_for=scheduled_for,
         )
+        logger.info(
+            "collector_web_task_rescheduled",
+            project_id=project.pk,
+            interval=interval,
+            next_run=scheduled_for.isoformat(),
+        )
+    logger.info(
+        "collector_web_task_completed",
+        project_id=project.pk,
+        created=summary["created"],
+        updated=summary["updated"],
+        skipped=summary["skipped"],
+        rescheduled=should_schedule,
+    )
     return {"status": "ok", **summary}

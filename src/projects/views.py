@@ -137,7 +137,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         queryset = (
             Post.objects.filter(project=self.project)
             .select_related("source")
-            .order_by("-posted_at")
+            .order_by("-collected_at", "-posted_at")
         )
         filtered = apply_post_filters(queryset, options)
         posts = list(filtered[:100])
@@ -192,7 +192,8 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         has_web_sources = self._has_web_sources()
         return {
             "enabled": self.project.collector_enabled,
-            "interval": self.project.collector_interval,
+            "telegram_interval": self.project.collector_telegram_interval,
+            "web_interval": self.project.collector_web_interval,
             "last_run": self.project.collector_last_run,
             "next_run": next_task.available_at if next_task else None,
             "next_web_run": next_web_task.available_at if next_web_task else None,
@@ -256,11 +257,19 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
 
     def _ensure_collector_task(self, *, delay: int) -> None:
         if self._has_telegram_sources():
-            self._schedule_queue(WorkerTask.Queue.COLLECTOR, delay)
+            self._schedule_queue(
+                WorkerTask.Queue.COLLECTOR,
+                delay=delay,
+                interval=self.project.collector_telegram_interval,
+            )
         if self._has_web_sources():
-            self._schedule_queue(WorkerTask.Queue.COLLECTOR_WEB, delay)
+            self._schedule_queue(
+                WorkerTask.Queue.COLLECTOR_WEB,
+                delay=delay,
+                interval=self.project.collector_web_interval,
+            )
 
-    def _schedule_queue(self, queue: str, delay: int) -> None:
+    def _schedule_queue(self, queue: str, *, delay: int, interval: int) -> None:
         exists = WorkerTask.objects.filter(
             queue=queue,
             payload__project_id=self.project.id,
@@ -273,7 +282,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
             queue,
             payload={
                 "project_id": self.project.id,
-                "interval": self.project.collector_interval,
+                "interval": interval,
             },
             scheduled_for=scheduled_for,
         )
@@ -502,7 +511,7 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
     def _schedule_web_source_collection(self, source: Source) -> None:
         payload = {
             "project_id": source.project_id,
-            "interval": max(source.project.collector_interval, 60),
+            "interval": max(source.project.collector_web_interval, 60),
             "source_id": source.pk,
         }
         try:
@@ -557,6 +566,7 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
     """Отображает очередь задач коллектора для проекта."""
 
     template_name = "projects/project_queue.html"
+    queues = [WorkerTask.Queue.COLLECTOR, WorkerTask.Queue.COLLECTOR_WEB]
 
     def dispatch(self, request, *args, **kwargs):
         self.project = get_object_or_404(
@@ -566,18 +576,64 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
         )
         return super().dispatch(request, *args, **kwargs)
 
+    def post(self, request, *args, **kwargs):
+        action = request.POST.get("action")
+        task_id = request.POST.get("task_id")
+        if not task_id or not task_id.isdigit():
+            messages.error(request, "Некорректный идентификатор задачи.")
+            return redirect("projects:queue", pk=self.project.pk)
+        task = WorkerTask.objects.filter(
+            pk=int(task_id),
+            queue__in=self.queues,
+            payload__project_id=self.project.id,
+        ).first()
+        if not task:
+            messages.error(request, "Задача не найдена или относится к другому проекту.")
+            return redirect("projects:queue", pk=self.project.pk)
+
+        if action == "cancel_task":
+            self._cancel_task(task)
+        elif action == "retry_task":
+            self._retry_task(task)
+        else:
+            messages.error(request, "Неизвестное действие.")
+        return redirect("projects:queue", pk=self.project.pk)
+
+    def _cancel_task(self, task: WorkerTask) -> None:
+        if task.status not in {WorkerTask.Status.QUEUED, WorkerTask.Status.RUNNING}:
+            messages.info(self.request, "Задачу уже нельзя отменить.")
+            return
+        now = timezone.now()
+        WorkerTask.objects.filter(pk=task.pk).update(
+            status=WorkerTask.Status.CANCELLED,
+            finished_at=now,
+            locked_at=None,
+            locked_by="",
+            updated_at=now,
+        )
+        messages.success(self.request, "Задача отменена.")
+
+    def _retry_task(self, task: WorkerTask) -> None:
+        if task.status == WorkerTask.Status.RUNNING:
+            messages.error(self.request, "Сначала остановите задачу, затем запустите снова.")
+            return
+        enqueue_task(
+            task.queue,
+            payload=task.payload,
+            scheduled_for=timezone.now(),
+        )
+        messages.success(self.request, "Новая задача поставлена в очередь.")
+
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        queues = [WorkerTask.Queue.COLLECTOR, WorkerTask.Queue.COLLECTOR_WEB]
         tasks = (
-            WorkerTask.objects.filter(queue__in=queues, payload__project_id=self.project.id)
-            .order_by("queue", "status", "available_at")
+            WorkerTask.objects.filter(queue__in=self.queues, payload__project_id=self.project.id)
+            .order_by("-available_at", "-id")
         )
         context.update(
             {
                 "project": self.project,
                 "tasks": tasks,
-                "queues": queues,
             }
         )
         return context

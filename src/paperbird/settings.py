@@ -218,6 +218,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "").strip()
 OPENAI_TIMEOUT = float(os.getenv("OPENAI_TIMEOUT", "30"))
+OPENAI_IMAGE_TIMEOUT = float(os.getenv("OPENAI_IMAGE_TIMEOUT", "60"))
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
+YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
+YANDEX_TIMEOUT = float(os.getenv("YANDEX_TIMEOUT", os.getenv("OPENAI_TIMEOUT", "30")))
+YANDEX_IMAGE_TIMEOUT = float(os.getenv("YANDEX_IMAGE_TIMEOUT", "90"))
 
 
 LOGGING = {

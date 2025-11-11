@@ -23,6 +23,17 @@
             • Следующий запуск: {{ collector.next_run|date:"d.m.Y H:i" }}
           {% endif %}
         </p>
+        {% if collector.has_telegram_sources or collector.has_web_sources %}
+          <p class="text-muted small mb-1">
+            Обновление:
+            {% if collector.has_telegram_sources %}
+              Telegram каждые {{ collector.telegram_interval }}&nbsp;с{% if collector.has_web_sources %} • {% endif %}
+            {% endif %}
+            {% if collector.has_web_sources %}
+              веб-парсер каждые {{ collector.web_interval }}&nbsp;с
+            {% endif %}
+          </p>
+        {% endif %}
         {% if collector.has_web_sources %}
           <p class="text-muted small mb-1">
             Веб-парсер:

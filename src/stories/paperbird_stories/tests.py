@@ -20,6 +20,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from core.constants import IMAGE_DEFAULT_QUALITY, OPENAI_DEFAULT_TEMPERATURE
 from projects.models import Post, Project, Source
 from core.models import WorkerTask
 from core.services.worker import TaskExecutionError
@@ -45,8 +46,14 @@ from stories.paperbird_stories.services import (
     StoryFactory,
     StoryPublisher,
     StoryRewriter,
+    default_image_generator,
+    default_rewriter,
+    _strip_code_fence,
+    _openai_temperature_for_model,
     build_prompt,
     OpenAIImageProvider,
+    YandexArtProvider,
+    YandexGPTProvider,
 )
 from stories.paperbird_stories.workers import publish_story_task
 
@@ -284,7 +291,7 @@ class StoryPromptPreviewTests(TestCase):
         self.assertTemplateUsed(response, "stories/story_prompt_preview.html")
         prompt_form = response.context["prompt_form"]
         self.assertIn("System prompt", prompt_form["prompt_system"].label)
-        self.assertIn("Собери", prompt_form["prompt_user"].value())
+        self.assertIn("ФОРМАТ ОТВЕТА", prompt_form["prompt_user"].value())
 
     @patch("stories.paperbird_stories.views.default_rewriter")
     def test_confirm_rewrite_uses_custom_prompts(self, mocked_default_rewriter: MagicMock) -> None:
@@ -590,6 +597,13 @@ class StoryImageViewTests(TestCase):
         self.assertEqual(generate_form.initial["quality"], self.project.image_quality)
         self.assertIn("Сгенерировать", response.content.decode("utf-8"))
 
+    def test_initial_normalizes_legacy_quality(self) -> None:
+        self.project.image_quality = "standard"
+        self.project.save(update_fields=["image_quality"])
+        response = self.client.get(reverse("stories:image", kwargs={"pk": self.story.pk}))
+        form_quality = response.context["generate_form"].initial["quality"]
+        self.assertEqual(form_quality, IMAGE_DEFAULT_QUALITY)
+
     @patch("stories.paperbird_stories.views.default_image_generator")
     def test_generate_action_displays_preview(self, mock_generator) -> None:
         stub_generator = MagicMock()
@@ -609,6 +623,7 @@ class StoryImageViewTests(TestCase):
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertIn("data:image/png;base64", response.content.decode("utf-8"))
+        mock_generator.assert_called_once_with(model=self.project.image_model)
         stub_generator.generate.assert_called_once_with(
             prompt="Яркий закат",
             model=self.project.image_model,
@@ -640,6 +655,7 @@ class StoryImageViewTests(TestCase):
             stored_path = os.path.join(settings.MEDIA_ROOT, self.story.image_file.name)
             self.assertTrue(os.path.exists(stored_path))
 
+
     def test_remove_action_deletes_file(self) -> None:
         media_root = tempfile.mkdtemp()
         self.addCleanup(lambda: shutil.rmtree(media_root, ignore_errors=True))
@@ -659,6 +675,32 @@ class StoryImageViewTests(TestCase):
             self.story.refresh_from_db()
             self.assertFalse(self.story.image_file)
             self.assertFalse(os.path.exists(stored_path))
+
+
+class YandexProviderRoutingTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("y-ops", password="pass")
+        self.project = Project.objects.create(owner=self.user, name="Yandex", rewrite_model="yandexgpt-lite")
+
+    @override_settings(YANDEX_API_KEY="key", YANDEX_FOLDER_ID="folder")
+    def test_default_rewriter_uses_yandex_provider(self) -> None:
+        rewriter = default_rewriter(project=self.project)
+        self.assertIsInstance(rewriter.provider, YandexGPTProvider)
+
+    @override_settings(YANDEX_API_KEY="key", YANDEX_FOLDER_ID="folder")
+    def test_default_image_generator_uses_yandex_provider(self) -> None:
+        generator = default_image_generator(model="yandex-art")
+        self.assertIsInstance(generator.provider, YandexArtProvider)
+
+
+class RewriteHelperTests(SimpleTestCase):
+    def test_strip_code_fence_handles_json(self) -> None:
+        raw = "```json\n{\"title\": \"Example\"}\n```"
+        self.assertEqual(_strip_code_fence(raw), '{"title": "Example"}')
+
+    def test_openai_temperature_for_gpt5(self) -> None:
+        self.assertEqual(_openai_temperature_for_model("gpt-5"), 1.0)
+        self.assertEqual(_openai_temperature_for_model("gpt-4o-mini"), OPENAI_DEFAULT_TEMPERATURE)
 
 
 class StoryViewTests(TestCase):
@@ -1240,4 +1282,4 @@ class OpenAIImageProviderTests(SimpleTestCase):
             image = provider.generate(prompt="Demo", size="2048x2048")
 
         self.assertEqual(image.data, b"mini")
-        self.assertEqual(payloads[0]["size"], "512x512")
+        self.assertEqual(payloads[0]["size"], "1024x1024")

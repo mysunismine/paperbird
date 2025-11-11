@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timedelta, timezone as dt_timezone
 from http import HTTPStatus
 from unittest import skipUnless
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
@@ -251,29 +251,31 @@ class ProjectPostListViewTests(TestCase):
         self.assertContains(response, "Google updated the service")
         self.assertNotContains(response, "Apple представила")
 
-    def test_posts_sorted_by_newest_first(self) -> None:
-        older_time = timezone.now() - timedelta(days=3)
-        newest = Post.objects.create(
+    def test_posts_sorted_by_collection_then_publication(self) -> None:
+        now = timezone.now()
+        telegram_post = Post.objects.create(
             project=self.project,
             source=self.source,
             telegram_id=12,
-            message="Самый свежий пост",
-            posted_at=timezone.now(),
+            message="Телеграм-пост с более новой датой публикации",
+            posted_at=now,
         )
-        older = Post.objects.create(
+        web_post = Post.objects.create(
             project=self.project,
-            source=self.source,
-            telegram_id=13,
-            message="Очень старый пост",
-            posted_at=older_time,
+            source=self.web_source,
+            origin_type=Post.Origin.WEB,
+            external_id="web-42",
+            message="Веб-пост с более старой датой публикации",
+            posted_at=now - timedelta(days=3),
         )
+        Post.objects.filter(pk=telegram_post.pk).update(collected_at=now - timedelta(hours=1))
+        # web_post остаётся с collected_at=now
 
         response = self.client.get(reverse("feed-detail", args=[self.project.id]))
 
         posts = response.context["posts"]
-        self.assertGreaterEqual(posts[0].posted_at, posts[1].posted_at)
-        self.assertEqual(posts[0].id, newest.id)
-        self.assertEqual(posts[-1].id, older.id)
+        self.assertEqual(posts[0].id, web_post.id)
+        self.assertEqual(posts[-1].id, telegram_post.id)
 
     def test_post_list_shows_telegram_media_preview(self) -> None:
         Post.objects.create(
@@ -321,6 +323,8 @@ class ProjectTimePreferenceFormTests(TestCase):
             "image_size": IMAGE_DEFAULT_SIZE,
             "image_quality": IMAGE_DEFAULT_QUALITY,
             "retention_days": 30,
+            "collector_telegram_interval": 300,
+            "collector_web_interval": 300,
         }
         base.update(overrides)
         return base
@@ -636,7 +640,7 @@ class ProjectCreateViewTests(TestCase):
     def test_post_creates_project_and_redirects(self) -> None:
         alt_model = IMAGE_MODEL_CHOICES[1][0]
         alt_size = IMAGE_SIZE_CHOICES[1][0]
-        alt_quality = IMAGE_QUALITY_CHOICES[1][0]
+        alt_quality = IMAGE_QUALITY_CHOICES[2][0]
         rewrite_choice = REWRITE_MODEL_CHOICES[1][0]
         response = self.client.post(
             reverse("projects:create"),
@@ -651,6 +655,8 @@ class ProjectCreateViewTests(TestCase):
                 "image_size": alt_size,
                 "image_quality": alt_quality,
                 "retention_days": 45,
+                "collector_telegram_interval": 60,
+                "collector_web_interval": 300,
             },
             follow=True,
         )
@@ -678,6 +684,8 @@ class ProjectCreateViewTests(TestCase):
                 "image_size": IMAGE_DEFAULT_SIZE,
                 "image_quality": IMAGE_DEFAULT_QUALITY,
                 "retention_days": 90,
+                "collector_telegram_interval": 60,
+                "collector_web_interval": 300,
             },
         )
         self.assertEqual(response.status_code, HTTPStatus.OK)
@@ -714,7 +722,7 @@ class ProjectSettingsViewTests(TestCase):
         self.client.force_login(self.user)
         new_model = IMAGE_MODEL_CHOICES[1][0]
         new_size = IMAGE_SIZE_CHOICES[-1][0]
-        new_quality = IMAGE_QUALITY_CHOICES[1][0]
+        new_quality = IMAGE_QUALITY_CHOICES[2][0]
         new_rewrite = REWRITE_MODEL_CHOICES[-1][0]
         response = self.client.post(
             reverse("projects:settings", args=[self.project.pk]),
@@ -729,6 +737,8 @@ class ProjectSettingsViewTests(TestCase):
                 "image_size": new_size,
                 "image_quality": new_quality,
                 "retention_days": 60,
+                "collector_telegram_interval": 90,
+                "collector_web_interval": 240,
             },
             follow=True,
         )
@@ -1045,15 +1055,21 @@ class ProjectCollectorQueueViewTests(TestCase):
         self.other = User.objects.create_user("guest", password="secret")
         self.client.force_login(self.user)
         self.project = Project.objects.create(owner=self.user, name="Мониторинг")
+        self.payload = {"project_id": self.project.pk}
+
+    def _make_task(self, **overrides):
+        defaults = {
+            "queue": WorkerTask.Queue.COLLECTOR,
+            "payload": self.payload,
+            "status": WorkerTask.Status.QUEUED,
+        }
+        defaults.update(overrides)
+        return WorkerTask.objects.create(**defaults)
 
     def test_queue_view_lists_tasks(self) -> None:
-        WorkerTask.objects.create(
-            queue=WorkerTask.Queue.COLLECTOR,
-            payload={"project_id": self.project.pk},
-        )
-        WorkerTask.objects.create(
+        self._make_task()
+        self._make_task(
             queue=WorkerTask.Queue.COLLECTOR_WEB,
-            payload={"project_id": self.project.pk},
             status=WorkerTask.Status.RUNNING,
         )
         response = self.client.get(reverse("projects:queue", args=[self.project.pk]))
@@ -1066,6 +1082,32 @@ class ProjectCollectorQueueViewTests(TestCase):
         self.client.force_login(self.other)
         response = self.client.get(reverse("projects:queue", args=[self.project.pk]))
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
+
+    def test_cancel_task_via_ui(self) -> None:
+        task = self._make_task()
+        response = self.client.post(
+            reverse("projects:queue", args=[self.project.pk]),
+            data={"action": "cancel_task", "task_id": str(task.pk)},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        task.refresh_from_db()
+        self.assertEqual(task.status, WorkerTask.Status.CANCELLED)
+
+    @patch("projects.views.enqueue_task")
+    def test_retry_task_enqueues_new(self, mock_enqueue) -> None:
+        task = self._make_task(status=WorkerTask.Status.SUCCEEDED)
+        response = self.client.post(
+            reverse("projects:queue", args=[self.project.pk]),
+            data={"action": "retry_task", "task_id": str(task.pk)},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        mock_enqueue.assert_called_once_with(
+            task.queue,
+            payload=task.payload,
+            scheduled_for=ANY,
+        )
 
 
 @skipUnless(HAS_JSONSCHEMA, "jsonschema не установлена")
@@ -1212,7 +1254,8 @@ class CollectProjectWebSourcesTaskTests(TestCase):
             owner=self.user,
             name="Web project",
             collector_enabled=True,
-            collector_interval=120,
+            collector_telegram_interval=90,
+            collector_web_interval=120,
         )
 
     def _add_web_source(self) -> Source:
@@ -1670,7 +1713,7 @@ class CollectProjectPostsTaskTests(TestCase):
             owner=self.user,
             name="Live",
             collector_enabled=True,
-            collector_interval=60,
+            collector_telegram_interval=60,
         )
 
     @patch("projects.workers.collect_for_user", new_callable=AsyncMock)

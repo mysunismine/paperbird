@@ -23,6 +23,7 @@
                 <th>Попытки</th>
                 <th>Последняя ошибка</th>
                 <th>Параметры</th>
+                <th style="width: 220px;">Действия</th>
               </tr>
             </thead>
             <tbody>
@@ -52,6 +53,29 @@
                   </td>
                   <td>
                     <pre class="small mb-0 text-wrap">{{ task.payload|pprint }}</pre>
+                  </td>
+                  <td>
+                    <div class="d-flex flex-wrap gap-2">
+                      {% if task.status == "queued" or task.status == "running" %}
+                        <form method="post">
+                          {% csrf_token %}
+                          <input type="hidden" name="action" value="cancel_task" />
+                          <input type="hidden" name="task_id" value="{{ task.id }}" />
+                          <button class="btn btn-sm btn-outline-danger" type="submit">Отменить</button>
+                        </form>
+                      {% endif %}
+                      {% if task.status != "running" %}
+                        <form method="post">
+                          {% csrf_token %}
+                          <input type="hidden" name="action" value="retry_task" />
+                          <input type="hidden" name="task_id" value="{{ task.id }}" />
+                          <button class="btn btn-sm btn-outline-primary" type="submit">Запустить снова</button>
+                        </form>
+                      {% endif %}
+                      {% if task.status == "running" and task.queue == "collector_web" %}
+                        <div class="text-muted small">Дождитесь завершения или отмените задачу.</div>
+                      {% endif %}
+                    </div>
                   </td>
                 </tr>
               {% endfor %}

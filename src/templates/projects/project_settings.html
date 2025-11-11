@@ -149,6 +149,30 @@
                 <div class="invalid-feedback d-block">{{ error }}</div>
               {% endfor %}
             </div>
+            <div class="mb-4">
+              <label for="{{ form.collector_telegram_interval.id_for_label }}" class="form-label">
+                {{ form.collector_telegram_interval.label }}
+              </label>
+              {{ form.collector_telegram_interval }}
+              {% if form.collector_telegram_interval.help_text %}
+                <div class="form-text">{{ form.collector_telegram_interval.help_text }}</div>
+              {% endif %}
+              {% for error in form.collector_telegram_interval.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+            <div class="mb-4">
+              <label for="{{ form.collector_web_interval.id_for_label }}" class="form-label">
+                {{ form.collector_web_interval.label }}
+              </label>
+              {{ form.collector_web_interval }}
+              {% if form.collector_web_interval.help_text %}
+                <div class="form-text">{{ form.collector_web_interval.help_text }}</div>
+              {% endif %}
+              {% for error in form.collector_web_interval.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
             <div class="d-flex justify-content-end gap-2">
               <a class="btn btn-outline-secondary" href="{% url 'projects:list' %}">Отмена</a>
               <button type="submit" class="btn btn-primary">Сохранить изменения</button>

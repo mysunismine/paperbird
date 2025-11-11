@@ -139,7 +139,7 @@ def apply_post_filters(queryset: QuerySet[Post], options: PostFilterOptions) -> 
             filtered = filtered.exclude(message__icontains=keyword)
 
     filtered = filtered.distinct()
-    return filtered.order_by("-posted_at", "-id")
+    return filtered.order_by("-collected_at", "-posted_at", "-id")
 
 
 def collect_keyword_hits(

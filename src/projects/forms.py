@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from django import forms
+from zoneinfo import available_timezones
 
 from core.constants import (
     IMAGE_MODEL_CHOICES,
@@ -14,6 +15,9 @@ from projects.models import Project, ProjectPromptConfig, Source, WebPreset
 from projects.services.source_metadata import enqueue_source_refresh
 from projects.services.time_preferences import is_timezone_valid
 from projects.services.web_preset_registry import PresetValidationError, WebPresetRegistry
+
+TIMEZONE_CHOICES = [("UTC", "UTC")]
+TIMEZONE_CHOICES.extend(sorted((tz, tz) for tz in available_timezones() if tz != "UTC"))
 
 
 class ProjectCreateForm(forms.ModelForm):
@@ -35,13 +39,20 @@ class ProjectCreateForm(forms.ModelForm):
         label="Размер изображения",
         choices=IMAGE_SIZE_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
-        help_text="Paperbird генерирует квадратные изображения до 512x512 пикселей, чтобы их без проблем загружать в соцсети и Telegram.",
+        help_text="Поддерживаются 1024x1024 и вертикальные/горизонтальные 1024×1536/1536×1024; auto доверяет выбору модели.",
     )
     image_quality = forms.ChoiceField(
         label="Качество",
         choices=IMAGE_QUALITY_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
-        help_text="Стандарт быстрее, HD даёт больше деталей.",
+        help_text="Низкое экономит токены, высокое даёт больше деталей; auto доверяет выбору модели.",
+    )
+    time_zone = forms.CharField(
+        label="Часовой пояс",
+        widget=forms.Select(attrs={"class": "form-select"}, choices=TIMEZONE_CHOICES),
+        help_text="Выберите часовой пояс проекта — он влияет на подсказки и расписание.",
+        required=False,
+        initial="UTC",
     )
 
     class Meta:
@@ -57,6 +68,8 @@ class ProjectCreateForm(forms.ModelForm):
             "image_size",
             "image_quality",
             "retention_days",
+            "collector_telegram_interval",
+            "collector_web_interval",
         ]
         widgets = {
             "name": forms.TextInput(
@@ -87,15 +100,14 @@ class ProjectCreateForm(forms.ModelForm):
                     "maxlength": Project._meta.get_field("locale").max_length,
                 }
             ),
-            "time_zone": forms.TextInput(
-                attrs={
-                    "class": "form-control",
-                    "placeholder": "Europe/Moscow или UTC+03:00",
-                    "maxlength": Project._meta.get_field("time_zone").max_length,
-                }
-            ),
             "retention_days": forms.NumberInput(
                 attrs={"class": "form-control", "min": 1, "step": 1}
+            ),
+            "collector_telegram_interval": forms.NumberInput(
+                attrs={"class": "form-control", "min": 30, "step": 5}
+            ),
+            "collector_web_interval": forms.NumberInput(
+                attrs={"class": "form-control", "min": 60, "step": 5}
             ),
         }
         labels = {
@@ -109,6 +121,8 @@ class ProjectCreateForm(forms.ModelForm):
             "image_size": "Размер изображения",
             "image_quality": "Качество",
             "retention_days": "Срок хранения (дней)",
+            "collector_telegram_interval": "Интервал Telegram (сек)",
+            "collector_web_interval": "Интервал веб-парсера (сек)",
         }
         help_texts = {
             "name": "Название должно быть уникальным в рамках вашей команды",
@@ -118,6 +132,8 @@ class ProjectCreateForm(forms.ModelForm):
             "time_zone": "Используется для расчёта текущей даты/времени в промтах.",
             "rewrite_model": "Меняйте модель, если требуется более точный или быстрый рерайт.",
             "retention_days": "Посты старше этого значения будут автоматически удаляться",
+            "collector_telegram_interval": "Минимум 30 секунд, чтобы не получить лимиты Telegram.",
+            "collector_web_interval": "Минимум 60 секунд, чтобы не нагружать сайт-источник.",
         }
 
     def __init__(self, *args, owner, **kwargs):  # type: ignore[override]
@@ -128,6 +144,11 @@ class ProjectCreateForm(forms.ModelForm):
         for field_name in ("locale", "time_zone"):
             if field_name in self.fields:
                 self.fields[field_name].required = False
+        if not self.instance.pk:
+            for field_name in ("collector_telegram_interval", "collector_web_interval"):
+                if field_name in self.fields and not self.fields[field_name].initial:
+                    model_field = Project._meta.get_field(field_name)
+                    self.fields[field_name].initial = model_field.default
 
     def clean_name(self) -> str:
         name = self.cleaned_data["name"].strip()
@@ -146,6 +167,18 @@ class ProjectCreateForm(forms.ModelForm):
             raise forms.ValidationError("Срок хранения должен быть не меньше 1 дня")
         return value
 
+    def clean_collector_telegram_interval(self) -> int:
+        value = self.cleaned_data["collector_telegram_interval"]
+        if value < 30:
+            raise forms.ValidationError("Интервал Telegram не может быть меньше 30 секунд")
+        return value
+
+    def clean_collector_web_interval(self) -> int:
+        value = self.cleaned_data["collector_web_interval"]
+        if value < 60:
+            raise forms.ValidationError("Интервал веб-парсера не может быть меньше 60 секунд")
+        return value
+
     def clean_locale(self) -> str:
         locale = (self.cleaned_data.get("locale") or "ru_RU").strip()
         if not locale:
@@ -155,9 +188,7 @@ class ProjectCreateForm(forms.ModelForm):
     def clean_time_zone(self) -> str:
         tz_value = (self.cleaned_data.get("time_zone") or "UTC").strip()
         if not is_timezone_valid(tz_value):
-            raise forms.ValidationError(
-                "Укажите корректный часовой пояс, например Europe/Moscow или UTC+03:00."
-            )
+            raise forms.ValidationError("Выберите корректный часовой пояс из списка.")
         return tz_value
 
     def save(self, commit: bool = True) -> Project:

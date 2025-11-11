@@ -8,7 +8,9 @@ import binascii
 import hashlib
 import json
 import os
+import socket
 import struct
+import time
 import urllib.error
 import urllib.request
 import zlib
@@ -22,7 +24,9 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.constants import (
+    IMAGE_DEFAULT_QUALITY,
     IMAGE_DEFAULT_SIZE,
+    IMAGE_QUALITY_CHOICES,
     IMAGE_SIZE_CHOICES,
     OPENAI_DEFAULT_TEMPERATURE,
     OPENAI_RESPONSE_FORMAT,
@@ -44,6 +48,8 @@ from .models import (
 )
 
 ALLOWED_IMAGE_SIZES = {choice[0] for choice in IMAGE_SIZE_CHOICES}
+ALLOWED_IMAGE_QUALITIES = {choice[0] for choice in IMAGE_QUALITY_CHOICES}
+OPENAI_MODELS_WITH_FIXED_TEMPERATURE = {"gpt-5", "gpt-5.0", "gpt-5o", "gpt-5o-mini"}
 
 
 def _json_safe(value):
@@ -66,9 +72,77 @@ def normalize_image_size(value: str | None) -> str:
     if not value:
         return IMAGE_DEFAULT_SIZE
     cleaned = str(value).strip().lower()
+    legacy_map = {
+        "512x512": "1024x1024",
+        "256x256": "1024x1024",
+    }
+    cleaned = legacy_map.get(cleaned, cleaned)
     if cleaned in ALLOWED_IMAGE_SIZES:
         return cleaned
     return IMAGE_DEFAULT_SIZE
+
+
+def normalize_image_quality(value: str | None) -> str:
+    """Возвращает допустимое качество изображения."""
+
+    if not value:
+        return IMAGE_DEFAULT_QUALITY
+    cleaned = str(value).strip().lower()
+    legacy_map = {
+        "standard": "medium",
+        "hd": "high",
+    }
+    cleaned = legacy_map.get(cleaned, cleaned)
+    if cleaned in ALLOWED_IMAGE_QUALITIES:
+        return cleaned
+    return IMAGE_DEFAULT_QUALITY
+
+
+def build_yandex_model_uri(model: str, *, folder_id: str, scheme: str = "gpt") -> str:
+    """Формирует URI модели YandexGPT/ART."""
+
+    cleaned = (model or "").strip()
+    if cleaned.startswith(("gpt://", "art://")):
+        return cleaned
+    base, _, version = cleaned.partition("/")
+    version = version or "latest"
+    return f"{scheme}://{folder_id}/{base}/{version}"
+
+
+def _looks_like_yandex_text_model(model: str) -> bool:
+    lowered = (model or "").lower()
+    prefixes = ("yandex", "qwen", "gpt-oss", "gemma", "gpt://")
+    return any(lowered.startswith(prefix) for prefix in prefixes)
+
+
+def _looks_like_yandex_art_model(model: str) -> bool:
+    lowered = (model or "").lower()
+    return lowered.startswith("yandex") or lowered.startswith("art://")
+
+
+def _strip_code_fence(text: str) -> str:
+    if not text:
+        return text
+    stripped = text.strip()
+    if stripped.startswith("```") and stripped.endswith("```"):
+        body = stripped.strip("`")
+        # remove optional language prefix after opening fence
+        first_newline = body.find("\n")
+        if first_newline != -1:
+            language = body[:first_newline].strip().lower()
+            if language in {"json", "yaml", "markdown", "text"}:
+                return body[first_newline + 1 :].strip()
+        return body.strip()
+    return stripped
+
+
+def _openai_temperature_for_model(model: str) -> float:
+    lowered = (model or "").lower()
+    if any(lowered.startswith(prefix) for prefix in ("gpt-5", "gpt-5o")):
+        return 1.0
+    if model in OPENAI_MODELS_WITH_FIXED_TEMPERATURE:
+        return 1.0
+    return OPENAI_DEFAULT_TEMPERATURE
 
 
 @dataclass(slots=True)
@@ -316,14 +390,14 @@ class OpenAIChatProvider:
         import urllib.error
         import urllib.request
 
-        payload = json.dumps(
-            {
-                "model": self.model,
-                "messages": list(messages),
-                "temperature": OPENAI_DEFAULT_TEMPERATURE,
-                "response_format": OPENAI_RESPONSE_FORMAT.copy(),
-            }
-        ).encode("utf-8")
+        temperature = _openai_temperature_for_model(self.model)
+        payload_dict = {
+            "model": self.model,
+            "messages": list(messages),
+            "temperature": temperature,
+            "response_format": OPENAI_RESPONSE_FORMAT.copy(),
+        }
+        payload = json.dumps(payload_dict).encode("utf-8")
         request = urllib.request.Request(
             self.api_url,
             data=payload,
@@ -353,6 +427,86 @@ class OpenAIChatProvider:
         return ProviderResponse(result=parsed, raw=data, response_id=response_id)
 
 
+class YandexGPTProvider:
+    """Провайдер для моделей YandexGPT через REST API."""
+
+    api_url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        folder_id: str | None = None,
+        model: str | None = None,
+        timeout: int | float | None = None,
+    ) -> None:
+        self.api_key = api_key or getattr(settings, "YANDEX_API_KEY", "")
+        self.folder_id = folder_id or getattr(settings, "YANDEX_FOLDER_ID", "")
+        self.timeout = timeout or getattr(settings, "YANDEX_TIMEOUT", getattr(settings, "OPENAI_TIMEOUT", 30))
+        self.model = (model or "yandexgpt-lite").strip()
+        if not self.api_key:
+            raise RewriteFailed("YANDEX_API_KEY не задан")
+        if self.model.startswith("gpt://"):
+            self.model_uri = self.model
+        else:
+            if not self.folder_id:
+                raise RewriteFailed("YANDEX_FOLDER_ID не задан")
+            self.model_uri = build_yandex_model_uri(self.model, folder_id=self.folder_id, scheme="gpt")
+
+    def run(self, *, messages: Sequence[dict[str, str]]) -> ProviderResponse:
+        import urllib.error
+        import urllib.request
+
+        yc_messages = []
+        for message in messages:
+            role = message.get("role") or "user"
+            text = message.get("content") or message.get("text") or ""
+            yc_messages.append({"role": role, "text": text})
+        payload = {
+            "modelUri": self.model_uri,
+            "completionOptions": {
+                "stream": False,
+                "temperature": OPENAI_DEFAULT_TEMPERATURE,
+                "maxTokens": "2000",
+            },
+            "messages": yc_messages,
+        }
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            self.api_url,
+            data=body,
+            headers={
+                "Authorization": f"Api-Key {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:  # pragma: no cover - требует живого API
+            message = exc.read().decode("utf-8", "replace")
+            raise RewriteFailed(f"YandexGPT HTTP {exc.code}: {message}") from exc
+        except OSError as exc:  # pragma: no cover
+            raise RewriteFailed(str(exc)) from exc
+
+        try:
+            result = data["result"]
+            alternatives = result.get("alternatives") or []
+            message = alternatives[0]["message"]
+            text = message.get("text", "")
+            response_id = result.get("modelVersion")
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RewriteFailed("Некорректный ответ YandexGPT") from exc
+
+        clean_text = _strip_code_fence(text)
+        try:
+            parsed = json.loads(clean_text)
+        except json.JSONDecodeError:
+            parsed = {"content": clean_text}
+        return ProviderResponse(result=parsed, raw=data, response_id=response_id)
+
+
 def default_rewriter(*, project: Project | None = None) -> StoryRewriter:
     """Фабрика стандартного рерайтера с OpenAI провайдером для проекта."""
 
@@ -361,7 +515,11 @@ def default_rewriter(*, project: Project | None = None) -> StoryRewriter:
         rewrite_model = getattr(project, "rewrite_model", "") or ""
         if rewrite_model:
             provider_kwargs["model"] = rewrite_model
-    provider = OpenAIChatProvider(**provider_kwargs)
+    model_name = provider_kwargs.get("model") or ""
+    if model_name and _looks_like_yandex_text_model(model_name):
+        provider = YandexGPTProvider(**provider_kwargs)
+    else:
+        provider = OpenAIChatProvider(**provider_kwargs)
     return StoryRewriter(provider=provider)
 
 
@@ -404,16 +562,18 @@ class OpenAIImageProvider:
         size: str | None = None,
         quality: str | None = None,
         response_format: str | None = None,
+        timeout: int | float | None = None,
     ) -> None:
         self.api_url = api_url or os.getenv(
             "OPENAI_IMAGE_URL", "https://api.openai.com/v1/images/generations"
         )
         self.model = model or os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
         self.size = normalize_image_size(size or os.getenv("OPENAI_IMAGE_SIZE", IMAGE_DEFAULT_SIZE))
-        self.quality = quality or os.getenv("OPENAI_IMAGE_QUALITY", "standard")
+        self.quality = normalize_image_quality(quality or os.getenv("OPENAI_IMAGE_QUALITY", IMAGE_DEFAULT_QUALITY))
         if response_format is None:
             response_format = os.getenv("OPENAI_IMAGE_RESPONSE_FORMAT", "b64_json")
         self.response_format = (response_format or "").strip()
+        self.request_timeout = timeout or getattr(settings, "OPENAI_IMAGE_TIMEOUT", 60)
 
     def generate(
         self,
@@ -435,7 +595,7 @@ class OpenAIImageProvider:
 
         use_model = model or self.model
         use_size = normalize_image_size(size or self.size)
-        use_quality = quality or self.quality
+        use_quality = normalize_image_quality(quality or self.quality)
         payload = {
             "model": use_model,
             "prompt": prompt,
@@ -450,7 +610,7 @@ class OpenAIImageProvider:
         request.add_header("Authorization", f"Bearer {api_key}")
 
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.urlopen(request, timeout=self.request_timeout) as response:
                 raw_body = response.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as exc:  # pragma: no cover - требует живого API
             message = exc.read().decode("utf-8", "replace")
@@ -468,6 +628,16 @@ class OpenAIImageProvider:
                     _allow_without_format=True,
                 )
             raise ImageGenerationFailed(f"OpenAI HTTP {exc.code}: {message}") from exc
+        except (socket.timeout, TimeoutError) as exc:  # pragma: no cover - сетевой таймаут
+            raise ImageGenerationFailed(
+                "OpenAI не ответил вовремя. Повторите попытку через пару секунд — генерация иногда занимает дольше."
+            ) from exc
+        except urllib.error.URLError as exc:  # pragma: no cover
+            if isinstance(getattr(exc, "reason", None), socket.timeout):
+                raise ImageGenerationFailed(
+                    "OpenAI не ответил вовремя. Повторите попытку через пару секунд — генерация иногда занимает дольше."
+                ) from exc
+            raise ImageGenerationFailed(str(exc)) from exc
         except OSError as exc:  # pragma: no cover
             raise ImageGenerationFailed(str(exc)) from exc
 
@@ -495,6 +665,129 @@ class OpenAIImageProvider:
         return GeneratedImage(data=image_bytes, mime_type=mime_type)
 
 
+class YandexArtProvider:
+    """Генерация изображений через YandexART."""
+
+    api_url = "https://llm.api.cloud.yandex.net/foundationModels/v1/imageGenerationAsync"
+    operations_url = "https://llm.api.cloud.yandex.net/operations/"
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        folder_id: str | None = None,
+        model: str | None = None,
+        timeout: int | float | None = None,
+        poll_interval: float = 1.0,
+    ) -> None:
+        self.api_key = api_key or getattr(settings, "YANDEX_API_KEY", "")
+        self.folder_id = folder_id or getattr(settings, "YANDEX_FOLDER_ID", "")
+        self.model = (model or "yandex-art").strip()
+        self.timeout = timeout or getattr(settings, "YANDEX_IMAGE_TIMEOUT", 90)
+        self.poll_interval = poll_interval
+        self.size = normalize_image_size(getattr(settings, "OPENAI_IMAGE_SIZE", IMAGE_DEFAULT_SIZE))
+        if not self.api_key:
+            raise ImageGenerationFailed("YANDEX_API_KEY не задан")
+        if not self.model.startswith("art://") and not self.folder_id:
+            raise ImageGenerationFailed("YANDEX_FOLDER_ID не задан")
+
+    def _aspect_ratio(self, size: str) -> str:
+        mapping = {
+            "1024x1024": "1:1",
+            "1024x1536": "2:3",
+            "1536x1024": "3:2",
+            "auto": "auto",
+        }
+        return mapping.get(size, "auto")
+
+    def generate(
+        self,
+        *,
+        prompt: str,
+        model: str | None = None,
+        size: str | None = None,
+        quality: str | None = None,
+    ) -> GeneratedImage:
+        import urllib.error
+        import urllib.request
+
+        prompt = prompt.strip()
+        if not prompt:
+            raise ImageGenerationFailed("Описание не может быть пустым")
+        use_model = (model or self.model).strip()
+        if use_model.startswith("art://"):
+            model_uri = use_model
+        else:
+            model_uri = build_yandex_model_uri(use_model, folder_id=self.folder_id, scheme="art")
+        aspect_ratio = self._aspect_ratio(normalize_image_size(size or self.size))
+        payload = {
+            "modelUri": model_uri,
+            "generationOptions": {"aspectRatio": aspect_ratio},
+            "messages": [{"role": "user", "text": prompt}],
+        }
+        request = urllib.request.Request(
+            self.api_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Api-Key {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                operation = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:  # pragma: no cover - требует живого API
+            message = exc.read().decode("utf-8", "replace")
+            raise ImageGenerationFailed(f"YandexART HTTP {exc.code}: {message}") from exc
+        except OSError as exc:  # pragma: no cover
+            raise ImageGenerationFailed(str(exc)) from exc
+
+        operation_id = operation.get("id") or operation.get("operationId")
+        if not operation_id:
+            raise ImageGenerationFailed("YandexART не вернул идентификатор операции")
+
+        deadline = time.monotonic() + self.timeout
+        while time.monotonic() < deadline:
+            try:
+                with urllib.request.urlopen(
+                    f"{self.operations_url}{operation_id}",
+                    timeout=self.timeout,
+                ) as response:
+                    op_data = json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:  # pragma: no cover
+                message = exc.read().decode("utf-8", "replace")
+                raise ImageGenerationFailed(f"YandexART HTTP {exc.code}: {message}") from exc
+            except OSError as exc:  # pragma: no cover
+                raise ImageGenerationFailed(str(exc)) from exc
+
+            if op_data.get("done"):
+                if "error" in op_data:
+                    message = op_data["error"].get("message", "Неизвестная ошибка")
+                    raise ImageGenerationFailed(f"YandexART: {message}")
+                results = (
+                    op_data.get("response", {}).get("results")
+                    or op_data.get("response", {}).get("images")
+                    or []
+                )
+                if not results:
+                    raise ImageGenerationFailed("YandexART не вернул изображение")
+                image_info = results[0].get("image") or results[0]
+                encoded = image_info.get("imageBase64") or image_info.get("base64") or image_info.get("data")
+                if not encoded:
+                    raise ImageGenerationFailed("Некорректный ответ YandexART")
+                mime_type = image_info.get("mimeType", "image/png") or "image/png"
+                try:
+                    image_bytes = base64.b64decode(encoded, validate=True)
+                except (binascii.Error, ValueError) as exc:
+                    raise ImageGenerationFailed("Некорректные данные изображения от YandexART") from exc
+                if not image_bytes:
+                    raise ImageGenerationFailed("Пустой ответ от YandexART")
+                return GeneratedImage(data=image_bytes, mime_type=mime_type)
+            time.sleep(self.poll_interval)
+
+        raise ImageGenerationFailed("YandexART не успел завершить генерацию")
+
 @dataclass(slots=True)
 class StoryImageGenerator:
     """Обёртка вокруг провайдера генерации изображений."""
@@ -517,10 +810,14 @@ class StoryImageGenerator:
         )
 
 
-def default_image_generator() -> StoryImageGenerator:
+def default_image_generator(*, model: str | None = None) -> StoryImageGenerator:
     """Возвращает генератор изображений по умолчанию."""
 
-    provider = OpenAIImageProvider()
+    selected_model = (model or getattr(settings, "OPENAI_IMAGE_MODEL", IMAGE_DEFAULT_MODEL)).strip()
+    if _looks_like_yandex_art_model(selected_model):
+        provider = YandexArtProvider(model=selected_model)
+    else:
+        provider = OpenAIImageProvider(model=selected_model)
     return StoryImageGenerator(provider=provider)
 
 

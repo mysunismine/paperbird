@@ -94,10 +94,15 @@ class Project(models.Model):
         default=False,
         help_text="Если включено, фоновый сборщик будет регулярно обновлять ленту проекта.",
     )
-    collector_interval = models.PositiveIntegerField(
-        "Интервал сбора (сек)",
+    collector_telegram_interval = models.PositiveIntegerField(
+        "Интервал Telegram (сек)",
         default=300,
-        help_text="Через какой промежуток времени запускать следующий цикл сбора.",
+        help_text="Как часто опрашивать Telegram-источники (не менее 30 секунд).",
+    )
+    collector_web_interval = models.PositiveIntegerField(
+        "Интервал веб-парсера (сек)",
+        default=300,
+        help_text="Как часто запускать веб-парсер (не менее 60 секунд).",
     )
     collector_last_run = models.DateTimeField(
         "Последний запуск сборщика",
@@ -334,6 +339,9 @@ class Source(models.Model):
                 return True
         return False
 
+    def retention_cutoff(self):
+        return self.project.retention_cutoff()
+
 
 class ProjectPromptConfig(models.Model):
     """Набор фрагментов основного промта проекта."""
@@ -448,10 +456,11 @@ class Post(models.Model):
     class Meta:
         verbose_name = "Пост"
         verbose_name_plural = "Посты"
-        ordering = ("-posted_at",)
+        ordering = ("-collected_at", "-posted_at")
         indexes = [
             models.Index(fields=("source", "status")),
             models.Index(fields=("project", "status")),
+            models.Index(fields=("project", "collected_at")),
             models.Index(fields=("origin_type", "source")),
             models.Index(fields=("source_url",)),
             models.Index(fields=("canonical_url",)),

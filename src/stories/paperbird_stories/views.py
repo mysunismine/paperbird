@@ -41,6 +41,7 @@ from stories.paperbird_stories.services import (
     default_publisher_for_story,
     default_rewriter,
     make_prompt_messages,
+    normalize_image_quality,
     normalize_image_size,
 )
 
@@ -538,8 +539,8 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             model = form.cleaned_data["model"]
             size = form.cleaned_data["size"]
             safe_size = normalize_image_size(size)
-            quality = form.cleaned_data["quality"]
-            generator = default_image_generator()
+            quality = normalize_image_quality(form.cleaned_data["quality"])
+            generator = default_image_generator(model=model)
             try:
                 result = generator.generate(
                     prompt=prompt,
@@ -564,7 +565,7 @@ class StoryImageView(LoginRequiredMixin, DetailView):
                 if safe_size != size:
                     messages.info(
                         request,
-                        "Размер изображения автоматически уменьшен до 512x512, "
+                        "Размер изображения автоматически скорректирован до поддерживаемого значения, "
                         "чтобы его можно было без ошибок загрузить в Paperbird.",
                     )
                 messages.success(request, "Изображение успешно сгенерировано.")
@@ -604,13 +605,14 @@ class StoryImageView(LoginRequiredMixin, DetailView):
         preview = None
         if encoded:
             safe_size = normalize_image_size(request.POST.get("size", ""))
+            safe_quality = normalize_image_quality(request.POST.get("quality", ""))
             preview = {
                 "data": encoded,
                 "mime": request.POST.get("mime_type", "image/png"),
                 "prompt": request.POST.get("prompt", ""),
                 "model": request.POST.get("model", ""),
                 "size": safe_size,
-                "quality": request.POST.get("quality", ""),
+                "quality": safe_quality,
             }
         context = self.get_context_data(
             generate_form=self._generate_form_initial(
@@ -654,7 +656,7 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             "prompt": initial_prompt,
             "model": model or project.image_model,
             "size": normalize_image_size(size or project.image_size),
-            "quality": quality or project.image_quality,
+            "quality": normalize_image_quality(quality or project.image_quality),
         }
         return StoryImageGenerateForm(initial=initial)
 

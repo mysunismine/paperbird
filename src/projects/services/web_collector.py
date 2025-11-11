@@ -267,6 +267,8 @@ class WebCollector:
             raise PresetValidationError("Источник не содержит пресет")
         self.validator.validate(preset)
         stats = {"created": 0, "updated": 0, "skipped": 0, "items": 0}
+        cutoff = source.retention_cutoff()
+        cutoff_utc = cutoff.astimezone(timezone.utc) if cutoff else None
         list_items = self._crawl_list_pages(preset, source)
         logger.info("web_collector_list_items", count=len(list_items), source_id=source.pk)
         for item in list_items:
@@ -285,6 +287,16 @@ class WebCollector:
             ):
                 stats["skipped"] += 1
                 continue
+            posted_at = article.published_at or timezone.now()
+            if cutoff_utc and posted_at:
+                aware_posted = posted_at
+                if timezone.is_naive(aware_posted):
+                    aware_posted = timezone.make_aware(aware_posted, timezone.utc)
+                else:
+                    aware_posted = aware_posted.astimezone(timezone.utc)
+                if aware_posted < cutoff_utc:
+                    stats["skipped"] += 1
+                    continue
             post, created = Post.create_or_update_web(
                 project=source.project,
                 source=source,
@@ -295,7 +307,7 @@ class WebCollector:
                 content_md=article.content_md,
                 raw_html=article.raw_html,
                 raw_data=article.metadata,
-                posted_at=article.published_at or timezone.now(),
+                posted_at=posted_at,
                 images=article.images,
             )
             if created:

@@ -39,25 +39,33 @@ SOURCE_MAX_RETRY_DELAY = 3600
 IMAGE_MODEL_CHOICES = (
     ("gpt-image-1", "gpt-image-1"),
     ("dall-e-3", "dall-e-3"),
+    ("yandex-art", "yandex-art"),
 )
 
 IMAGE_SIZE_CHOICES = (
-    ("512x512", "512x512"),
-    ("256x256", "256x256"),
+    ("1024x1024", "1024x1024"),
+    ("1024x1536", "1024x1536"),
+    ("1536x1024", "1536x1024"),
+    ("auto", "auto"),
 )
 
 IMAGE_QUALITY_CHOICES = (
-    ("standard", "standard"),
-    ("hd", "hd"),
+    ("low", "low"),
+    ("medium", "medium"),
+    ("high", "high"),
+    ("auto", "auto"),
 )
 
 IMAGE_DEFAULT_MODEL = IMAGE_MODEL_CHOICES[0][0]
-IMAGE_DEFAULT_SIZE = IMAGE_SIZE_CHOICES[0][0]
-IMAGE_DEFAULT_QUALITY = IMAGE_QUALITY_CHOICES[0][0]
+IMAGE_DEFAULT_SIZE = "1024x1024"
+IMAGE_DEFAULT_QUALITY = "medium"
 
 REWRITE_MODEL_CHOICES = (
     ("gpt-4o-mini", "gpt-4o-mini"),
     ("gpt-4o", "gpt-4o"),
     ("gpt-4.1-mini", "gpt-4.1-mini"),
+    ("gpt-5", "gpt-5"),
+    ("yandexgpt-lite", "yandexgpt-lite"),
+    ("yandexgpt", "yandexgpt"),
 )
 REWRITE_DEFAULT_MODEL = REWRITE_MODEL_CHOICES[0][0]

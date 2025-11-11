@@ -55,6 +55,12 @@ TELEGRAM_SESSION=<string_session>
 OPENAI_API_KEY=<openai_key>
 OPENAI_MODEL=gpt-4o-mini
 OPENAI_TIMEOUT=30
+OPENAI_IMAGE_TIMEOUT=60
+
+YANDEX_API_KEY=<yandex_api_key>
+YANDEX_FOLDER_ID=<catalog_id>
+YANDEX_TIMEOUT=60
+YANDEX_IMAGE_TIMEOUT=90
 
 REDIS_URL=redis://localhost:6379/0
 
@@ -71,6 +77,7 @@ EMAIL_USE_TLS=True
 - `POSTGRES_*` — параметры подключения к PostgreSQL.  
 - `TELEGRAM_*` — данные Telethon для сбора и публикации.  
 - `OPENAI_*` — ключ и настройки модели для рерайта.  
+- `YANDEX_*` — ключ и каталог облака для моделей YandexGPT/YandexART (используются только если проект выбирает эти модели в настройках).  
 - `REDIS_URL` — адрес Redis-сервера.  
 - Переменные SMTP — если отправка почты настроена.  
 
@@ -176,6 +183,16 @@ docker compose up web                    # сервер (порт 8000)
 docker compose up collectors             # обработчик очереди collector
 docker compose up collectors_web         # обработчик очереди web-источников
 ```
+
+### Управление сборщиком
+
+- **Кнопки «Запустить/Остановить» в UI** управляют флагом `collector_enabled` на уровне проекта. Когда сборщик остановлен, его очереди очищаются, и даже запущенные воркеры пропускают проект до следующего запуска. Это удобно, когда нужно приостановить один проект, не трогая остальные.
+- **Воркеры в Docker** стоит держать запущенными постоянно: они обслуживают все проекты и просто ожидают задач. Чтобы возобновить сбор, достаточно нажать «Запустить» в ленте нужного проекта — UI сразу поставит новую задачу.
+- **Полная остановка приложения** (например, на выходные):
+  1. На странице каждого активного проекта нажмите «Остановить сборщик», чтобы очистить очереди.
+  2. Остановите фоновые процессы: `docker compose stop collectors collectors_web` (при необходимости также `web`/`postgres`).
+  3. После перерыва запустите сервисы обратно (`docker compose up -d postgres web collectors collectors_web`) и снова включите сборщик через UI.
+
 
 Для разовых management-команд используйте `docker compose run --rm web python manage.py <command>`. Значения `COLLECTOR_SLEEP` и `COLLECTOR_WEB_SLEEP` можно переопределять в `infra/.env` без пересборки образа.
 

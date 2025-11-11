@@ -40,8 +40,9 @@ class PostCollector:
     async def collect_for_project(self, project: Project) -> None:
         factory = TelethonClientFactory(user=self.user)
         sources = await sync_to_async(list)(
-            project.sources.filter(is_active=True, type=Source.Type.TELEGRAM).order_by("id")
+        project.sources.filter(is_active=True, type=Source.Type.TELEGRAM).order_by("id")
         )
+        project_cutoff = project.retention_cutoff()
         async with factory.connect() as client:
             for source in sources:
                 log = await sync_to_async(SourceSyncLog.objects.create)(source=source)
@@ -58,7 +59,6 @@ class PostCollector:
                         continue
                     entity = await client.get_entity(target)
                     last_message_id = source.last_synced_id or 0
-                    cutoff = source.project.retention_cutoff()
                     async for message in client.iter_messages(
                         entity,
                         limit=None,
@@ -67,16 +67,19 @@ class PostCollector:
                         if not isinstance(message, Message):
                             continue
                         message_date = getattr(message, "date", None)
-                        if cutoff and message_date is not None:
+                        if project_cutoff and message_date is not None:
                             aware_date = message_date
                             if timezone.is_naive(aware_date):
                                 aware_date = timezone.make_aware(
                                     aware_date,
                                     timezone.utc,
                                 )
-                            if aware_date < cutoff:
+                            if aware_date < project_cutoff:
                                 break
-                        processed = await self._process_message(message=message, source=source)
+                        processed = await self._process_message(
+                            message=message,
+                            source=source,
+                        )
                         last_message_id = max(last_message_id, message.id)
                         if processed:
                             fetched += 1
@@ -101,6 +104,14 @@ class PostCollector:
                         fetched=fetched,
                         skipped=skipped,
                     )
+        if project_cutoff:
+            cutoff_value = project_cutoff
+            await sync_to_async(
+                lambda: Post.objects.filter(
+                    project=project,
+                    posted_at__lt=cutoff_value,
+                ).delete()
+            )()
 
     async def _process_message(self, *, message: Message, source: Source) -> bool:
         message_text = message.message or ""

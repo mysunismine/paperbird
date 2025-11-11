@@ -183,7 +183,7 @@ class StoryImageGenerateForm(forms.Form):
         label="Размер",
         choices=IMAGE_SIZE_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
-        help_text="Для безошибочной загрузки изображения ограничены значениями до 512x512.",
+        help_text="Выберите один из поддерживаемых размеров 1024px или auto для автоматического выбора.",
     )
     quality = forms.ChoiceField(
         label="Качество",
