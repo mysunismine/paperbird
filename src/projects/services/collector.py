@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time
 
@@ -15,7 +16,12 @@ from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
 from accounts.models import User
 from core.constants import DEFAULT_COLLECT_LIMIT
 from projects.models import Post, Project, Source, SourceSyncLog
-from projects.services.telethon_client import TelethonClientFactory
+from projects.services.telethon_client import (
+    TelethonClientFactory,
+    TelethonCredentialsMissingError,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -179,6 +185,48 @@ async def collect_for_user(
         await collector.collect_for_project(project)
 
 
+async def collect_for_all_users(
+    *,
+    project_id: int | None = None,
+    limit: int = DEFAULT_COLLECT_LIMIT,
+    continuous: bool = False,
+    interval: int = 60,
+) -> None:
+    """Запускает сборщик для всех пользователей с заполненными Telethon-данными."""
+
+    delay = max(interval, 5)
+
+    async def _eligible_users() -> list[User]:
+        qs = (
+            User.objects.filter(is_active=True, telethon_api_id__isnull=False)
+            .exclude(telethon_api_hash="")
+            .exclude(telethon_session="")
+            .order_by("id")
+        )
+        return await sync_to_async(list, thread_sensitive=True)(qs)
+
+    async def _run_once() -> None:
+        users = await _eligible_users()
+        if not users:
+            logger.info("collect_for_all_users_no_credentials")
+            return
+        for user in users:
+            if not user.has_telethon_credentials:
+                continue
+            try:
+                await collect_for_user(user, project_id=project_id, limit=limit)
+            except TelethonCredentialsMissingError as exc:
+                logger.warning("collect_for_all_users_skipped", extra={"user_id": user.pk, "reason": str(exc)})
+            except Exception as exc:  # pragma: no cover - защитный слой вокруг сети
+                logger.exception("collect_for_all_users_error", extra={"user_id": user.pk, "error": str(exc)})
+
+    while True:
+        await _run_once()
+        if not continuous:
+            break
+        await asyncio.sleep(delay)
+
+
 async def collect_for_user_live(
     user: User,
     *,
@@ -219,6 +267,29 @@ def collect_for_user_sync(
         asyncio.run(runner())
     except KeyboardInterrupt:
         # graceful stop for continuous mode
+        pass
+
+
+def collect_for_all_users_sync(
+    *,
+    project_id: int | None = None,
+    limit: int = DEFAULT_COLLECT_LIMIT,
+    continuous: bool = False,
+    interval: int = 60,
+) -> None:
+    """Синхронный адаптер, запускающий сбор для всех пользователей."""
+
+    async def runner() -> None:
+        await collect_for_all_users(
+            project_id=project_id,
+            limit=limit,
+            continuous=continuous,
+            interval=interval,
+        )
+
+    try:
+        asyncio.run(runner())
+    except KeyboardInterrupt:
         pass
 
 

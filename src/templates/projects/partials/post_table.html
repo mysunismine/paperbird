@@ -35,11 +35,35 @@
           </div>
         </td>
         <td style="max-width: 620px;">
-          {% if post.message %}
-            <div class="text-body">{{ post.message|truncatechars:500|linebreaksbr }}</div>
-          {% else %}
-            <span class="text-muted">Текст отсутствует</span>
-          {% endif %}
+          {% with display_text=post.display_message %}
+            {% if display_text %}
+              <div class="text-body">{{ display_text|truncatechars:500|linebreaksbr }}</div>
+            {% else %}
+              <span class="text-muted">Текст отсутствует</span>
+            {% endif %}
+          {% endwith %}
+          {% with media_items=post.media_items %}
+            {% if media_items %}
+              <div class="mt-3 d-flex flex-wrap gap-2 post-media-list">
+                {% for item in media_items %}
+                  <a
+                    href="{{ item.url }}"
+                    target="_blank"
+                    rel="noopener"
+                    class="post-media-thumb border rounded overflow-hidden"
+                    style="width: 120px; height: 90px;"
+                  >
+                    <img
+                      src="{{ item.url }}"
+                      alt="Медиа поста"
+                      loading="lazy"
+                      class="img-fluid h-100 w-100 object-fit-cover"
+                    />
+                  </a>
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% endwith %}
           {% if post.keyword_hits %}
             <div class="small text-warning mt-1">Совпадения: {{ post.keyword_hits|join:", " }}</div>
           {% endif %}

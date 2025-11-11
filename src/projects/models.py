@@ -47,6 +47,18 @@ class Project(models.Model):
         blank=True,
         help_text="Например, @my_channel или ссылка на чат",
     )
+    locale = models.CharField(
+        "Локаль",
+        max_length=20,
+        default="ru_RU",
+        help_text="Используется для форматирования даты и времени в подсказках.",
+    )
+    time_zone = models.CharField(
+        "Часовой пояс",
+        max_length=50,
+        default="UTC",
+        help_text="Например Europe/Moscow или UTC+03:00. Определяет локальное время проекта.",
+    )
     rewrite_model = models.CharField(
         "Модель рерайта",
         max_length=100,
@@ -495,6 +507,65 @@ class Post(models.Model):
             return None
         return self.canonical_url or self.source_url
 
+    @property
+    def media_items(self) -> list[dict[str, str]]:
+        """Возвращает список медиаэлементов для отображения в интерфейсе."""
+
+        items: list[dict[str, str]] = []
+        if self.media_url:
+            items.append(
+                {
+                    "url": self.media_url,
+                    "type": self.media_type or "image",
+                    "origin": self.origin_type,
+                }
+            )
+        manifest = self.images_manifest or []
+        for entry in manifest:
+            url = ""
+            if isinstance(entry, str):
+                url = entry
+            elif isinstance(entry, dict):
+                url = entry.get("url") or entry.get("src") or ""
+            if not url:
+                continue
+            items.append(
+                {
+                    "url": url,
+                    "type": "image",
+                    "origin": self.origin_type,
+                }
+            )
+        return items
+
+    @staticmethod
+    def merge_title_and_body(title: str | None, body: str | None) -> str:
+        """Возвращает текст, дополненный заголовком, если он ещё не присутствует."""
+
+        normalized_title = (title or "").strip()
+        body_value = body or ""
+        if not normalized_title:
+            return body_value
+        if not body_value:
+            return normalized_title
+        normalized_body = body_value.lstrip()
+        if normalized_body.startswith(normalized_title):
+            return body_value
+        return f"{normalized_title}\n\n{body_value}"
+
+    @property
+    def display_message(self) -> str:
+        """Текст поста для отображения в интерфейсе (с учётом заголовка веб-постов)."""
+
+        if self.origin_type != self.Origin.WEB:
+            return self.message
+        metadata = self.external_metadata if isinstance(self.external_metadata, dict) else {}
+        title = metadata.get("title")
+        combined = self.merge_title_and_body(title, self.message)
+        if combined:
+            return combined
+        return self.message or ""
+
     @staticmethod
     def make_hash(value: str | bytes | None) -> str:
         """Возвращает SHA256 хэш строки или байтов."""
@@ -564,7 +635,9 @@ class Post(models.Model):
 
         normalized_canonical = canonical_url or ""
         normalized_source = source_url
-        body_for_hash = content_md or content_html or title
+        content_body = content_md or content_html or ""
+        combined_message = cls.merge_title_and_body(title, content_body or title)
+        body_for_hash = combined_message or title
         content_hash = cls.make_hash(body_for_hash)
         text_hash = cls.make_hash(body_for_hash)
         language = detect_language(body_for_hash)
@@ -586,7 +659,7 @@ class Post(models.Model):
             "external_id": (normalized_canonical or normalized_source)[:255],
             "source_url": normalized_source,
             "canonical_url": normalized_canonical,
-            "message": content_md or content_html or title,
+            "message": combined_message,
             "raw": raw_data or {},
             "raw_html": raw_html or "",
             "content_html": content_html or "",
@@ -596,9 +669,11 @@ class Post(models.Model):
             "text_hash": text_hash,
             "content_hash": content_hash,
             "images_manifest": images or [],
-            "external_metadata": {"title": title, **(raw_data or {})},
+            "external_metadata": {**(raw_data or {})},
             "language": language,
         }
+        if title:
+            defaults["external_metadata"]["title"] = title
         update_fields = [field for field in defaults.keys() if field not in {"project"}]
         if existing:
             for field, value in defaults.items():

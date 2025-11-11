@@ -29,6 +29,7 @@
 **Режимы:** 
 - разовый — `python manage.py collect_posts <username> [--project ID] --limit 50`; 
 - непрерывный — `python manage.py collect_posts <username> --follow --interval 30`, запускает цикл опроса с указанным интервалом и останавливается по Ctrl+C.
+- много-пользовательский — `python manage.py collect_posts --all-users --limit 50` (аналогично поддерживает `--follow`, но несовместим с `--project`).
 
 ## 2.1 Collector Web (Парсер сайтов)
 

@@ -12,6 +12,7 @@ from core.constants import (
 )
 from projects.models import Project, ProjectPromptConfig, Source, WebPreset
 from projects.services.source_metadata import enqueue_source_refresh
+from projects.services.time_preferences import is_timezone_valid
 from projects.services.web_preset_registry import PresetValidationError, WebPresetRegistry
 
 
@@ -49,6 +50,8 @@ class ProjectCreateForm(forms.ModelForm):
             "name",
             "description",
             "publish_target",
+            "locale",
+            "time_zone",
             "rewrite_model",
             "image_model",
             "image_size",
@@ -77,6 +80,20 @@ class ProjectCreateForm(forms.ModelForm):
                     "maxlength": Project._meta.get_field("publish_target").max_length,
                 }
             ),
+            "locale": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "ru_RU или en_US",
+                    "maxlength": Project._meta.get_field("locale").max_length,
+                }
+            ),
+            "time_zone": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "Europe/Moscow или UTC+03:00",
+                    "maxlength": Project._meta.get_field("time_zone").max_length,
+                }
+            ),
             "retention_days": forms.NumberInput(
                 attrs={"class": "form-control", "min": 1, "step": 1}
             ),
@@ -85,6 +102,8 @@ class ProjectCreateForm(forms.ModelForm):
             "name": "Название",
             "description": "Описание",
             "publish_target": "Целевой канал",
+            "locale": "Локаль",
+            "time_zone": "Часовой пояс",
             "rewrite_model": "Модель рерайта",
             "image_model": "Модель генерации изображений",
             "image_size": "Размер изображения",
@@ -95,6 +114,8 @@ class ProjectCreateForm(forms.ModelForm):
             "name": "Название должно быть уникальным в рамках вашей команды",
             "description": "Необязательно, но помогает запомнить контекст и критерии сбора",
             "publish_target": "Используется по умолчанию при публикации сюжетов",
+            "locale": "Определяет язык формата даты для подсказок (например, ru_RU).",
+            "time_zone": "Используется для расчёта текущей даты/времени в промтах.",
             "rewrite_model": "Меняйте модель, если требуется более точный или быстрый рерайт.",
             "retention_days": "Посты старше этого значения будут автоматически удаляться",
         }
@@ -104,6 +125,9 @@ class ProjectCreateForm(forms.ModelForm):
             raise ValueError("ProjectCreateForm requires an owner instance")
         self.owner = owner
         super().__init__(*args, **kwargs)
+        for field_name in ("locale", "time_zone"):
+            if field_name in self.fields:
+                self.fields[field_name].required = False
 
     def clean_name(self) -> str:
         name = self.cleaned_data["name"].strip()
@@ -121,6 +145,20 @@ class ProjectCreateForm(forms.ModelForm):
         if value < 1:
             raise forms.ValidationError("Срок хранения должен быть не меньше 1 дня")
         return value
+
+    def clean_locale(self) -> str:
+        locale = (self.cleaned_data.get("locale") or "ru_RU").strip()
+        if not locale:
+            raise forms.ValidationError("Укажите локаль, например ru_RU или en_US.")
+        return locale
+
+    def clean_time_zone(self) -> str:
+        tz_value = (self.cleaned_data.get("time_zone") or "UTC").strip()
+        if not is_timezone_valid(tz_value):
+            raise forms.ValidationError(
+                "Укажите корректный часовой пояс, например Europe/Moscow или UTC+03:00."
+            )
+        return tz_value
 
     def save(self, commit: bool = True) -> Project:
         project = super().save(commit=False)

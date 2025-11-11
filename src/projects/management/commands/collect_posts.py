@@ -7,7 +7,7 @@ import getpass
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
-from projects.services.collector import collect_for_user_sync
+from projects.services.collector import collect_for_all_users_sync, collect_for_user_sync
 from projects.services.telethon_client import TelethonCredentialsMissingError
 
 User = get_user_model()
@@ -17,7 +17,7 @@ class Command(BaseCommand):
     help = "Собирает посты из Telegram-источников для заданного пользователя"
 
     def add_arguments(self, parser):
-        parser.add_argument("username", help="Имя пользователя (django username)")
+        parser.add_argument("username", nargs="?", help="Имя пользователя (django username)")
         parser.add_argument(
             "--project",
             dest="project_id",
@@ -43,9 +43,43 @@ class Command(BaseCommand):
             default=60,
             help="Интервал между циклами в секундах в непрерывном режиме",
         )
+        parser.add_argument(
+            "--all-users",
+            action="store_true",
+            help="Собрать посты для всех пользователей сразу (доступно только в разовом или follow-режиме без указания username).",
+        )
 
     def handle(self, *args, **options):
-        username = options["username"]
+        username = options.get("username")
+        all_users = options["all_users"]
+        project_id = options.get("project_id")
+        if all_users:
+            if username:
+                raise CommandError("Нельзя указывать username вместе с флагом --all-users.")
+            if project_id:
+                raise CommandError("Флаг --project несовместим с режимом --all-users.")
+            mode = "непрерывный" if options["follow"] else "разовый"
+            note = (
+                f"interval={options['interval']}s"
+                if options["follow"]
+                else f"limit={options['limit']}"
+            )
+            self.stdout.write(
+                self.style.NOTICE(
+                    f"Запуск {mode} сборщика для всех пользователей ({note})"
+                )
+            )
+            collect_for_all_users_sync(
+                project_id=None,
+                limit=options["limit"],
+                continuous=options["follow"],
+                interval=options["interval"],
+            )
+            self.stdout.write(self.style.SUCCESS("Сбор завершён"))
+            return
+
+        if not username:
+            raise CommandError("Укажите username или используйте флаг --all-users.")
         try:
             user = User.objects.get(username=username)
         except User.DoesNotExist as exc:  # pragma: no cover - простая ветка

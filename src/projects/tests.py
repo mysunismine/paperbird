@@ -7,7 +7,7 @@ import hashlib
 import io
 import json
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from http import HTTPStatus
 from unittest import skipUnless
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -31,7 +31,7 @@ from core.constants import (
     REWRITE_MODEL_CHOICES,
 )
 from core.models import WorkerTask
-from projects.forms import SourceCreateForm
+from projects.forms import ProjectCreateForm, SourceCreateForm
 from projects.models import Post, Project, ProjectPromptConfig, Source, WebPreset
 from projects.services.post_filters import (
     PostFilterOptions,
@@ -39,8 +39,9 @@ from projects.services.post_filters import (
     collect_keyword_hits,
     summarize_keyword_hits,
 )
-from projects.services.prompt_config import ensure_prompt_config
-from projects.services.collector import PostCollector, _normalize_raw
+from projects.services.prompt_config import ensure_prompt_config, render_prompt
+from projects.services.time_preferences import build_project_datetime_context
+from projects.services.collector import PostCollector, _normalize_raw, collect_for_all_users
 from projects.services.retention import purge_expired_posts, schedule_retention_cleanup
 from projects.workers import (
     collect_project_posts_task,
@@ -52,7 +53,7 @@ from projects.services.telethon_client import (
     TelethonClientFactory,
     TelethonCredentialsMissingError,
 )
-from projects.services.web_collector import WebCollector
+from projects.services.web_collector import WebCollector, parse_datetime
 from projects.services.web_preset_registry import PresetValidationError, WebPresetRegistry
 from stories.paperbird_stories.services import StoryFactory
 
@@ -213,6 +214,7 @@ class ProjectPostListViewTests(TestCase):
         self.project = Project.objects.create(owner=self.user, name="Новости")
         self.other_project = Project.objects.create(owner=self.user, name="Архив")
         self.source = Source.objects.create(project=self.project, telegram_id=1, title="Tech")
+        self.web_source = Source.objects.create(project=self.project, type=Source.Type.WEB, title="Site")
         Source.objects.create(project=self.other_project, telegram_id=2, title="Other")
         now = timezone.now()
         Post.objects.create(
@@ -273,6 +275,208 @@ class ProjectPostListViewTests(TestCase):
         self.assertEqual(posts[0].id, newest.id)
         self.assertEqual(posts[-1].id, older.id)
 
+    def test_post_list_shows_telegram_media_preview(self) -> None:
+        Post.objects.create(
+            project=self.project,
+            source=self.source,
+            telegram_id=99,
+            message="Фото дня",
+            posted_at=timezone.now(),
+            has_media=True,
+            media_path="uploads/media/photo.jpg",
+            media_type="photo",
+        )
+        response = self.client.get(reverse("feed-detail", args=[self.project.id]))
+        self.assertContains(response, "post-media-thumb")
+        self.assertContains(response, "uploads/media/photo.jpg")
+
+    def test_post_list_shows_web_images_manifest(self) -> None:
+        Post.objects.create(
+            project=self.project,
+            source=self.web_source,
+            origin_type=Post.Origin.WEB,
+            external_id="web-1",
+            message="Веб-пост",
+            posted_at=timezone.now(),
+            has_media=True,
+            images_manifest=["https://example.com/image.jpg"],
+        )
+        response = self.client.get(reverse("feed-detail", args=[self.project.id]))
+        self.assertContains(response, "https://example.com/image.jpg")
+
+
+class ProjectTimePreferenceFormTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("pref-owner", password="secret")
+
+    def _make_data(self, **overrides):
+        base = {
+            "name": "Локальный проект",
+            "description": "",
+            "publish_target": "@channel",
+            "locale": "ru_RU",
+            "time_zone": "Europe/Moscow",
+            "rewrite_model": REWRITE_DEFAULT_MODEL,
+            "image_model": IMAGE_DEFAULT_MODEL,
+            "image_size": IMAGE_DEFAULT_SIZE,
+            "image_quality": IMAGE_DEFAULT_QUALITY,
+            "retention_days": 30,
+        }
+        base.update(overrides)
+        return base
+
+    def test_invalid_timezone_rejected(self) -> None:
+        form = ProjectCreateForm(data=self._make_data(time_zone="Mars/Phobos"), owner=self.user)
+        self.assertFalse(form.is_valid())
+        self.assertIn("time_zone", form.errors)
+
+    def test_fixed_offset_timezone_allowed(self) -> None:
+        form = ProjectCreateForm(data=self._make_data(time_zone="UTC+05:30"), owner=self.user)
+        self.assertTrue(form.is_valid(), form.errors)
+
+
+class ProjectTimePreferenceUtilsTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("pref-utils", password="secret")
+
+    def test_context_uses_locale_and_timezone(self) -> None:
+        project = Project.objects.create(
+            owner=self.user,
+            name="Часовой пояс",
+            locale="ru_RU",
+            time_zone="UTC+02:30",
+        )
+        fixed_now = datetime(2024, 1, 1, 10, 0, tzinfo=dt_timezone.utc)
+        with patch("projects.services.time_preferences.timezone.now", return_value=fixed_now):
+            context = build_project_datetime_context(project)
+        self.assertEqual(context["formatted"], "01.01.2024 12:30")
+        self.assertEqual(context["offset"], "UTC+02:30")
+        self.assertEqual(context["time_zone"], "UTC+02:30")
+        self.assertTrue(context["iso"].startswith("2024-01-01T12:30:00"))
+
+
+class PromptCurrentDatetimeInjectionTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("prompt-owner", password="secret")
+        self.project = Project.objects.create(
+            owner=self.user,
+            name="Новости",
+            locale="en_US",
+            time_zone="Europe/Berlin",
+        )
+
+    def test_render_prompt_appends_datetime_section(self) -> None:
+        context = {
+            "formatted": "2024-05-10 12:00",
+            "offset": "UTC+02:00",
+            "time_zone": "Europe/Berlin",
+            "iso": "2024-05-10T12:00:00+02:00",
+        }
+        with patch(
+            "projects.services.prompt_config.build_project_datetime_context",
+            return_value=context,
+        ):
+            rendered = render_prompt(project=self.project, posts=[], title="Новости дня")
+        self.assertIn("UTC+02:00", rendered.full_text)
+        self.assertIn("Europe/Berlin", rendered.full_text)
+        self.assertEqual(rendered.sections[-1][0], "current_datetime")
+        self.assertIn("2024-05-10 12:00", rendered.full_text)
+        self.assertIn("ISO: 2024-05-10T12:00:00+02:00", rendered.sections[-1][1])
+
+
+class PostDisplayMessageTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("reader", password="secret")
+        self.project = Project.objects.create(owner=self.user, name="Лента")
+        self.web_source = Source.objects.create(
+            project=self.project,
+            type=Source.Type.WEB,
+            title="Website",
+        )
+        self.telegram_source = Source.objects.create(
+            project=self.project,
+            type=Source.Type.TELEGRAM,
+            telegram_id=555,
+            title="Канал",
+        )
+
+    def test_web_post_combines_title_and_body(self) -> None:
+        post = Post.objects.create(
+            project=self.project,
+            source=self.web_source,
+            origin_type=Post.Origin.WEB,
+            message="Первый абзац статьи",
+            external_metadata={"title": "Заголовок материала"},
+            posted_at=timezone.now(),
+        )
+        self.assertEqual(post.display_message, "Заголовок материала\n\nПервый абзац статьи")
+
+    def test_web_post_does_not_duplicate_existing_title(self) -> None:
+        original_text = "Заголовок материала\n\nОсновной текст"
+        post = Post.objects.create(
+            project=self.project,
+            source=self.web_source,
+            origin_type=Post.Origin.WEB,
+            message=original_text,
+            external_metadata={"title": "Заголовок материала"},
+            posted_at=timezone.now(),
+        )
+        self.assertEqual(post.display_message, original_text)
+
+    def test_telegram_post_returns_original_text(self) -> None:
+        post = Post.objects.create(
+            project=self.project,
+            source=self.telegram_source,
+            origin_type=Post.Origin.TELEGRAM,
+            message="Новость из канала",
+            posted_at=timezone.now(),
+        )
+        self.assertEqual(post.display_message, "Новость из канала")
+
+
+class CollectForAllUsersTests(TransactionTestCase):
+    def setUp(self) -> None:
+        self.user_with_creds = User.objects.create_user("collector1", password="secret")
+        self.user_with_creds.telethon_api_id = 111
+        self.user_with_creds.telethon_api_hash = "hash"
+        self.user_with_creds.telethon_session = "session"
+        self.user_with_creds.save(
+            update_fields=[
+                "telethon_api_id",
+                "telethon_api_hash",
+                "telethon_session",
+            ]
+        )
+        self.user_without_creds = User.objects.create_user("collector2", password="secret")
+
+    @patch("projects.services.collector.collect_for_user", new_callable=AsyncMock)
+    def test_collects_only_users_with_credentials(self, mock_collect) -> None:
+        asyncio.run(collect_for_all_users(limit=77))
+        mock_collect.assert_awaited_once()
+        mock_collect.assert_awaited_with(
+            self.user_with_creds,
+            project_id=None,
+            limit=77,
+        )
+
+    @patch("projects.services.collector.collect_for_user", new_callable=AsyncMock)
+    def test_handles_collect_errors_per_user(self, mock_collect) -> None:
+        mock_collect.side_effect = [RuntimeError("boom"), None]
+        other = User.objects.create_user("collector3", password="secret")
+        other.telethon_api_id = 222
+        other.telethon_api_hash = "hash2"
+        other.telethon_session = "session2"
+        other.save(
+            update_fields=[
+                "telethon_api_id",
+                "telethon_api_hash",
+                "telethon_session",
+            ]
+        )
+        # Should not raise even if one user fails
+        asyncio.run(collect_for_all_users(limit=10))
+        self.assertEqual(mock_collect.await_count, 2)
+
 
 class NavigationMenuTests(TestCase):
     def setUp(self) -> None:
@@ -323,6 +527,13 @@ class CollectorControlViewTests(TestCase):
         )
         self.client.force_login(self.user)
         self.project = Project.objects.create(owner=self.user, name="Collector")
+        self.source = Source.objects.create(
+            project=self.project,
+            type=Source.Type.TELEGRAM,
+            telegram_id=777,
+            title="Collector Source",
+            is_active=True,
+        )
 
     def test_start_collector_enqueues_task(self) -> None:
         response = self.client.post(
@@ -433,6 +644,8 @@ class ProjectCreateViewTests(TestCase):
                 "name": "Мониторинг",
                 "description": "Telegram-лента",
                 "publish_target": "@paperbird",
+                "locale": "ru_RU",
+                "time_zone": "Europe/Moscow",
                 "rewrite_model": rewrite_choice,
                 "image_model": alt_model,
                 "image_size": alt_size,
@@ -457,6 +670,9 @@ class ProjectCreateViewTests(TestCase):
             data={
                 "name": "Мониторинг",
                 "description": "",
+                "publish_target": "",
+                "locale": "ru_RU",
+                "time_zone": "UTC",
                 "rewrite_model": REWRITE_DEFAULT_MODEL,
                 "image_model": IMAGE_DEFAULT_MODEL,
                 "image_size": IMAGE_DEFAULT_SIZE,
@@ -506,6 +722,8 @@ class ProjectSettingsViewTests(TestCase):
                 "name": "Новости",
                 "description": "Обновлённое описание",
                 "publish_target": "@fresh",
+                "locale": "ru_RU",
+                "time_zone": "Europe/Moscow",
                 "rewrite_model": new_rewrite,
                 "image_model": new_model,
                 "image_size": new_size,
@@ -897,6 +1115,19 @@ class WebSourceFormTests(TestCase):
         self.assertTrue(source.web_preset_snapshot)
         self.assertEqual(source.web_preset.name, "site_feed")
         mock_refresh.assert_not_called()
+
+
+class WebCollectorUtilsTests(TestCase):
+    def test_parse_datetime_strips_location_suffix(self) -> None:
+        parsed = parse_datetime("11.11.2025 09:51|Псков")
+        self.assertIsNotNone(parsed)
+        tz = timezone.get_current_timezone()
+        localized = parsed.astimezone(tz)
+        self.assertEqual(localized.year, 2025)
+        self.assertEqual(localized.month, 11)
+        self.assertEqual(localized.day, 11)
+        self.assertEqual(localized.hour, 9)
+        self.assertEqual(localized.minute, 51)
 
 
 @skipUnless(HAS_BS4, "beautifulsoup4 не установлена")
@@ -1390,6 +1621,36 @@ class CollectPostsCommandTests(TestCase):
             continuous=True,
             interval=30,
         )
+
+    @patch("projects.management.commands.collect_posts.collect_for_all_users_sync")
+    def test_all_users_flag_runs_collector(self, mock_all_users) -> None:
+        call_command(
+            "collect_posts",
+            "--all-users",
+            "--limit",
+            "10",
+            "--interval",
+            "15",
+            "--follow",
+        )
+        mock_all_users.assert_called_once_with(
+            project_id=None,
+            limit=10,
+            continuous=True,
+            interval=15,
+        )
+
+    def test_username_required_without_flag(self) -> None:
+        with self.assertRaisesMessage(CommandError, "Укажите username или используйте флаг --all-users."):
+            call_command("collect_posts")
+
+    def test_all_users_conflicts_with_username(self) -> None:
+        with self.assertRaisesMessage(CommandError, "Нельзя указывать username вместе с флагом --all-users."):
+            call_command("collect_posts", self.user.username, "--all-users")
+
+    def test_all_users_conflicts_with_project(self) -> None:
+        with self.assertRaisesMessage(CommandError, "Флаг --project несовместим с режимом --all-users."):
+            call_command("collect_posts", "--all-users", "--project", "1")
 
 
 class CollectProjectPostsTaskTests(TestCase):

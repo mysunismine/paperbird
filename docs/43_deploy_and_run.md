@@ -111,6 +111,11 @@ EMAIL_USE_TLS=True
   python manage.py collect_posts <username> --follow --interval 30
   ```
   Команда будет работать до нажатия Ctrl+C, раз в 30 секунд проверяя все подключённые источники.
+  Чтобы запустить сбор сразу для всех пользователей с заполненными Telethon-ключами, используйте:
+  ```bash
+  python manage.py collect_posts --all-users --limit 50
+  ```
+  Флаги `--project` и `--all-users` несовместимы.
 
 - Рерайт и публикация сюжетов:  
   1. Создайте сюжет и запустите рерайт через API/UI, убедившись, что `OPENAI_API_KEY` прописан.  

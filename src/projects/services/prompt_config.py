@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from projects.models import Post, Project, ProjectPromptConfig
+from projects.services.time_preferences import build_project_datetime_context
 
 PROMPT_SECTION_ORDER: list[tuple[str, str]] = [
     ("system_role", "1. [СИСТЕМНАЯ РОЛЬ]"),
@@ -33,6 +34,10 @@ PROMPT_TEMPLATE_TOKENS: dict[str, str] = {
     "{{POSTS}}": "Список новостей вида «НОВОСТЬ #1: ...»",
     "{{TITLE}}": "Заголовок сюжета",
     "{{EDITOR_COMMENT}}": "Комментарий редактора (или заглушка, если он пустой)",
+    "{{CURRENT_DATETIME}}": "Текущая дата и время проекта в локальной зоне",
+    "{{CURRENT_UTC_OFFSET}}": "Смещение относительно UTC (например, UTC+03:00)",
+    "{{CURRENT_TIMEZONE}}": "Название выбранного часового пояса",
+    "{{CURRENT_ISO_DATETIME}}": "Дата и время в ISO 8601 (UTC с учётом смещения)",
 }
 
 DEFAULT_PROMPT_SECTIONS: dict[str, str] = {
@@ -45,6 +50,7 @@ DEFAULT_PROMPT_SECTIONS: dict[str, str] = {
     "documents_intro": (
         "Тебе даны следующие источники:\n"
         "{{POSTS}}\n"
+        "Текущая дата проекта: {{CURRENT_DATETIME}} ({{CURRENT_UTC_OFFSET}} / {{CURRENT_TIMEZONE}}).\n"
         "Если какой‑то источник пустой или повторяется, просто пропусти его."
     ),
     "style_requirements": (
@@ -134,6 +140,7 @@ def render_prompt(
     """Render prompt sections with replacements."""
 
     config = ensure_prompt_config(project)
+    datetime_context = build_project_datetime_context(project)
     replacements = _build_replacements(
         project=project,
         posts=posts or [],
@@ -141,12 +148,14 @@ def render_prompt(
         editor_comment=editor_comment,
         preset_instruction=preset_instruction,
         preview_mode=preview_mode,
+        datetime_context=datetime_context,
     )
     sections: list[tuple[str, str]] = []
     for field, heading in PROMPT_SECTION_ORDER:
         raw = getattr(config, field)
         text = heading + "\n" + _apply_replacements(raw, replacements)
         sections.append((field, text.strip()))
+    sections.append(("current_datetime", _render_current_datetime_section(datetime_context)))
     return RenderedPrompt(sections=sections)
 
 
@@ -158,6 +167,7 @@ def _build_replacements(
     editor_comment: str,
     preset_instruction: str,
     preview_mode: bool,
+    datetime_context: dict[str, str],
 ) -> dict[str, str]:
     documents = _render_documents(posts, preview_mode=preview_mode)
     comment_block = _render_editor_comment(
@@ -171,8 +181,21 @@ def _build_replacements(
         "{{POSTS}}": documents,
         "{{TITLE}}": title.strip() or "Без названия",
         "{{EDITOR_COMMENT}}": comment_block,
+        "{{CURRENT_DATETIME}}": datetime_context["formatted"],
+        "{{CURRENT_UTC_OFFSET}}": datetime_context["offset"],
+        "{{CURRENT_TIMEZONE}}": datetime_context["time_zone"],
+        "{{CURRENT_ISO_DATETIME}}": datetime_context["iso"],
     }
     return replacements
+
+
+def _render_current_datetime_section(context: dict[str, str]) -> str:
+    return (
+        "[ТЕКУЩАЯ ДАТА]\n"
+        f"Дата и время пользователя: {context['formatted']} "
+        f"({context['offset']} / {context['time_zone']})\n"
+        f"ISO: {context['iso']}"
+    )
 
 
 def _apply_replacements(text: str, replacements: dict[str, str]) -> str:
