@@ -1,0 +1,15 @@
+.venv
+__pycache__/
+*.pyc
+.git
+.gitignore
+infra/.env
+infra/.env.local
+infra/.env.*.local
+infra/docker-compose.override.yml
+infra/postgres-data
+.ruff_cache
+media
+staticfiles
+infra/.DS_Store
+.DS_Store

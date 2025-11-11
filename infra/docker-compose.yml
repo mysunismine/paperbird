@@ -1,5 +1,18 @@
 version: "3.9"
 
+x-app-base: &app-base
+  build:
+    context: ..
+    dockerfile: infra/Dockerfile
+  restart: unless-stopped
+  env_file:
+    - ./.env
+  volumes:
+    - ..:/app
+  depends_on:
+    postgres:
+      condition: service_healthy
+
 services:
   postgres:
     image: postgres:16
@@ -19,6 +32,42 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+
+  web:
+    <<: *app-base
+    container_name: paperbird-web
+    command: python manage.py runserver 0.0.0.0:8000
+    environment:
+      RUN_MIGRATIONS: "1"
+      POSTGRES_HOST: postgres
+    ports:
+      - "8000:8000"
+
+  collectors:
+    <<: *app-base
+    container_name: paperbird-collector
+    command:
+      - python
+      - manage.py
+      - run_worker
+      - collector
+      - "--sleep=${COLLECTOR_SLEEP:-5}"
+    environment:
+      RUN_MIGRATIONS: "0"
+      POSTGRES_HOST: postgres
+
+  collectors_web:
+    <<: *app-base
+    container_name: paperbird-collector-web
+    command:
+      - python
+      - manage.py
+      - run_worker
+      - collector_web
+      - "--sleep=${COLLECTOR_WEB_SLEEP:-30}"
+    environment:
+      RUN_MIGRATIONS: "0"
+      POSTGRES_HOST: postgres
 
 volumes:
   postgres-data:

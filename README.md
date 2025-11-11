@@ -34,6 +34,8 @@
    Обратите внимание на `DJANGO_SECRET_KEY`, `POSTGRES_*`, а также `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` и `OPENAI_API_KEY`. Telethon ключи и строковую сессию можно получить в [кабинете разработчика Telegram](https://my.telegram.org/), а ключ OpenAI — в [личном кабинете OpenAI](https://platform.openai.com/).
 
 ## Запуск проекта
+
+### Локально (терминал)
 ```bash
 source .venv/bin/activate
 python manage.py migrate
@@ -41,12 +43,37 @@ python manage.py runserver
 ```
 Переменные окружения автоматически подгружаются из `infra/.env`. После запуска приложение будет доступно на http://127.0.0.1:8000/.
 
-### Локальная БД через Docker
+Для фоновых процессов и сборщиков используйте management-команды, как и прежде:
 ```bash
-cd infra
-docker compose up -d
+python manage.py collect_posts --all-users --limit 50 --follow --interval 30
+python manage.py run_worker collector
 ```
-Контейнер поднимет PostgreSQL 16 с данными в томе `paperbird-postgres-data`. Переменные `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` берутся из окружения (по умолчанию — `paperbird`).
+
+### Через Docker
+1. Скопируйте переменные окружения:
+   ```bash
+   cp infra/.env.example infra/.env
+   ```
+2. Запускайте нужные сервисы из каталога `infra`:
+   ```bash
+   cd infra
+   docker compose up postgres         # только PostgreSQL
+   docker compose up web              # Django + runserver (порт 8000)
+   docker compose up collectors       # воркер очереди collector
+   docker compose up collectors_web   # воркер очереди web-источников
+   ```
+   Контейнеры используют общий образ (`infra/Dockerfile`) и монтируют текущий код, поэтому hot-reload работает как при локальном запуске. Параметры (например, `COLLECTOR_SLEEP`) можно задавать в `infra/.env`.
+3. Любую management-команду можно выполнить в контейнере:
+   ```bash
+   cd infra
+   docker compose run --rm web python manage.py collect_posts <username> --limit 50
+   ```
+4. Завершение работы:
+   ```bash
+   cd infra
+   docker compose down
+   ```
+   Данные PostgreSQL сохраняются в томе `paperbird-postgres-data`.
 
 ### Сбор постов из Telegram
 1. Убедитесь, что в профиле пользователя заполнены поля Telethon (API ID, API hash, строковая сессия).

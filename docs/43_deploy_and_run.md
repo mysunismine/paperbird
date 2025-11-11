@@ -97,9 +97,11 @@ EMAIL_USE_TLS=True
 - Поднятие локальной базы данных через Docker Compose:  
   ```bash
   cd infra
-  docker compose up -d
+  docker compose up postgres     # только PostgreSQL
+  docker compose up web          # Django + runserver
+  docker compose up collectors   # воркер очереди collector
   ```
-  Используются переменные окружения `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` (по умолчанию `paperbird`). Данные хранятся в Docker-томе `paperbird-postgres-data`.
+  Окружение берётся из `infra/.env`, поэтому заранее скопируйте `infra/.env.example`. Каждый сервис можно запускать и останавливать независимо, данные БД сохраняются в Docker-томе `paperbird-postgres-data`.
 
 - Сбор постов из Telegram (локально):  
   ```bash
@@ -162,46 +164,20 @@ python manage.py schedule_retention_cleanup
 
 ## 7. Запуск через Docker
 
-Пример `docker-compose.yml`:
+Готовый compose-файл лежит в `infra/docker-compose.yml` и описывает три сервиса: `postgres`, `web` (Django runserver) и воркеры `collectors`/`collectors_web`. Используется общий образ `infra/Dockerfile`, который устанавливает Python-зависимости и монтирует исходники (`../:/app`) для live-reload.
 
-```yaml
-version: '3'
-
-services:
-  web:
-    build: .
-    command: python manage.py runserver 0.0.0.0:8000
-    volumes:
-      - .:/app
-    ports:
-      - "8000:8000"
-    env_file:
-      - infra/.env
-    depends_on:
-      - db
-      - redis
-
-  db:
-    image: postgres:12
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: dbname
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-  redis:
-    image: redis:6
-
-volumes:
-  pgdata:
-```
-
-Команды для запуска:  
+Базовый сценарий:
 ```bash
-docker-compose build
-docker-compose up
+cp infra/.env.example infra/.env         # один раз
+cd infra
+docker compose build                     # при первом запуске или после смены зависимостей
+docker compose up postgres               # база данных
+docker compose up web                    # сервер (порт 8000)
+docker compose up collectors             # обработчик очереди collector
+docker compose up collectors_web         # обработчик очереди web-источников
 ```
+
+Для разовых management-команд используйте `docker compose run --rm web python manage.py <command>`. Значения `COLLECTOR_SLEEP` и `COLLECTOR_WEB_SLEEP` можно переопределять в `infra/.env` без пересборки образа.
 
 ## 8. CI/CD и развёртывание в продакшен
 
