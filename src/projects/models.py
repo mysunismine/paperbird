@@ -539,30 +539,32 @@ class Post(models.Model):
         """Возвращает список медиаэлементов для отображения в интерфейсе."""
 
         items: list[dict[str, str]] = []
+
+        def build_item(url: str, media_type: str | None) -> dict[str, str]:
+            raw_type = media_type or "image"
+            normalized = raw_type.lower()
+            kind = "video" if normalized.startswith("video") else "image"
+            return {
+                "url": url,
+                "type": raw_type,
+                "origin": self.origin_type,
+                "kind": kind,
+            }
+
         if self.media_url:
-            items.append(
-                {
-                    "url": self.media_url,
-                    "type": self.media_type or "image",
-                    "origin": self.origin_type,
-                }
-            )
+            items.append(build_item(self.media_url, self.media_type))
         manifest = self.images_manifest or []
         for entry in manifest:
             url = ""
+            entry_type = None
             if isinstance(entry, str):
                 url = entry
             elif isinstance(entry, dict):
                 url = entry.get("url") or entry.get("src") or ""
+                entry_type = entry.get("type") or entry.get("media_type")
             if not url:
                 continue
-            items.append(
-                {
-                    "url": url,
-                    "type": "image",
-                    "origin": self.origin_type,
-                }
-            )
+            items.append(build_item(url, entry_type or "image"))
         return items
 
     @staticmethod

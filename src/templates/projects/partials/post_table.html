@@ -50,15 +50,23 @@
                     href="{{ item.url }}"
                     target="_blank"
                     rel="noopener"
-                    class="post-media-thumb border rounded overflow-hidden"
+                    class="post-media-thumb border rounded overflow-hidden d-flex align-items-center justify-content-center"
                     style="width: 120px; height: 90px;"
+                    aria-label="{% if item.kind == 'video' %}Открыть видео{% else %}Открыть изображение{% endif %}"
                   >
-                    <img
-                      src="{{ item.url }}"
-                      alt="Медиа поста"
-                      loading="lazy"
-                      class="img-fluid h-100 w-100 object-fit-cover"
-                    />
+                    {% if item.kind == "video" %}
+                      <div class="w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-body-secondary text-muted">
+                        <div class="fs-2 lh-1">▶</div>
+                        <div class="small fw-semibold text-uppercase">Видео</div>
+                      </div>
+                    {% else %}
+                      <img
+                        src="{{ item.url }}"
+                        alt="Медиа поста"
+                        loading="lazy"
+                        class="img-fluid h-100 w-100 object-fit-cover"
+                      />
+                    {% endif %}
                   </a>
                 {% endfor %}
               </div>
