@@ -117,6 +117,20 @@ class WorkerQueueTests(TestCase):
         self.assertEqual(attempt.error_code, "FATAL")
         self.assertFalse(attempt.will_retry)
 
+    def test_stale_tasks_revived_before_processing(self) -> None:
+        task = enqueue_task("collector_web", payload={"value": 1})
+        stale_time = timezone.now() - timedelta(minutes=15)
+        WorkerTask.objects.filter(pk=task.pk).update(
+            status=WorkerTask.Status.RUNNING,
+            locked_at=stale_time,
+            locked_by="stuck-worker",
+        )
+        revived = WorkerTask.revive_stale(queue="collector_web", max_age_seconds=60)
+        self.assertEqual(revived, 1)
+        task.refresh_from_db()
+        self.assertEqual(task.status, WorkerTask.Status.QUEUED)
+        self.assertEqual(task.locked_by, "")
+
 
 class FeedViewTests(TestCase):
     def setUp(self) -> None:

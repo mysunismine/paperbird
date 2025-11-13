@@ -228,12 +228,72 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
         type=Source.Type.WEB,
         web_preset__status=WebPreset.Status.ACTIVE,
     ).select_related("web_preset")
+
     if source_id:
         sources_qs = sources_qs.filter(pk=source_id)
     sources = list(sources_qs)
-    if not sources:
-        logger.info("collector_web_task_skipped", project_id=project.pk, reason="no_sources")
-        return {"status": "skipped", "reason": "no_sources"}
+
+    if source_id and not sources:
+        raise TaskExecutionError("Источник не найден или отключён", code="SOURCE_MISSING", retry=False)
+
+    if not source_id:
+        if not sources:
+            logger.info("collector_web_task_skipped", project_id=project.pk, reason="no_sources")
+            return {"status": "skipped", "reason": "no_sources"}
+
+        enqueued = 0
+
+        def _enqueue_source_task(source: Source) -> None:
+            already_pending = WorkerTask.objects.filter(
+                queue=WorkerTask.Queue.COLLECTOR_WEB,
+                status__in=[WorkerTask.Status.QUEUED, WorkerTask.Status.RUNNING],
+                payload__project_id=project.pk,
+                payload__source_id=source.pk,
+            ).exists()
+            if already_pending:
+                logger.info(
+                    "collector_web_source_enqueued_skip",
+                    project_id=project.pk,
+                    source_id=source.pk,
+                    reason="already_pending",
+                )
+                return
+            enqueue_task(
+                WorkerTask.Queue.COLLECTOR_WEB,
+                payload={"project_id": project.pk, "source_id": source.pk, "interval": interval},
+                max_attempts=source.web_retry_max_attempts or None,
+                base_retry_delay=source.web_retry_base_delay or None,
+                max_retry_delay=source.web_retry_max_delay or None,
+            )
+            logger.info(
+                "collector_web_source_enqueued",
+                project_id=project.pk,
+                source_id=source.pk,
+                interval=interval,
+                max_attempts=source.web_retry_max_attempts,
+                base_delay=source.web_retry_base_delay,
+                max_delay=source.web_retry_max_delay,
+            )
+
+        for source in sources:
+            _enqueue_source_task(source)
+            enqueued += 1
+
+        should_schedule = project.collector_enabled
+        if should_schedule:
+            scheduled_for = timezone.now() + timedelta(seconds=interval)
+            enqueue_task(
+                WorkerTask.Queue.COLLECTOR_WEB,
+                payload={"project_id": project.pk, "interval": interval},
+                scheduled_for=scheduled_for,
+            )
+            logger.info(
+                "collector_web_task_rescheduled",
+                project_id=project.pk,
+                interval=interval,
+                next_run=scheduled_for.isoformat(),
+            )
+        return {"status": "scheduled", "sources": enqueued, "rescheduled": should_schedule}
 
     collector = WebCollector()
     summary = {"created": 0, "updated": 0, "skipped": 0}

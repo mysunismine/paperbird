@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 from typing import Any, Iterable
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
@@ -31,13 +30,14 @@ try:  # pragma: no cover - import guard for missing dependency during setup
 except ModuleNotFoundError:  # pragma: no cover
     httpx = None  # type: ignore[assignment]
 
+from core.logging import event_logger
 from projects.models import Post, Source
 from projects.services.web_preset_registry import (
     PresetValidationError,
     WebPresetValidator,
 )
 
-logger = logging.getLogger(__name__)
+logger = event_logger("projects.web_collector")
 
 
 @dataclass(slots=True)
@@ -268,7 +268,7 @@ class WebCollector:
         self.validator.validate(preset)
         stats = {"created": 0, "updated": 0, "skipped": 0, "items": 0}
         cutoff = source.retention_cutoff()
-        cutoff_utc = cutoff.astimezone(timezone.utc) if cutoff else None
+        cutoff_utc = cutoff.astimezone(dt_timezone.utc) if cutoff else None
         list_items = self._crawl_list_pages(preset, source)
         logger.info("web_collector_list_items", count=len(list_items), source_id=source.pk)
         for item in list_items:
@@ -291,9 +291,9 @@ class WebCollector:
             if cutoff_utc and posted_at:
                 aware_posted = posted_at
                 if timezone.is_naive(aware_posted):
-                    aware_posted = timezone.make_aware(aware_posted, timezone.utc)
+                    aware_posted = timezone.make_aware(aware_posted, dt_timezone.utc)
                 else:
-                    aware_posted = aware_posted.astimezone(timezone.utc)
+                    aware_posted = aware_posted.astimezone(dt_timezone.utc)
                 if aware_posted < cutoff_utc:
                     stats["skipped"] += 1
                     continue
@@ -373,11 +373,11 @@ class WebCollector:
         self._apply_cleanup(soup, article_config.get("cleanup") or {})
         title = self._safe_extract(soup, selectors.get("title")) or item.title or item.url
         published_at = parse_datetime(self._safe_extract(soup, selectors.get("published_at"))) or item.published_at or timezone.now()
-        content_selector = selectors.get("content")
-        if content_selector:
-            content_html = self._safe_extract(soup, content_selector) or ""
-        else:
-            content_html = response.content
+        content_html = self._extract_content_html(
+            soup,
+            selectors.get("content"),
+            response.content,
+        )
         content_html = self._normalize_html(content_html, response.final_url, article_config.get("normalize") or {})
         content_md = self._to_markdown(content_html, article_config.get("normalize") or {})
         canonical_expr = selectors.get("canonical_url")
@@ -415,6 +415,23 @@ class WebCollector:
             metadata=metadata,
             images=images,
         )
+
+    def _extract_content_html(
+        self,
+        soup: BeautifulSoup,
+        expression: str | None,
+        default: str,
+    ) -> str:
+        if not expression:
+            return default
+        try:
+            value = self.selector.extract(soup, expression)
+        except LookupError:
+            return ""
+        if isinstance(value, list):
+            fragments = [fragment for fragment in value if fragment]
+            return "\n\n".join(fragments)
+        return value or ""
 
     def _normalize_html(self, html: str, base_url: str, normalize_cfg: dict[str, Any]) -> str:
         soup = self.selector.parse(html)

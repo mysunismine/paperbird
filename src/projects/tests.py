@@ -7,16 +7,18 @@ import hashlib
 import io
 import json
 import re
+import tempfile
 from datetime import datetime, timedelta, timezone as dt_timezone
 from http import HTTPStatus
 from unittest import skipUnless
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from types import SimpleNamespace
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -1127,6 +1129,23 @@ class WebPresetRegistryTests(TestCase):
         with self.assertRaises(PresetValidationError):
             registry.import_payload("{}")
 
+    def test_sources_receive_snapshot_refresh(self) -> None:
+        registry = WebPresetRegistry()
+        payload = make_preset_payload("site_feed")
+        preset = registry.import_payload(json.dumps(payload))
+        project = Project.objects.create(owner=User.objects.create_user("snap", password="secret"), name="Snapshot")
+        source = Source.objects.create(
+            project=project,
+            type=Source.Type.WEB,
+            title="Feed",
+            web_preset=preset,
+            web_preset_snapshot=payload,
+        )
+        updated_payload = payload | {"fetch": {**payload["fetch"], "timeout_sec": 25}}
+        registry.import_payload(json.dumps(updated_payload))
+        source.refresh_from_db()
+        self.assertEqual(source.web_preset_snapshot["fetch"]["timeout_sec"], 25)
+
 
 @skipUnless(HAS_JSONSCHEMA, "jsonschema не установлена")
 class WebSourceFormTests(TestCase):
@@ -1246,6 +1265,41 @@ class WebCollectorTests(TestCase):
         stats_repeat = collector.collect(self.source)
         self.assertGreaterEqual(stats_repeat["skipped"], 1)
 
+    def test_collect_combines_multiple_content_nodes(self) -> None:
+        multi_preset = make_preset_payload("multi_content")
+        multi_preset["article_page"]["selectors"]["content"] = "div.article__text*"
+        checksum = hashlib.sha256(
+            json.dumps(multi_preset, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        preset = WebPreset.objects.create(
+            name=multi_preset["name"],
+            version=multi_preset["version"],
+            schema_version=1,
+            status=WebPreset.Status.ACTIVE,
+            checksum=checksum,
+            config=multi_preset,
+        )
+        source = Source.objects.create(
+            project=self.project,
+            type=Source.Type.WEB,
+            title="Multi source",
+            web_preset=preset,
+            web_preset_snapshot=multi_preset,
+            is_active=True,
+        )
+        self.fetcher.responses["https://example.com/article-1"] = """
+        <html><body>
+          <div class="article__text">Первый абзац текста</div>
+          <div class="article__text"><strong>Второй абзац</strong> продолжает историю.</div>
+        </body></html>
+        """
+        collector = WebCollector(fetcher=self.fetcher)
+        stats = collector.collect(source)
+        self.assertEqual(stats["created"], 1)
+        post = Post.objects.get(source=source)
+        self.assertIn("Первый абзац текста", post.message)
+        self.assertIn("Второй абзац", post.message)
+
 
 class CollectProjectWebSourcesTaskTests(TestCase):
     def setUp(self) -> None:
@@ -1289,22 +1343,28 @@ class CollectProjectWebSourcesTaskTests(TestCase):
         self.assertEqual(result["status"], "skipped")
         self.assertEqual(result["reason"], "no_sources")
 
-    @patch("projects.workers.WebCollector.collect")
-    def test_task_processes_sources_and_requeues(self, mock_collect) -> None:
-        self._add_web_source()
-        mock_collect.return_value = {"created": 1, "updated": 0, "skipped": 0}
+    @patch("projects.workers.enqueue_task")
+    def test_task_enqueues_sources_and_requeues(self, mock_enqueue) -> None:
+        source = self._add_web_source()
         task = WorkerTask.objects.create(
             queue=WorkerTask.Queue.COLLECTOR_WEB,
             payload={"project_id": self.project.id, "interval": 60},
         )
         result = collect_project_web_sources_task(task)
-        self.assertEqual(result["created"], 1)
-        queued = WorkerTask.objects.filter(
-            queue=WorkerTask.Queue.COLLECTOR_WEB,
-            payload__project_id=self.project.id,
-            status=WorkerTask.Status.QUEUED,
-        ).exclude(pk=task.pk)
-        self.assertTrue(queued.exists())
+        self.assertEqual(result["status"], "scheduled")
+        self.assertEqual(result["sources"], 1)
+        self.assertTrue(result["rescheduled"])
+        self.assertGreaterEqual(mock_enqueue.call_count, 2)
+        source_call = mock_enqueue.call_args_list[0]
+        self.assertEqual(
+            source_call.kwargs["payload"],
+            {"project_id": self.project.id, "source_id": source.id, "interval": 60},
+        )
+        scheduler_call = mock_enqueue.call_args_list[-1]
+        self.assertEqual(
+            scheduler_call.kwargs["payload"],
+            {"project_id": self.project.id, "interval": 60},
+        )
 
     @patch("projects.workers.WebCollector.collect")
     def test_task_handles_specific_source_without_reschedule(self, mock_collect) -> None:
@@ -1326,6 +1386,22 @@ class CollectProjectWebSourcesTaskTests(TestCase):
             .exists()
         )
 
+    @patch("projects.workers.enqueue_task")
+    def test_source_retry_overrides_applied(self, mock_enqueue) -> None:
+        source = self._add_web_source()
+        Source.objects.filter(pk=source.pk).update(
+            web_retry_max_attempts=7, web_retry_base_delay=45, web_retry_max_delay=300
+        )
+        task = WorkerTask.objects.create(
+            queue=WorkerTask.Queue.COLLECTOR_WEB,
+            payload={"project_id": self.project.id, "interval": 120},
+        )
+        collect_project_web_sources_task(task)
+        source_call = mock_enqueue.call_args_list[0]
+        self.assertEqual(source_call.kwargs["max_attempts"], 7)
+        self.assertEqual(source_call.kwargs["base_retry_delay"], 45)
+        self.assertEqual(source_call.kwargs["max_retry_delay"], 300)
+
 
 class CollectorSanitizationTests(TestCase):
     def test_normalize_raw_handles_datetime(self) -> None:
@@ -1338,6 +1414,61 @@ class CollectorSanitizationTests(TestCase):
 
         json.dumps(normalized)  # should not raise
         self.assertIsInstance(normalized["date"], str)
+
+
+class CollectorMediaDownloadTests(TransactionTestCase):
+    def setUp(self) -> None:
+        self.media_root = tempfile.TemporaryDirectory()
+        self.addCleanup(self.media_root.cleanup)
+        self.override = override_settings(MEDIA_ROOT=self.media_root.name)
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+
+        self.user = User.objects.create_user("media-owner", password="secret")
+        self.project = Project.objects.create(owner=self.user, name="Медиа")
+        self.source = Source.objects.create(project=self.project, username="mediasource")
+
+    def _process(self, message):
+        collector = PostCollector(user=self.user)
+        return asyncio.run(collector._process_message(message=message, source=self.source))
+
+    def test_process_message_saves_media_file(self) -> None:
+        class FakePhoto:
+            pass
+
+        class FakeMessage:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+                self.download_request = None
+
+            async def download_media(self, file=None):
+                self.download_request = file
+                return b"binary-image"
+
+            def to_dict(self):
+                return {"id": self.id}
+
+        fake_message = FakeMessage(
+            id=777,
+            message="",
+            date=timezone.now(),
+            media=FakePhoto(),
+            file=SimpleNamespace(ext=".png", mime_type="image/png", name="photo.png"),
+        )
+
+        with patch("projects.services.collector.MessageMediaPhoto", FakePhoto):
+            processed = self._process(fake_message)
+
+        self.assertTrue(processed)
+        self.assertIs(fake_message.download_request, bytes)
+
+        post = Post.objects.get(source=self.source, telegram_id=fake_message.id)
+        self.assertTrue(post.has_media)
+        self.assertTrue(post.media_path)
+
+        stored_file = Path(self.media_root.name) / Path(post.media_path)
+        self.assertTrue(stored_file.exists())
+        self.assertEqual(stored_file.read_bytes(), b"binary-image")
 
 
 class CollectorRetentionWindowTests(TransactionTestCase):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,8 +14,12 @@ except ModuleNotFoundError:  # pragma: no cover
     Draft202012Validator = None  # type: ignore[assignment]
     JSONSchemaError = Exception  # type: ignore[assignment]
 
-from projects.models import WebPreset
+from django.utils import timezone
+
+from projects.models import Source, WebPreset
 from projects.schemas import load_web_preset_schema
+
+logger = logging.getLogger(__name__)
 
 
 class PresetValidationError(RuntimeError):
@@ -83,23 +88,16 @@ class WebPresetRegistry:
             "description": data.get("description", ""),
         }
         status = WebPreset.Status.ACTIVE if activate else WebPreset.Status.DRAFT
+        existing = WebPreset.objects.filter(name=meta.name, version=meta.version).only("checksum").first()
         preset, created = WebPreset.objects.update_or_create(
             name=meta.name,
             version=meta.version,
             defaults={**defaults, "status": status},
         )
-        if not created:
-            needs_status_update = activate and preset.status != WebPreset.Status.ACTIVE
-            changes = []
-            for field, value in defaults.items():
-                if getattr(preset, field) != value:
-                    setattr(preset, field, value)
-                    changes.append(field)
-            if needs_status_update:
-                preset.status = WebPreset.Status.ACTIVE
-                changes.append("status")
-            if changes:
-                preset.save(update_fields=[*changes, "updated_at"])
+        previous_checksum = existing.checksum if existing else None
+        config_changed = created or (previous_checksum != meta.checksum)
+        if config_changed and activate:
+            self._refresh_source_snapshots(preset=preset, snapshot=data)
         return preset
 
     @staticmethod
@@ -110,6 +108,24 @@ class WebPresetRegistry:
             return json.loads(payload)
         except json.JSONDecodeError as exc:  # pragma: no cover - raised in form tests
             raise PresetValidationError(f"Некорректный JSON: {exc}") from exc
+
+    def _refresh_source_snapshots(self, *, preset: WebPreset, snapshot: dict[str, Any]) -> None:
+        """Update snapshots for all sources linked to the preset."""
+
+        sources = list(Source.objects.filter(web_preset=preset).only("pk"))
+        if not sources:
+            return
+        now = timezone.now()
+        for source in sources:
+            Source.objects.filter(pk=source.pk).update(
+                web_preset_snapshot=snapshot,
+                updated_at=now,
+            )
+        logger.info(
+            "web_preset_snapshots_refreshed preset=%s sources=%s",
+            preset.pk,
+            len(sources),
+        )
 
 
 __all__ = ["PresetValidationError", "PresetMetadata", "WebPresetRegistry", "WebPresetValidator"]

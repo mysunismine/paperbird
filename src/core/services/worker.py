@@ -58,12 +58,15 @@ class WorkerRunner:
     worker_id: str | None = None
     batch_size: int = 1
     idle_sleep: float = 1.0
+    stale_lock_timeout: int | float | None = None
 
     def __post_init__(self) -> None:
         if self.batch_size < 1:
             raise ValueError("batch_size must be >= 1")
         if self.idle_sleep < 0:
             raise ValueError("idle_sleep must be >= 0")
+        if self.stale_lock_timeout is not None and self.stale_lock_timeout < 0:
+            raise ValueError("stale_lock_timeout must be >= 0")
         if not self.worker_id:
             self.worker_id = make_worker_id(self.queue)
 
@@ -72,6 +75,20 @@ class WorkerRunner:
     def run_once(self) -> int:
         """Fetch and process a batch of tasks once."""
 
+        revived = 0
+        if self.stale_lock_timeout:
+            revived = WorkerTask.revive_stale(
+                queue=self.queue,
+                max_age_seconds=int(self.stale_lock_timeout),
+            )
+            if revived:
+                logger.warning(
+                    "worker_recovered_stale_tasks",
+                    queue=self.queue,
+                    worker_id=self.worker_id,
+                    count=revived,
+                    stale_seconds=int(self.stale_lock_timeout),
+                )
         reserved = WorkerTask.reserve(
             queue=self.queue,
             worker_id=self.worker_id,
@@ -79,7 +96,16 @@ class WorkerRunner:
         )
         for task in reserved:
             self._process_task(task)
-        return len(reserved)
+        processed = len(reserved)
+        if revived or processed:
+            logger.info(
+                "worker_batch_processed",
+                queue=self.queue,
+                worker_id=self.worker_id,
+                processed=processed,
+                revived=revived,
+            )
+        return processed
 
     def run_forever(self) -> None:  # pragma: no cover - requires long-running loop
         """Continuously poll the queue until interrupted."""
@@ -306,10 +332,12 @@ def make_runner(
 
     if handler is None:
         handler = get_handler(queue)
+    settings = queue_settings(queue)
     return WorkerRunner(
         queue=queue,
         handler=handler,
         worker_id=worker_id,
         batch_size=batch_size,
         idle_sleep=idle_sleep,
+        stale_lock_timeout=settings.stale_lock_timeout,
     )

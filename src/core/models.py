@@ -14,15 +14,18 @@ from core.constants import (
     COLLECTOR_BASE_RETRY_DELAY,
     COLLECTOR_MAX_ATTEMPTS,
     COLLECTOR_MAX_RETRY_DELAY,
+    COLLECTOR_STALE_TIMEOUT,
     DEFAULT_QUEUE_BASE_RETRY_DELAY,
     DEFAULT_QUEUE_MAX_ATTEMPTS,
     DEFAULT_QUEUE_MAX_RETRY_DELAY,
+    DEFAULT_QUEUE_STALE_TIMEOUT,
     IMAGE_BASE_RETRY_DELAY,
     IMAGE_MAX_ATTEMPTS,
     IMAGE_MAX_RETRY_DELAY,
     MAINTENANCE_BASE_RETRY_DELAY,
     MAINTENANCE_MAX_ATTEMPTS,
     MAINTENANCE_MAX_RETRY_DELAY,
+    COLLECTOR_WEB_STALE_TIMEOUT,
     SOURCE_BASE_RETRY_DELAY,
     SOURCE_MAX_ATTEMPTS,
     SOURCE_MAX_RETRY_DELAY,
@@ -129,6 +132,26 @@ class WorkerTask(models.Model):
             for task in tasks:
                 task._mark_running_now(worker_id=worker_id, now=now)
         return tasks
+
+    @classmethod
+    def revive_stale(cls, *, queue: str, max_age_seconds: int) -> int:
+        """Return count of tasks moved back to queued state if lock expired."""
+
+        if max_age_seconds <= 0:
+            return 0
+        cutoff = timezone.now() - timedelta(seconds=max_age_seconds)
+        updated = cls.objects.filter(
+            queue=queue,
+            status=cls.Status.RUNNING,
+            locked_at__lt=cutoff,
+        ).update(
+            status=cls.Status.QUEUED,
+            locked_at=None,
+            locked_by="",
+            started_at=None,
+            available_at=timezone.now(),
+        )
+        return updated
 
     # --- статусы --------------------------------------------------------------
 
@@ -363,6 +386,7 @@ class QueueSettings:
     max_attempts: int = DEFAULT_QUEUE_MAX_ATTEMPTS
     base_retry_delay: int = DEFAULT_QUEUE_BASE_RETRY_DELAY
     max_retry_delay: int = DEFAULT_QUEUE_MAX_RETRY_DELAY
+    stale_lock_timeout: int = DEFAULT_QUEUE_STALE_TIMEOUT
 
 
 QUEUE_DEFAULTS: dict[str, QueueSettings] = {
@@ -370,11 +394,13 @@ QUEUE_DEFAULTS: dict[str, QueueSettings] = {
         max_attempts=COLLECTOR_MAX_ATTEMPTS,
         base_retry_delay=COLLECTOR_BASE_RETRY_DELAY,
         max_retry_delay=COLLECTOR_MAX_RETRY_DELAY,
+        stale_lock_timeout=COLLECTOR_STALE_TIMEOUT,
     ),
     WorkerTask.Queue.COLLECTOR_WEB: QueueSettings(
         max_attempts=COLLECTOR_MAX_ATTEMPTS,
         base_retry_delay=COLLECTOR_BASE_RETRY_DELAY,
         max_retry_delay=COLLECTOR_MAX_RETRY_DELAY,
+        stale_lock_timeout=COLLECTOR_WEB_STALE_TIMEOUT,
     ),
     WorkerTask.Queue.REWRITE: QueueSettings(
         max_attempts=REWRITE_MAX_ATTEMPTS,

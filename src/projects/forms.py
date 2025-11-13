@@ -241,6 +241,9 @@ class SourceBaseForm(forms.ModelForm):
             "deduplicate_text",
             "deduplicate_media",
             "retention_days",
+            "web_retry_max_attempts",
+            "web_retry_base_delay",
+            "web_retry_max_delay",
         ]
         widgets = {
             "type": forms.Select(attrs={"class": "form-select"}),
@@ -258,6 +261,9 @@ class SourceBaseForm(forms.ModelForm):
             "deduplicate_text": forms.CheckboxInput(attrs={"class": "form-check-input"}),
             "deduplicate_media": forms.CheckboxInput(attrs={"class": "form-check-input"}),
             "retention_days": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
+            "web_retry_max_attempts": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
+            "web_retry_base_delay": forms.NumberInput(attrs={"class": "form-control", "min": 5, "step": 5}),
+            "web_retry_max_delay": forms.NumberInput(attrs={"class": "form-control", "min": 5, "step": 5}),
         }
         labels = {
             "type": "Тип источника",
@@ -269,6 +275,9 @@ class SourceBaseForm(forms.ModelForm):
             "deduplicate_text": "Дедупликация текста",
             "deduplicate_media": "Дедупликация медиа",
             "retention_days": "Срок хранения (дней)",
+            "web_retry_max_attempts": "Максимум попыток веб-задачи",
+            "web_retry_base_delay": "Базовая задержка ретрая (сек.)",
+            "web_retry_max_delay": "Максимальная задержка ретрая (сек.)",
         }
 
     def __init__(self, *args, project: Project, **kwargs):

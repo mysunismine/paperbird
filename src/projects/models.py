@@ -226,6 +226,24 @@ class Source(models.Model):
     )
     web_last_synced_at = models.DateTimeField("Последний веб-сбор", blank=True, null=True)
     web_last_status = models.CharField("Статус последнего веб-сбора", max_length=20, blank=True)
+    web_retry_max_attempts = models.PositiveSmallIntegerField(
+        "Максимум попыток веб-задачи",
+        null=True,
+        blank=True,
+        help_text="Переопределяет стандартное ограничение очереди (оставьте пустым, чтобы использовать дефолт).",
+    )
+    web_retry_base_delay = models.PositiveIntegerField(
+        "Базовая задержка ретрая (сек)",
+        null=True,
+        blank=True,
+        help_text="Секунды до повторной попытки после ошибки (по умолчанию 30).",
+    )
+    web_retry_max_delay = models.PositiveIntegerField(
+        "Макс. задержка ретрая (сек)",
+        null=True,
+        blank=True,
+        help_text="Верхняя граница экспоненциальной паузы между попытками (по умолчанию 900).",
+    )
     include_keywords = models.JSONField(
         "Whitelist ключевых слов",
         default=list,

@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import mimetypes
+import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone as dt_timezone
+from pathlib import Path
 
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from telethon.tl.custom.message import Message
@@ -28,6 +32,15 @@ logger = logging.getLogger(__name__)
 class CollectOptions:
     limit: int = DEFAULT_COLLECT_LIMIT
     with_media: bool = True
+
+
+@dataclass
+class StoredMedia:
+    """Результат загрузки медиа из Telegram."""
+
+    media_type: str
+    path: str
+    content: bytes
 
 
 class PostCollector:
@@ -72,7 +85,7 @@ class PostCollector:
                             if timezone.is_naive(aware_date):
                                 aware_date = timezone.make_aware(
                                     aware_date,
-                                    timezone.utc,
+                                    dt_timezone.utc,
                                 )
                             if aware_date < project_cutoff:
                                 break
@@ -123,10 +136,14 @@ class PostCollector:
         media_path = ""
 
         if message.media and self.options.with_media:
-            if isinstance(message.media, MessageMediaPhoto | MessageMediaDocument):
-                media_type = type(message.media).__name__
-                # Фактическое сохранение медиа будет реализовано позже.
-                media_bytes = getattr(message.media, "bytes", None)
+            stored_media = await self._download_message_media(
+                message=message,
+                source=source,
+            )
+            if stored_media:
+                media_type = stored_media.media_type
+                media_path = stored_media.path
+                media_bytes = stored_media.content
 
         text_hash = Post.make_hash(message_text)
         media_hash = Post.make_hash(media_bytes) if media_bytes else ""
@@ -173,6 +190,80 @@ class PostCollector:
                 media_path=media_path or None,
                 media_bytes=media_bytes,
             )
+
+    async def _download_message_media(self, *, message: Message, source: Source) -> StoredMedia | None:
+        """Скачивает и сохраняет медиа для сообщения."""
+
+        if not isinstance(message.media, (MessageMediaPhoto, MessageMediaDocument)):
+            return None
+
+        try:
+            media_bytes = await message.download_media(file=bytes)
+        except Exception as exc:  # pragma: no cover - зависит от Telethon
+            logger.warning(
+                "collector_media_download_failed",
+                extra={
+                    "source_id": source.pk,
+                    "message_id": getattr(message, "id", None),
+                    "error": str(exc),
+                },
+            )
+            return None
+
+        if not media_bytes:
+            return None
+
+        if isinstance(media_bytes, memoryview):  # pragma: no cover - зависит от клиента
+            media_bytes = media_bytes.tobytes()
+        elif isinstance(media_bytes, bytearray):  # pragma: no cover - зависит от клиента
+            media_bytes = bytes(media_bytes)
+        elif isinstance(media_bytes, str):  # pragma: no cover
+            media_bytes = Path(media_bytes).read_bytes()
+
+        extension = self._resolve_media_extension(message)
+        relative_path = self._media_storage_path(
+            source=source,
+            message_id=message.id,
+            extension=extension,
+        )
+        absolute_root = Path(settings.MEDIA_ROOT or "media")
+        absolute_path = absolute_root / relative_path
+        absolute_path.parent.mkdir(parents=True, exist_ok=True)
+        absolute_path.write_bytes(media_bytes)
+
+        media_type = type(message.media).__name__
+        return StoredMedia(
+            media_type=media_type,
+            path=relative_path.as_posix(),
+            content=media_bytes,
+        )
+
+    def _media_storage_path(self, *, source: Source, message_id: int, extension: str) -> Path:
+        filename = f"{message_id}_{uuid.uuid4().hex}{extension}"
+        return Path("uploads") / "media" / str(source.project_id or "0") / str(source.pk or "0") / filename
+
+    def _resolve_media_extension(self, message: Message) -> str:
+        file_info = getattr(message, "file", None)
+        extension = ""
+        if file_info is not None:
+            extension = (getattr(file_info, "ext", "") or "").strip()
+            if not extension and getattr(file_info, "mime_type", ""):
+                guessed = mimetypes.guess_extension(file_info.mime_type)
+                if guessed:
+                    extension = guessed
+            if not extension and getattr(file_info, "name", ""):
+                extension = Path(file_info.name).suffix
+
+        if not extension and isinstance(message.media, MessageMediaPhoto):
+            extension = ".jpg"
+
+        if not extension:
+            extension = ".bin"
+
+        if not extension.startswith("."):
+            extension = f".{extension}"
+
+        return extension
 
 
 async def collect_for_user(
