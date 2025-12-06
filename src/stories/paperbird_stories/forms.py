@@ -18,6 +18,7 @@ from stories.paperbird_stories.models import Publication, RewritePreset, Story
 
 
 class StoryRewriteForm(forms.Form):
+    """Форма для выбора пресета рерайта и ввода комментария."""
     preset = forms.ModelChoiceField(
         label="Пресет",
         queryset=RewritePreset.objects.none(),
@@ -32,6 +33,7 @@ class StoryRewriteForm(forms.Form):
     )
 
     def __init__(self, *args: Any, story: Story | None = None, **kwargs: Any) -> None:
+        """Инициализирует форму, фильтруя пресеты по проекту."""
         super().__init__(*args, **kwargs)
         presets = RewritePreset.objects.none()
         if story is not None:
@@ -65,6 +67,7 @@ class StoryPromptConfirmForm(forms.Form):
     editor_comment = forms.CharField(required=False, widget=forms.HiddenInput())
 
     def __init__(self, *args: Any, story: Story | None = None, **kwargs: Any) -> None:
+        """Инициализирует форму, фильтруя пресеты по проекту."""
         super().__init__(*args, **kwargs)
         presets = RewritePreset.objects.none()
         if story is not None:
@@ -73,6 +76,7 @@ class StoryPromptConfirmForm(forms.Form):
 
     @property
     def selected_preset(self) -> RewritePreset | None:
+        """Возвращает выбранный пресет даже при невалидной форме."""
         """Возвращает выбранный пресет даже при невалидной форме."""
 
         cleaned_data = getattr(self, "cleaned_data", {})
@@ -98,6 +102,7 @@ class StoryPromptConfirmForm(forms.Form):
     @property
     def editor_comment_value(self) -> str:
         """Возвращает комментарий редактора для отображения на форме."""
+        """Возвращает комментарий редактора для отображения на форме."""
 
         cleaned_data = getattr(self, "cleaned_data", {})
         if "editor_comment" in cleaned_data:
@@ -108,6 +113,7 @@ class StoryPromptConfirmForm(forms.Form):
 
 
 class StoryPublishForm(forms.Form):
+    """Форма для публикации сюжета."""
     target = forms.CharField(
         label="Канал или чат",
         max_length=255,
@@ -125,6 +131,7 @@ class StoryPublishForm(forms.Form):
     )
 
     def clean_publish_at(self):
+        """Проверяет, что время публикации находится в будущем."""
         publish_at = self.cleaned_data.get("publish_at")
         if publish_at is None:
             return None
@@ -138,6 +145,7 @@ class StoryPublishForm(forms.Form):
         return publish_at
 
     def clean_target(self) -> str:
+        """Нормализует целевой канал публикации."""
         target = (self.cleaned_data.get("target") or "").strip()
         if not target:
             raise forms.ValidationError("Укажите канал или чат для публикации")
@@ -168,6 +176,7 @@ class StoryContentForm(forms.ModelForm):
 
 
 class StoryImageGenerateForm(forms.Form):
+    """Форма для генерации изображения."""
     prompt = forms.CharField(
         label="Описание изображения",
         widget=forms.Textarea(attrs={"rows": 4, "class": "form-control"}),
@@ -192,13 +201,11 @@ class StoryImageGenerateForm(forms.Form):
     )
 
     def clean_prompt(self):
-        prompt = self.cleaned_data["prompt"].strip()
-        if not prompt:
-            raise forms.ValidationError("Описание не может быть пустым")
-        return prompt
+        """Проверяет, что промпт не пуст."""
 
 
 class StoryImageAttachForm(forms.Form):
+    """Форма для прикрепления сгенерированного изображения."""
     prompt = forms.CharField(widget=forms.HiddenInput())
     image_data = forms.CharField(widget=forms.HiddenInput())
     mime_type = forms.CharField(widget=forms.HiddenInput())

@@ -178,6 +178,7 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
+        requested_step = kwargs.pop("active_step", None)
         context.setdefault(
             "rewrite_form",
             StoryRewriteForm(
@@ -202,6 +203,17 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             Story.Status.PUBLISHED,
         }
         context["media_url"] = settings.MEDIA_URL
+        rewrite_form: StoryRewriteForm = context["rewrite_form"]
+        context["prompt_preview"] = self._build_prompt_preview(
+            editor_comment=self._form_editor_comment(rewrite_form),
+            preset=self._form_preset(rewrite_form),
+        )
+        context["rewrite_meta"] = {
+            "model_code": self.object.project.rewrite_model,
+            "model_label": self.object.project.get_rewrite_model_display(),
+            "preset": self._form_preset(rewrite_form) or self.object.last_rewrite_preset,
+        }
+        context["active_step"] = self._derive_step(requested_step)
         return context
 
     def post(self, request, *args, **kwargs):
@@ -219,7 +231,7 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
     def _handle_rewrite(self, request):
         form = StoryRewriteForm(request.POST, story=self.object)
         if not form.is_valid():
-            context = self.get_context_data(rewrite_form=form)
+            context = self.get_context_data(rewrite_form=form, active_step="prompt")
             self._add_rewrite_message(messages.ERROR, "Проверьте поля формы рерайта")
             return self.render_to_response(context, status=400)
 
@@ -251,8 +263,11 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             except Exception as exc:  # pragma: no cover - подсказка пользователю
                 self._add_rewrite_message(messages.ERROR, f"Не удалось запустить рерайт: {exc}")
             else:
-                self._add_rewrite_message(messages.SUCCESS, "Рерайт выполнен. Проверьте сгенерированный текст.")
-            return redirect(self.get_success_url())
+                self._add_rewrite_message(
+                    messages.SUCCESS,
+                    "Рерайт выполнен. Проверьте сгенерированный текст.",
+                )
+            return redirect(self._build_success_url(step="rewrite"))
 
         if request.POST.get("preview") == "1":
             if (
@@ -276,8 +291,11 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
                         preset=preset,
                     )
                 except RewriteFailed as exc:
-                    self._add_rewrite_message(messages.ERROR, f"Не удалось подготовить промпт: {exc}")
-                    return redirect(self.get_success_url())
+                    self._add_rewrite_message(
+                        messages.ERROR,
+                        f"Не удалось подготовить промпт: {exc}",
+                    )
+                    return redirect(self._build_success_url(step="prompt"))
 
             prompt_form = StoryPromptConfirmForm(
                 story=self.object,
@@ -303,15 +321,18 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         except Exception as exc:  # pragma: no cover - подсказка пользователю
             self._add_rewrite_message(messages.ERROR, f"Не удалось запустить рерайт: {exc}")
         else:
-            self._add_rewrite_message(messages.SUCCESS, "Рерайт выполнен. Проверьте сгенерированный текст.")
-        return redirect(self.get_success_url())
+            self._add_rewrite_message(
+                messages.SUCCESS,
+                "Рерайт выполнен. Проверьте сгенерированный текст.",
+            )
+        return redirect(self._build_success_url(step="rewrite"))
 
     def _handle_save(self, request):
         form = StoryContentForm(request.POST, instance=self.object)
         if form.is_valid():
             form.save()
             messages.success(request, "Текст сюжета обновлён.")
-            return redirect(self.get_success_url())
+            return redirect(self._build_success_url(step="rewrite"))
         context = self.get_context_data(content_form=form)
         return self.render_to_response(context, status=400)
 
@@ -342,15 +363,15 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
                 request,
                 "Укажите целевой канал в настройках проекта, прежде чем публиковать сюжет.",
             )
-            return redirect(self.get_success_url())
+            return redirect(self._build_success_url(step="publish"))
         form = StoryPublishForm(request.POST)
         if not form.is_valid():
             messages.error(request, "Укажите канал или чат для публикации")
-            return redirect(self.get_success_url())
+            return redirect(self._build_success_url(step="publish"))
 
         if self.object.status not in {Story.Status.READY, Story.Status.PUBLISHED}:
             messages.error(request, "Сюжет ещё не готов к публикации")
-            return redirect(self.get_success_url())
+            return redirect(self._build_success_url(step="publish"))
 
         target = form.cleaned_data["target"]
         publish_at = form.cleaned_data.get("publish_at")
@@ -375,7 +396,8 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
                 messages.success(request, "Сюжет опубликован в Telegram.")
             else:
                 messages.info(request, "Публикация запланирована и будет выполнена позже.")
-        return redirect(self.get_success_url())
+            return redirect("stories:publications")
+        return redirect(self._build_success_url(step="publish"))
 
     def get_success_url(self) -> str:
         return reverse("stories:detail", kwargs={"pk": self.object.pk})
@@ -387,6 +409,71 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             text,
             extra_tags="inline rewrite",
         )
+
+    def _derive_step(self, requested_step: str | None) -> str:
+        available = {"sources", "prompt", "rewrite", "publish"}
+        if requested_step in available:
+            return requested_step
+        if self.object.status in {Story.Status.READY, Story.Status.PUBLISHED} or self.object.body:
+            return "rewrite"
+        if self.object.status == Story.Status.REWRITING:
+            return "prompt"
+        return "sources"
+
+    def _build_prompt_preview(
+        self,
+        *,
+        editor_comment: str | None = None,
+        preset: RewritePreset | None = None,
+    ) -> dict[str, str | None]:
+        selected_preset = preset or self.object.last_rewrite_preset
+        try:
+            messages_list, _ = make_prompt_messages(
+                self.object,
+                editor_comment=editor_comment,
+                preset=selected_preset,
+            )
+        except RewriteFailed as exc:
+            snapshot = list(self.object.prompt_snapshot)
+            if snapshot:
+                return {
+                    "system": self._extract_message(snapshot, "system"),
+                    "user": self._extract_message(snapshot, "user"),
+                    "error": str(exc),
+                }
+            return {"system": "", "user": "", "error": str(exc)}
+        return {
+            "system": self._extract_message(messages_list, "system"),
+            "user": self._extract_message(messages_list, "user"),
+            "error": None,
+        }
+
+    def _form_editor_comment(self, form: StoryRewriteForm) -> str:
+        if hasattr(form, "cleaned_data") and "editor_comment" in form.cleaned_data:
+            return form.cleaned_data.get("editor_comment", "")
+        if form.is_bound:
+            return form.data.get("editor_comment", "")
+        return form.initial.get("editor_comment") or self.object.editor_comment or ""
+
+    def _form_preset(self, form: StoryRewriteForm) -> RewritePreset | None:
+        if hasattr(form, "cleaned_data") and "preset" in form.cleaned_data:
+            return form.cleaned_data.get("preset")
+        if form.is_bound:
+            raw = form.data.get("preset")
+        else:
+            raw = form.initial.get("preset")
+        if not raw:
+            return None
+        try:
+            return form.fields["preset"].queryset.get(pk=raw)
+        except (RewritePreset.DoesNotExist, ValueError, TypeError):
+            return None
+
+    def _build_success_url(self, *, step: str | None = None) -> str:
+        base = self.get_success_url()
+        if not step:
+            return base
+        return f"{base}?step={step}"
 
 
 class PublicationListView(LoginRequiredMixin, ListView):
@@ -450,7 +537,10 @@ class PublicationListView(LoginRequiredMixin, ListView):
         if form.is_valid():
             updated = form.save()
             display_title = updated.story.title or f"Сюжет #{updated.story_id}"
-            messages.success(request, f"Настройки публикации для сюжета «{display_title}» сохранены.")
+            messages.success(
+                request,
+                f"Настройки публикации для сюжета «{display_title}» сохранены.",
+            )
             return self._redirect_to_page(page)
 
         messages.error(request, "Исправьте ошибки в форме публикации.")
@@ -570,8 +660,11 @@ class StoryImageView(LoginRequiredMixin, DetailView):
                 if safe_size != size:
                     messages.info(
                         request,
-                        "Размер изображения автоматически скорректирован до поддерживаемого значения, "
-                        "чтобы его можно было без ошибок загрузить в Paperbird.",
+                        (
+                            "Размер изображения автоматически скорректирован до "
+                            "поддерживаемого значения, чтобы его можно было без ошибок "
+                            "загрузить в Paperbird."
+                        ),
                     )
                 messages.success(request, "Изображение успешно сгенерировано.")
                 attach_form = StoryImageAttachForm(

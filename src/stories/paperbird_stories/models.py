@@ -122,6 +122,7 @@ class Story(models.Model):
     # --- Обновление статуса и содержания ----------------------------------
 
     def mark_rewriting(self) -> None:
+        """Отмечает сюжет как находящийся в процессе рерайта."""
         self.status = self.Status.REWRITING
         self.save(update_fields=["status", "updated_at"])
 
@@ -136,6 +137,7 @@ class Story(models.Model):
         payload: dict,
         preset: RewritePreset | None = None,
     ) -> None:
+        """Применяет результаты рерайта к сюжету."""
         self.title = title
         self.summary = summary
         self.body = body
@@ -191,6 +193,7 @@ class Story(models.Model):
 
     def attach_image(self, *, prompt: str, data: bytes, mime_type: str) -> None:
         """Сохраняет изображение сюжета, заменяя предыдущее."""
+        """Сохраняет изображение сюжета, заменяя предыдущее."""
 
         if not data:
             raise ValueError("Пустые данные изображения")
@@ -208,6 +211,7 @@ class Story(models.Model):
 
     def remove_image(self) -> None:
         """Удаляет прикреплённое изображение."""
+        """Удаляет прикреплённое изображение."""
 
         if self.image_file:
             self.image_file.delete(save=False)
@@ -217,6 +221,7 @@ class Story(models.Model):
 
     @staticmethod
     def _extension_from_mime(mime_type: str) -> str:
+        """Определяет расширение файла по MIME-типу."""
         default_extension = "png"
         if not mime_type:
             return default_extension
@@ -230,6 +235,7 @@ class Story(models.Model):
 
 
 class StoryPost(models.Model):
+    """Связь сюжета с постом и позиция поста внутри сюжета."""
     """Связь сюжета с постом и позиция поста внутри сюжета."""
 
     story = models.ForeignKey(
@@ -309,12 +315,14 @@ class RewriteTask(models.Model):
         ordering = ("-created_at",)
 
     def mark_running(self) -> None:
+        """Отмечает задачу рерайта как запущенную."""
         self.status = self.Status.RUNNING
         self.attempts += 1
         self.started_at = timezone.now()
         self.save(update_fields=["status", "attempts", "started_at", "updated_at"])
 
     def mark_success(self, *, result: dict, response_id: str | None = None) -> None:
+        """Отмечает задачу рерайта как успешно выполненную."""
         self.status = self.Status.SUCCESS
         self.result = result
         self.response_id = response_id or ""
@@ -332,6 +340,7 @@ class RewriteTask(models.Model):
         )
 
     def mark_failed(self, *, error: str) -> None:
+        """Отмечает задачу рерайта как проваленную."""
         self.status = self.Status.FAILED
         self.error_message = error
         self.finished_at = timezone.now()
@@ -350,6 +359,7 @@ class RewriteResult:
 
     @classmethod
     def from_dict(cls, data: dict) -> RewriteResult:
+        """Создает объект RewriteResult из словаря."""
         title = str(data.get("title", "")).strip()
         raw_content = data.get("content")
         if raw_content is None and "text" in data:
@@ -361,6 +371,7 @@ class RewriteResult:
 
     @staticmethod
     def _coerce_content(value: object) -> str:
+        """Приводит контент к строковому виду."""
         texts: list[str] = []
         seen: set[str] = set()
 
@@ -446,6 +457,7 @@ class Publication(models.Model):
         ordering = ("-created_at",)
 
     def mark_publishing(self) -> None:
+        """Отмечает публикацию как находящуюся в процессе."""
         self.status = self.Status.PUBLISHING
         self.attempts += 1
         self.save(update_fields=["status", "attempts", "updated_at"])
@@ -457,6 +469,7 @@ class Publication(models.Model):
         published_at,
         raw: dict | None = None,
     ) -> None:
+        """Отмечает публикацию как опубликованную."""
         self.status = self.Status.PUBLISHED
         self.message_ids = message_ids
         self.published_at = published_at
@@ -475,6 +488,7 @@ class Publication(models.Model):
         )
 
     def mark_failed(self, *, error: str) -> None:
+        """Отмечает публикацию как проваленную."""
         self.status = self.Status.FAILED
         self.error_message = error
         self.save(update_fields=["status", "error_message", "updated_at"])
@@ -532,6 +546,7 @@ class Publication(models.Model):
         return f"https://t.me/{alias}/{message_id}"
 
 class RewritePreset(models.Model):
+    """Настраиваемый пресет рерайта для проекта."""
     """Настраиваемый пресет рерайта для проекта."""
 
     project = models.ForeignKey(

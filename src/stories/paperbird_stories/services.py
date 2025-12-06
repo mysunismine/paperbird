@@ -372,6 +372,27 @@ class StoryRewriter:
         raise RewriteFailed(last_error)
 
 
+class OpenAIChatProvider:
+    """Провайдер для моделей OpenAI Chat Completions."""
+
+    def __init__(
+        self,
+        *,
+        api_url: str | None = None,
+        api_key: str | None = None,
+        model: str | None = None,
+        timeout: int | float | None = None,
+    ) -> None:
+        self.api_url = api_url or os.getenv(
+            "OPENAI_URL",
+            "https://api.openai.com/v1/chat/completions",
+        )
+        self.api_key = (api_key or os.getenv("OPENAI_API_KEY", "")).strip()
+        self.model = (model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")).strip()
+        self.timeout = timeout or getattr(settings, "OPENAI_TIMEOUT", 30)
+        if not self.api_key:
+            raise RewriteFailed("OPENAI_API_KEY не задан")
+
     def run(self, *, messages: Sequence[dict[str, str]]) -> ProviderResponse:
         """Выполняет запрос к OpenAI Chat Completions API."""
         import urllib.error
@@ -428,6 +449,7 @@ class StoryRewriter:
 
     @staticmethod
     def _extract_text(content: Any) -> str:
+        """Извлекает текст из сообщения."""
         if isinstance(content, str):
             return content.strip()
 
@@ -462,7 +484,11 @@ class YandexGPTProvider:
     ) -> None:
         self.api_key = api_key or getattr(settings, "YANDEX_API_KEY", "")
         self.folder_id = folder_id or getattr(settings, "YANDEX_FOLDER_ID", "")
-        self.timeout = timeout or getattr(settings, "YANDEX_TIMEOUT", getattr(settings, "OPENAI_TIMEOUT", 30))
+        self.timeout = timeout or getattr(
+            settings,
+            "YANDEX_TIMEOUT",
+            getattr(settings, "OPENAI_TIMEOUT", 30),
+        )
         self.model = (model or "yandexgpt-lite").strip()
         if not self.api_key:
             raise RewriteFailed("YANDEX_API_KEY не задан")
@@ -471,9 +497,14 @@ class YandexGPTProvider:
         else:
             if not self.folder_id:
                 raise RewriteFailed("YANDEX_FOLDER_ID не задан")
-            self.model_uri = build_yandex_model_uri(self.model, folder_id=self.folder_id, scheme="gpt")
+            self.model_uri = build_yandex_model_uri(
+                self.model,
+                folder_id=self.folder_id,
+                scheme="gpt",
+            )
 
     def run(self, *, messages: Sequence[dict[str, str]]) -> ProviderResponse:
+        """Выполняет запрос к YandexGPT API."""
         import urllib.error
         import urllib.request
 
@@ -544,6 +575,7 @@ def default_rewriter(*, project: Project | None = None) -> StoryRewriter:
 
 
 def _png_chunk(tag: bytes, data: bytes) -> bytes:
+    """Создает PNG-чанк."""
     return (
         struct.pack("!I", len(data))
         + tag
@@ -553,6 +585,7 @@ def _png_chunk(tag: bytes, data: bytes) -> bytes:
 
 
 def _placeholder_image_bytes(prompt: str) -> bytes:
+    """Генерирует байты изображения-заглушки."""
     width = height = 320
     digest = hashlib.sha256(prompt.encode("utf-8", "ignore")).digest()
     color = digest[0], digest[8], digest[16]
@@ -588,8 +621,12 @@ class OpenAIImageProvider:
             "OPENAI_IMAGE_URL", "https://api.openai.com/v1/images/generations"
         )
         self.model = model or os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
-        self.size = normalize_image_size(size or os.getenv("OPENAI_IMAGE_SIZE", IMAGE_DEFAULT_SIZE))
-        self.quality = normalize_image_quality(quality or os.getenv("OPENAI_IMAGE_QUALITY", IMAGE_DEFAULT_QUALITY))
+        self.size = normalize_image_size(
+            size or os.getenv("OPENAI_IMAGE_SIZE", IMAGE_DEFAULT_SIZE)
+        )
+        self.quality = normalize_image_quality(
+            quality or os.getenv("OPENAI_IMAGE_QUALITY", IMAGE_DEFAULT_QUALITY)
+        )
         if response_format is None:
             response_format = os.getenv("OPENAI_IMAGE_RESPONSE_FORMAT", "b64_json")
         self.response_format = (response_format or "").strip()
@@ -604,6 +641,7 @@ class OpenAIImageProvider:
         quality: str | None = None,
         _allow_without_format: bool = False,
     ) -> GeneratedImage:
+        """Генерирует изображение."""
         prompt = prompt.strip()
         if not prompt:
             raise ImageGenerationFailed("Описание не может быть пустым")
@@ -650,12 +688,14 @@ class OpenAIImageProvider:
             raise ImageGenerationFailed(f"OpenAI HTTP {exc.code}: {message}") from exc
         except (socket.timeout, TimeoutError) as exc:  # pragma: no cover - сетевой таймаут
             raise ImageGenerationFailed(
-                "OpenAI не ответил вовремя. Повторите попытку через пару секунд — генерация иногда занимает дольше."
+                "OpenAI не ответил вовремя. Повторите попытку через пару секунд — "
+                "генерация иногда занимает дольше."
             ) from exc
         except urllib.error.URLError as exc:  # pragma: no cover
             if isinstance(getattr(exc, "reason", None), socket.timeout):
                 raise ImageGenerationFailed(
-                    "OpenAI не ответил вовремя. Повторите попытку через пару секунд — генерация иногда занимает дольше."
+                    "OpenAI не ответил вовремя. Повторите попытку через пару секунд — "
+                    "генерация иногда занимает дольше."
                 ) from exc
             raise ImageGenerationFailed(str(exc)) from exc
         except OSError as exc:  # pragma: no cover
@@ -712,6 +752,8 @@ class YandexArtProvider:
             raise ImageGenerationFailed("YANDEX_FOLDER_ID не задан")
 
     def _aspect_ratio(self, size: str) -> str:
+        """Возвращает соотношение сторон для указанного размера."""
+        """Возвращает соотношение сторон для указанного размера."""
         mapping = {
             "1024x1024": "1:1",
             "1024x1536": "2:3",
@@ -728,6 +770,7 @@ class YandexArtProvider:
         size: str | None = None,
         quality: str | None = None,
     ) -> GeneratedImage:
+        """Генерирует изображение."""
         import urllib.error
         import urllib.request
 
@@ -793,14 +836,20 @@ class YandexArtProvider:
                 if not results:
                     raise ImageGenerationFailed("YandexART не вернул изображение")
                 image_info = results[0].get("image") or results[0]
-                encoded = image_info.get("imageBase64") or image_info.get("base64") or image_info.get("data")
+                encoded = (
+                    image_info.get("imageBase64")
+                    or image_info.get("base64")
+                    or image_info.get("data")
+                )
                 if not encoded:
                     raise ImageGenerationFailed("Некорректный ответ YandexART")
                 mime_type = image_info.get("mimeType", "image/png") or "image/png"
                 try:
                     image_bytes = base64.b64decode(encoded, validate=True)
                 except (binascii.Error, ValueError) as exc:
-                    raise ImageGenerationFailed("Некорректные данные изображения от YandexART") from exc
+                    raise ImageGenerationFailed(
+                        "Некорректные данные изображения от YandexART"
+                    ) from exc
                 if not image_bytes:
                     raise ImageGenerationFailed("Пустой ответ от YandexART")
                 return GeneratedImage(data=image_bytes, mime_type=mime_type)
@@ -822,6 +871,7 @@ class StoryImageGenerator:
         size: str | None = None,
         quality: str | None = None,
     ) -> GeneratedImage:
+        """Генерирует изображение."""
         return self.provider.generate(
             prompt=prompt,
             model=model,
@@ -881,6 +931,7 @@ class StoryPublisher:
         target: str,
         scheduled_for=None,
     ) -> Publication:
+        """Публикует сюжет."""
         if not target:
             raise PublicationFailed("Не указан канал публикации")
         if story.status not in {Story.Status.READY, Story.Status.PUBLISHED}:
@@ -923,6 +974,7 @@ class StoryPublisher:
             return self.deliver(publication)
 
     def deliver(self, publication: Publication) -> Publication:
+        """Выполняет отправку публикации, если она ещё не выполнена."""
         """Выполняет отправку публикации, если она ещё не выполнена."""
 
         story = publication.story
@@ -976,6 +1028,7 @@ class TelethonPublisherBackend:
         self.user = user
 
     async def _send_async(self, *, story: Story, text: str, target: str) -> PublishResult:
+        """Асинхронно отправляет сообщение."""
         factory = TelethonClientFactory(user=self.user)
         async with factory.connect() as client:
             message = await client.send_message(target, text)
@@ -987,6 +1040,7 @@ class TelethonPublisherBackend:
             return PublishResult(message_ids=[message_id], published_at=published_at, raw=raw)
 
     def send(self, *, story: Story, text: str, target: str) -> PublishResult:
+        """Отправляет сообщение синхронно."""
         return asyncio.run(self._send_async(story=story, text=text, target=target))
 
 
