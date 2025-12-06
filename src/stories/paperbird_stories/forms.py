@@ -166,8 +166,16 @@ class StoryContentForm(forms.ModelForm):
         model = Story
         fields = ["title", "body"]
         widgets = {
-            "title": forms.TextInput(attrs={"class": "form-control", "placeholder": "Заголовок сюжета"}),
-            "body": forms.Textarea(attrs={"class": "form-control", "rows": 12, "placeholder": "Переписанный текст"}),
+            "title": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "Заголовок сюжета"}
+            ),
+            "body": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 12,
+                    "placeholder": "Переписанный текст",
+                }
+            ),
         }
         labels = {
             "title": "Заголовок",
@@ -192,7 +200,10 @@ class StoryImageGenerateForm(forms.Form):
         label="Размер",
         choices=IMAGE_SIZE_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
-        help_text="Выберите один из поддерживаемых размеров 1024px или auto для автоматического выбора.",
+        help_text=(
+            "Выберите один из поддерживаемых размеров 1024px или auto для "
+            "автоматического выбора."
+        ),
     )
     quality = forms.ChoiceField(
         label="Качество",
@@ -202,6 +213,10 @@ class StoryImageGenerateForm(forms.Form):
 
     def clean_prompt(self):
         """Проверяет, что промпт не пуст."""
+        prompt = self.cleaned_data["prompt"].strip()
+        if not prompt:
+            raise forms.ValidationError("Описание не может быть пустым")
+        return prompt
 
 
 class StoryImageAttachForm(forms.Form):
@@ -264,7 +279,10 @@ class PublicationManageForm(forms.ModelForm):
         widget=forms.DateTimeInput(
             attrs={"type": "datetime-local", "class": "form-control"}
         ),
-        help_text="Укажите время, если хотите отложить публикацию. Оставьте пустым для немедленного запуска.",
+        help_text=(
+            "Укажите время, если хотите отложить публикацию. Оставьте пустым для "
+            "немедленного запуска."
+        ),
     )
     published_at = forms.DateTimeField(
         label="Опубликовано",

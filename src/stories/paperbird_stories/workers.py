@@ -13,7 +13,6 @@ from stories.paperbird_stories.services import (
     default_publisher_for_story,
 )
 
-
 logger = event_logger("stories.publish_worker")
 
 

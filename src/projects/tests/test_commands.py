@@ -1,10 +1,12 @@
+from unittest.mock import patch
+
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
-from unittest.mock import patch
+
+from projects.services.telethon_client import TelethonCredentialsMissingError
 
 from . import User
-from projects.services.telethon_client import TelethonCredentialsMissingError
 
 
 class CollectPostsCommandTests(TestCase):
@@ -68,13 +70,22 @@ class CollectPostsCommandTests(TestCase):
         )
 
     def test_username_required_without_flag(self) -> None:
-        with self.assertRaisesMessage(CommandError, "Укажите username или используйте флаг --all-users."):
+        with self.assertRaisesMessage(
+            CommandError,
+            "Укажите username или используйте флаг --all-users.",
+        ):
             call_command("collect_posts")
 
     def test_all_users_conflicts_with_username(self) -> None:
-        with self.assertRaisesMessage(CommandError, "Нельзя указывать username вместе с флагом --all-users."):
+        with self.assertRaisesMessage(
+            CommandError,
+            "Нельзя указывать username вместе с флагом --all-users.",
+        ):
             call_command("collect_posts", self.user.username, "--all-users")
 
     def test_all_users_conflicts_with_project(self) -> None:
-        with self.assertRaisesMessage(CommandError, "Флаг --project несовместим с режимом --all-users."):
+        with self.assertRaisesMessage(
+            CommandError,
+            "Флаг --project несовместим с режимом --all-users.",
+        ):
             call_command("collect_posts", "--all-users", "--project", "1")

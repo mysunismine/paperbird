@@ -230,7 +230,10 @@ class Source(models.Model):
         "Максимум попыток веб-задачи",
         null=True,
         blank=True,
-        help_text="Переопределяет стандартное ограничение очереди (оставьте пустым, чтобы использовать дефолт).",
+        help_text=(
+            "Переопределяет стандартное ограничение очереди (оставьте пустым, чтобы "
+            "использовать дефолт)."
+        ),
     )
     web_retry_base_delay = models.PositiveIntegerField(
         "Базовая задержка ретрая (сек)",
@@ -284,7 +287,9 @@ class Source(models.Model):
         ordering = ("project", "title")
 
     def __str__(self) -> str:
-        return self.title or self.username or (str(self.telegram_id) if self.telegram_id else "Источник")
+        return self.title or self.username or (
+            str(self.telegram_id) if self.telegram_id else "Источник"
+        )
 
     def _normalize_keywords(self, values: Iterable[str]) -> list[str]:
         return sorted({value.strip().lower() for value in values if value and value.strip()})
@@ -659,7 +664,7 @@ class Post(models.Model):
         raw_data: dict,
         posted_at,
         images: list[str] | None = None,
-    ) -> tuple["Post", bool]:
+    ) -> tuple[Post, bool]:
         """Создаёт или обновляет пост, полученный с веб-сайта."""
 
         normalized_canonical = canonical_url or ""

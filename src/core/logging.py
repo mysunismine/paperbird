@@ -48,7 +48,9 @@ def bind_context(**values: Any) -> None:
 def logging_context(**values: Any) -> Iterator[None]:
     """Временная привязка значений к контексту логирования."""
 
-    previous = LOG_CONTEXT.set({**_current_context(), **{k: v for k, v in values.items() if v is not None}})
+    previous = LOG_CONTEXT.set(
+        {**_current_context(), **{k: v for k, v in values.items() if v is not None}}
+    )
     try:
         yield
     finally:
@@ -112,7 +114,9 @@ class EventLogger:
 
     def _log(self, level: int, event: str, fields: dict[str, Any]) -> None:
         context = _current_context()
-        payload: dict[str, Any] = {key: value for key, value in context.items() if value is not None}
+        payload: dict[str, Any] = {
+            key: value for key, value in context.items() if value is not None
+        }
         payload.update({key: value for key, value in fields.items() if value is not None})
         payload["event"] = event
         if "correlation_id" not in payload:

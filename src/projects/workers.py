@@ -22,7 +22,6 @@ from projects.services.telethon_client import (
 from projects.services.web_collector import WebCollector
 from projects.services.web_preset_registry import PresetValidationError
 
-
 _is_registered = False
 logger = event_logger("projects.collector_web")
 
@@ -76,7 +75,11 @@ def refresh_source_metadata_task(task: WorkerTask) -> dict[str, Any]:
     payload = task.payload or {}
     source_id = payload.get("source_id")
     if not source_id:
-        raise TaskExecutionError("Payload must contain source_id", code="INVALID_PAYLOAD", retry=False)
+        raise TaskExecutionError(
+            "Payload must contain source_id",
+            code="INVALID_PAYLOAD",
+            retry=False,
+        )
 
     try:
         source = Source.objects.select_related("project__owner").get(pk=source_id)
@@ -234,7 +237,11 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
     sources = list(sources_qs)
 
     if source_id and not sources:
-        raise TaskExecutionError("Источник не найден или отключён", code="SOURCE_MISSING", retry=False)
+        raise TaskExecutionError(
+            "Источник не найден или отключён",
+            code="SOURCE_MISSING",
+            retry=False,
+        )
 
     if not source_id:
         if not sources:

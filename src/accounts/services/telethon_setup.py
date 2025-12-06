@@ -131,7 +131,7 @@ async def _complete_login_async(
             if not password:
                 raise TelethonPasswordRequiredError(
                     "Для входа необходим пароль двухфакторной аутентификации."
-                )
+                ) from None
             await client.sign_in(password=password)
         new_session = client.session.save()
         return new_session

@@ -5,12 +5,13 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
-from . import User
 from core.models import WorkerTask
 from projects.models import Post, Project, Source
 from projects.services.retention import purge_expired_posts, schedule_retention_cleanup
 from projects.workers import retention_cleanup_task
 from stories.paperbird_stories.services import StoryFactory
+
+from . import User
 
 
 class RetentionServiceTests(TestCase):

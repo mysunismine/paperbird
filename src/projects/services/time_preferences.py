@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-import re
 
 from django.utils import timezone
 
-UTC_PATTERN = re.compile(r"^UTC(?P<sign>[+-])(?P<hours>\d{1,2})(?::?(?P<minutes>\d{2}))?$", re.IGNORECASE)
+UTC_PATTERN = re.compile(
+    r"^UTC(?P<sign>[+-])(?P<hours>\d{1,2})(?::?(?P<minutes>\d{2}))?$",
+    re.IGNORECASE,
+)
 
 
 def _parse_fixed_offset(label: str):

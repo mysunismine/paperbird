@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from django import forms
 from zoneinfo import available_timezones
+
+from django import forms
 
 from core.constants import (
     IMAGE_MODEL_CHOICES,
@@ -27,7 +28,10 @@ class ProjectCreateForm(forms.ModelForm):
         label="Модель рерайта",
         choices=REWRITE_MODEL_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
-        help_text="Определяет, какая модель GPT будет использоваться для переписывания текста сюжетов.",
+        help_text=(
+            "Определяет, какая модель GPT будет использоваться для переписывания текста "
+            "сюжетов."
+        ),
     )
     image_model = forms.ChoiceField(
         label="Модель генерации изображений",
@@ -39,13 +43,19 @@ class ProjectCreateForm(forms.ModelForm):
         label="Размер изображения",
         choices=IMAGE_SIZE_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
-        help_text="Поддерживаются 1024x1024 и вертикальные/горизонтальные 1024×1536/1536×1024; auto доверяет выбору модели.",
+        help_text=(
+            "Поддерживаются 1024x1024 и вертикальные/горизонтальные 1024×1536/1536×1024; "
+            "auto доверяет выбору модели."
+        ),
     )
     image_quality = forms.ChoiceField(
         label="Качество",
         choices=IMAGE_QUALITY_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
-        help_text="Низкое экономит токены, высокое даёт больше деталей; auto доверяет выбору модели.",
+        help_text=(
+            "Низкое экономит токены, высокое даёт больше деталей; auto доверяет выбору "
+            "модели."
+        ),
     )
     time_zone = forms.CharField(
         label="Часовой пояс",
@@ -83,7 +93,9 @@ class ProjectCreateForm(forms.ModelForm):
                 attrs={
                     "class": "form-control",
                     "rows": 3,
-                    "placeholder": "Опишите задачи проекта, чтобы коллегам было проще ориентироваться",
+                    "placeholder": (
+                        "Опишите задачи проекта, чтобы коллегам было проще ориентироваться"
+                    ),
                 }
             ),
             "publish_target": forms.TextInput(
@@ -247,7 +259,12 @@ class SourceBaseForm(forms.ModelForm):
         ]
         widgets = {
             "type": forms.Select(attrs={"class": "form-select"}),
-            "title": forms.TextInput(attrs={"class": "form-control", "placeholder": "Название (заполнится автоматически)"}),
+            "title": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "Название (заполнится автоматически)",
+                }
+            ),
             "telegram_id": forms.NumberInput(
                 attrs={"class": "form-control", "placeholder": "ID канала (опционально)"}
             ),
@@ -260,10 +277,18 @@ class SourceBaseForm(forms.ModelForm):
             "web_preset": forms.Select(attrs={"class": "form-select"}),
             "deduplicate_text": forms.CheckboxInput(attrs={"class": "form-check-input"}),
             "deduplicate_media": forms.CheckboxInput(attrs={"class": "form-check-input"}),
-            "retention_days": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
-            "web_retry_max_attempts": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
-            "web_retry_base_delay": forms.NumberInput(attrs={"class": "form-control", "min": 5, "step": 5}),
-            "web_retry_max_delay": forms.NumberInput(attrs={"class": "form-control", "min": 5, "step": 5}),
+            "retention_days": forms.NumberInput(
+                attrs={"class": "form-control", "min": 1, "step": 1}
+            ),
+            "web_retry_max_attempts": forms.NumberInput(
+                attrs={"class": "form-control", "min": 1, "step": 1}
+            ),
+            "web_retry_base_delay": forms.NumberInput(
+                attrs={"class": "form-control", "min": 5, "step": 5}
+            ),
+            "web_retry_max_delay": forms.NumberInput(
+                attrs={"class": "form-control", "min": 5, "step": 5}
+            ),
         }
         labels = {
             "type": "Тип источника",
@@ -344,7 +369,11 @@ class SourceBaseForm(forms.ModelForm):
 
         if not username and raw_username:
             lower = raw_username.lower()
-            if lower.startswith("https://t.me/+") or lower.startswith("http://t.me/+") or "joinchat" in lower:
+            if (
+                lower.startswith("https://t.me/+")
+                or lower.startswith("http://t.me/+")
+                or "joinchat" in lower
+            ):
                 cleaned["invite_link"] = raw_username
                 invite = raw_username
 
@@ -365,7 +394,7 @@ class SourceBaseForm(forms.ModelForm):
                     preset = self._get_registry().import_payload(payload)
                 except PresetValidationError as exc:
                     self.add_error("preset_payload", str(exc))
-                    raise forms.ValidationError("Пресет не прошёл валидацию.")
+                    raise forms.ValidationError("Пресет не прошёл валидацию.") from exc
             if not preset:
                 raise forms.ValidationError("Выберите пресет или импортируйте JSON-файл.")
             cleaned["web_preset"] = preset
@@ -461,6 +490,10 @@ class ProjectPromptConfigForm(forms.ModelForm):
         }
         help_texts = {
             "system_role": "Например: «Ты — редактор ... {{PROJECT_NAME}}».",
-            "documents_intro": "Вставьте {{POSTS}}, чтобы книга новостей появилась на месте шаблона.",
-            "editor_comment_note": "Используйте {{EDITOR_COMMENT}}, чтобы подставить текст редактора.",
+            "documents_intro": (
+                "Вставьте {{POSTS}}, чтобы книга новостей появилась на месте шаблона."
+            ),
+            "editor_comment_note": (
+                "Используйте {{EDITOR_COMMENT}}, чтобы подставить текст редактора."
+            ),
         }

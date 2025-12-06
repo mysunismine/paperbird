@@ -1,6 +1,5 @@
 from django.db import migrations, models
 
-
 NEW_SIZE_CHOICES = [
     ("512x512", "512x512"),
     ("256x256", "256x256"),

@@ -1,14 +1,15 @@
+import re
 from datetime import timedelta
 from http import HTTPStatus
-import re
 
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from . import User
-from projects.models import Post, Project, Source
 from core.models import WorkerTask
+from projects.models import Post, Project, Source
+
+from . import User
 
 
 class ProjectPostListViewTests(TestCase):
@@ -18,7 +19,11 @@ class ProjectPostListViewTests(TestCase):
         self.project = Project.objects.create(owner=self.user, name="Новости")
         self.other_project = Project.objects.create(owner=self.user, name="Архив")
         self.source = Source.objects.create(project=self.project, telegram_id=1, title="Tech")
-        self.web_source = Source.objects.create(project=self.project, type=Source.Type.WEB, title="Site")
+        self.web_source = Source.objects.create(
+            project=self.project,
+            type=Source.Type.WEB,
+            title="Site",
+        )
         Source.objects.create(project=self.other_project, telegram_id=2, title="Other")
         now = timezone.now()
         Post.objects.create(

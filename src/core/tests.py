@@ -14,9 +14,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.constants import REWRITE_MAX_ATTEMPTS
-from core.models import WorkerTask
 from core.logging import event_logger, logging_context
 from core.middleware import RequestContextMiddleware
+from core.models import WorkerTask
 from core.services.worker import TaskExecutionError, WorkerRunner, enqueue_task
 from projects.models import Post, Project, Source
 
@@ -255,7 +255,10 @@ class ServerErrorViewTests(TestCase):
         response = self.client.get("/boom/")
         self.assertEqual(response.status_code, 500)
         self.assertContains(response, "Упс! Что-то пошло не так", status_code=500)
-        match = re.search(r"Идентификатор ошибки: <code>([a-f0-9]+)</code>", response.content.decode())
+        match = re.search(
+            r"Идентификатор ошибки: <code>([a-f0-9]+)</code>",
+            response.content.decode(),
+        )
         self.assertIsNotNone(match)
         correlation_id = match.group(1)
         self.assertEqual(response["X-Correlation-ID"], correlation_id)

@@ -1,8 +1,9 @@
 from django.test import TestCase
 from django.utils import timezone
 
-from . import User
 from projects.models import Post, Project, Source
+
+from . import User
 
 
 class PostDisplayMessageTests(TestCase):

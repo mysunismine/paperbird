@@ -1,10 +1,8 @@
-from datetime import datetime, timedelta, timezone as dt_timezone
-
-from django.test import TestCase
-from django.utils import timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
-from . import User
+from django.test import TestCase
+
 from core.constants import (
     IMAGE_DEFAULT_MODEL,
     IMAGE_DEFAULT_QUALITY,
@@ -15,6 +13,8 @@ from projects.forms import ProjectCreateForm
 from projects.models import Project
 from projects.services.prompt_config import render_prompt
 from projects.services.time_preferences import build_project_datetime_context
+
+from . import User
 
 
 class ProjectTimePreferenceFormTests(TestCase):
@@ -60,7 +60,7 @@ class ProjectTimePreferenceUtilsTests(TestCase):
             locale="ru_RU",
             time_zone="UTC+02:30",
         )
-        fixed_now = datetime(2024, 1, 1, 10, 0, tzinfo=dt_timezone.utc)
+        fixed_now = datetime(2024, 1, 1, 10, 0, tzinfo=UTC)
         with patch("projects.services.time_preferences.timezone.now", return_value=fixed_now):
             context = build_project_datetime_context(project)
         self.assertEqual(context["formatted"], "01.01.2024 12:30")

@@ -3,7 +3,6 @@ from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
 
-from . import User
 from projects.models import Post, Project, Source
 from projects.services.post_filters import (
     PostFilterOptions,
@@ -11,6 +10,8 @@ from projects.services.post_filters import (
     collect_keyword_hits,
     summarize_keyword_hits,
 )
+
+from . import User
 
 
 class PostFilterServiceTests(TestCase):

@@ -1,5 +1,7 @@
 """Общие помощники для тестов приложения projects."""
 
+import importlib.util
+
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -32,16 +34,5 @@ def make_preset_payload(name: str = "web_example") -> dict:
     }
 
 
-try:  # pragma: no cover - опциональная зависимость
-    import bs4  # type: ignore
-
-    HAS_BS4 = True
-except ModuleNotFoundError:  # pragma: no cover
-    HAS_BS4 = False
-
-try:  # pragma: no cover - опциональная зависимость
-    import jsonschema  # type: ignore
-
-    HAS_JSONSCHEMA = True
-except ModuleNotFoundError:  # pragma: no cover
-    HAS_JSONSCHEMA = False
+HAS_BS4 = importlib.util.find_spec("bs4") is not None  # pragma: no cover
+HAS_JSONSCHEMA = importlib.util.find_spec("jsonschema") is not None  # pragma: no cover

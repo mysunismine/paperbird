@@ -3,13 +3,14 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
-from . import User
 from projects.models import Project, Source
 from projects.services.telethon_client import (
     TelethonClientFactory,
     TelethonCredentialsMissingError,
 )
 from projects.workers import refresh_source_metadata_task
+
+from . import User
 
 
 class SourceMetadataWorkerTests(TestCase):

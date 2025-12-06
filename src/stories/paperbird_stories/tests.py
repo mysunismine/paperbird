@@ -10,8 +10,8 @@ import shutil
 import tempfile
 from datetime import datetime, timedelta
 from http import HTTPStatus
-from urllib.error import HTTPError
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -21,9 +21,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.constants import IMAGE_DEFAULT_QUALITY, OPENAI_DEFAULT_TEMPERATURE
-from projects.models import Post, Project, Source
 from core.models import WorkerTask
 from core.services.worker import TaskExecutionError
+from projects.models import Post, Project, Source
 from stories.paperbird_stories.forms import (
     StoryImageAttachForm,
     StoryImageGenerateForm,
@@ -38,6 +38,8 @@ from stories.paperbird_stories.models import (
 )
 from stories.paperbird_stories.services import (
     GeneratedImage,
+    OpenAIChatProvider,
+    OpenAIImageProvider,
     ProviderResponse,
     PublicationFailed,
     PublishResult,
@@ -46,15 +48,13 @@ from stories.paperbird_stories.services import (
     StoryFactory,
     StoryPublisher,
     StoryRewriter,
-    default_image_generator,
-    default_rewriter,
-    _strip_code_fence,
-    _openai_temperature_for_model,
-    build_prompt,
-    OpenAIChatProvider,
-    OpenAIImageProvider,
     YandexArtProvider,
     YandexGPTProvider,
+    _openai_temperature_for_model,
+    _strip_code_fence,
+    build_prompt,
+    default_image_generator,
+    default_rewriter,
 )
 from stories.paperbird_stories.workers import publish_story_task
 
@@ -226,7 +226,10 @@ class StoryRewriterTests(TestCase):
         self.assertEqual(story.summary, "")
         self.assertEqual(story.hashtags, [])
         self.assertEqual(story.sources, [])
-        self.assertEqual(story.last_rewrite_payload["structured"]["text"], "Первый абзац\n\nВторой абзац")
+        self.assertEqual(
+            story.last_rewrite_payload["structured"]["text"],
+            "Первый абзац\n\nВторой абзац",
+        )
 
     def test_rewrite_with_preset_applies_configuration(self) -> None:
         preset = RewritePreset.objects.create(
@@ -283,7 +286,10 @@ class StoryPromptPreviewTests(TestCase):
             message="Контент поста",
             posted_at=timezone.now(),
         )
-        self.story = StoryFactory(project=self.project).create(post_ids=[self.post.id], title="Предпросмотр")
+        self.story = StoryFactory(project=self.project).create(
+            post_ids=[self.post.id],
+            title="Предпросмотр",
+        )
         self.client.login(username="viewer", password="pass")
 
     def test_preview_displays_prompt_form(self) -> None:
@@ -694,10 +700,9 @@ class StoryImageViewTests(TestCase):
             self.assertTrue(self.story.image_file)
             stored_path = os.path.join(media_root, self.story.image_file.name)
             self.assertTrue(os.path.exists(stored_path))
-            with open(stored_path, "rb") as saved:
-                self.assertEqual(saved.read(), b"original-image")
-            self.assertIn("Оригинальное изображение", self.story.image_prompt)
-
+        with open(stored_path, "rb") as saved:
+            self.assertEqual(saved.read(), b"original-image")
+        self.assertIn("Оригинальное изображение", self.story.image_prompt)
 
     def test_remove_action_deletes_file(self) -> None:
         media_root = tempfile.mkdtemp()
@@ -719,11 +724,14 @@ class StoryImageViewTests(TestCase):
             self.assertFalse(self.story.image_file)
             self.assertFalse(os.path.exists(stored_path))
 
-
-class YandexProviderRoutingTests(TestCase):
-    def setUp(self) -> None:
-        self.user = User.objects.create_user("y-ops", password="pass")
-        self.project = Project.objects.create(owner=self.user, name="Yandex", rewrite_model="yandexgpt-lite")
+    class YandexProviderRoutingTests(TestCase):
+        def setUp(self) -> None:
+            self.user = User.objects.create_user("y-ops", password="pass")
+            self.project = Project.objects.create(
+                owner=self.user,
+                name="Yandex",
+                rewrite_model="yandexgpt-lite",
+            )
 
     @override_settings(YANDEX_API_KEY="key", YANDEX_FOLDER_ID="folder")
     def test_default_rewriter_uses_yandex_provider(self) -> None:
@@ -1215,7 +1223,7 @@ class PublicationListManageTests(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
 
     def test_published_link_uses_project_target(self) -> None:
-        publication = self._create_publication(
+        self._create_publication(
             status=Publication.Status.PUBLISHED,
             message_ids=[101],
             published_at=timezone.now(),
@@ -1223,6 +1231,7 @@ class PublicationListManageTests(TestCase):
         response = self.client.get(reverse("stories:publications"))
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertContains(response, "https://t.me/mainchannel/101")
+
 
 class PublishWorkerTests(TestCase):
     def setUp(self) -> None:
@@ -1309,11 +1318,14 @@ class OpenAIImageProviderTests(SimpleTestCase):
             def __exit__(self, exc_type, exc, tb):
                 return False
 
-            def read(self) -> bytes:
-                return self._payload.encode("utf-8")
+        def read(self) -> bytes:
+            return self._payload.encode("utf-8")
 
         error_stream = io.BytesIO(
-            b'{"error":{"message":"Unknown parameter: \\"response_format\\"","code":"unknown_parameter"}}'
+            (
+                b'{"error":{"message":"Unknown parameter: \\"response_format\\",'
+                b'"code":"unknown_parameter"}}'
+            )
         )
 
         def fake_urlopen(request, timeout=30):

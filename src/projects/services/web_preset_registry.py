@@ -42,7 +42,9 @@ class WebPresetValidator:
     def __init__(self) -> None:
         schema = load_web_preset_schema()
         if Draft202012Validator is None:  # pragma: no cover - defensive
-            raise RuntimeError("jsonschema не установлен. Выполните `pip install -r requirements.txt`.")
+            raise RuntimeError(
+                "jsonschema не установлен. Выполните `pip install -r requirements.txt`."
+            )
         self._validator = Draft202012Validator(schema)
 
     def validate(self, payload: dict[str, Any]) -> PresetMetadata:
@@ -88,7 +90,11 @@ class WebPresetRegistry:
             "description": data.get("description", ""),
         }
         status = WebPreset.Status.ACTIVE if activate else WebPreset.Status.DRAFT
-        existing = WebPreset.objects.filter(name=meta.name, version=meta.version).only("checksum").first()
+        existing = (
+            WebPreset.objects.filter(name=meta.name, version=meta.version)
+            .only("checksum")
+            .first()
+        )
         preset, created = WebPreset.objects.update_or_create(
             name=meta.name,
             version=meta.version,

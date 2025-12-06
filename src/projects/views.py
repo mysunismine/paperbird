@@ -25,6 +25,11 @@ from django.views.generic import (
 from core.models import WorkerTask
 from core.services.worker import enqueue_task
 from projects.models import Post, Project, Source, WebPreset
+from projects.services.post_filters import (
+    PostFilterOptions,
+    apply_post_filters,
+    collect_keyword_hits,
+)
 from projects.services.prompt_config import (
     PROMPT_SECTION_HINTS,
     PROMPT_SECTION_ORDER,
@@ -32,11 +37,7 @@ from projects.services.prompt_config import (
     render_prompt,
     tokens_help,
 )
-from projects.services.post_filters import (
-    PostFilterOptions,
-    apply_post_filters,
-    collect_keyword_hits,
-)
+
 from .forms import (
     ProjectCreateForm,
     ProjectPromptConfigForm,
@@ -511,7 +512,10 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
             {
                 "project": self.project,
                 "sources": self.project.sources.order_by("type", "title", "telegram_id"),
-                "create_url": reverse_lazy("projects:source-create", kwargs={"project_pk": self.project.pk}),
+                "create_url": reverse_lazy(
+                    "projects:source-create",
+                    kwargs={"project_pk": self.project.pk},
+                ),
             }
         )
         return context
@@ -715,4 +719,3 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
             }
         )
         return context
-

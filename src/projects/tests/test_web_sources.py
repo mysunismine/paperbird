@@ -7,13 +7,14 @@ from unittest.mock import patch
 from django.test import TestCase
 from django.utils import timezone
 
-from . import HAS_BS4, HAS_JSONSCHEMA, User, make_preset_payload
 from core.models import WorkerTask
 from projects.forms import SourceCreateForm
 from projects.models import Post, Project, Source, WebPreset
 from projects.services.web_collector import WebCollector, parse_datetime
 from projects.services.web_preset_registry import PresetValidationError, WebPresetRegistry
 from projects.workers import collect_project_web_sources_task
+
+from . import HAS_BS4, HAS_JSONSCHEMA, User, make_preset_payload
 
 
 @skipUnless(HAS_JSONSCHEMA, "jsonschema не установлена")

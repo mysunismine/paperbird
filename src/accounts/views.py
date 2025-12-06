@@ -2,7 +2,12 @@
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.contrib.auth.views import LoginView, LogoutView, PasswordChangeDoneView, PasswordChangeView
+from django.contrib.auth.views import (
+    LoginView,
+    LogoutView,
+    PasswordChangeDoneView,
+    PasswordChangeView,
+)
 from django.shortcuts import redirect
 from django.urls import reverse, reverse_lazy
 from django.views.generic import FormView, TemplateView
@@ -18,7 +23,6 @@ from accounts.services.telethon_setup import (
     complete_login,
     request_login_code,
 )
-
 
 TELETHON_SETUP_SESSION_KEY = "telethon_session_setup"
 

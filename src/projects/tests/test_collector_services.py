@@ -8,11 +8,12 @@ from unittest.mock import AsyncMock, patch
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
-from . import User
 from core.models import WorkerTask
 from projects.models import Post, Project, Source
 from projects.services.collector import PostCollector, _normalize_raw
 from projects.workers import collect_project_posts_task
+
+from . import User
 
 
 class CollectorSanitizationTests(TestCase):

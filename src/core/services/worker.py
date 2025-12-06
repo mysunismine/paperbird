@@ -1,4 +1,4 @@
-"""Вспомогательные утилиты для очереди задач: постановка задач, запуск воркеров и обработка ошибок."""
+"""Утилиты очереди задач: постановка задач, запуск воркеров и обработка ошибок."""
 
 from __future__ import annotations
 
@@ -11,13 +11,13 @@ from typing import Any, Protocol
 
 from django.utils import timezone
 
-from core.models import WorkerTask, queue_settings
 from core.logging import (
     current_correlation_id,
     event_logger,
     generate_correlation_id,
     logging_context,
 )
+from core.models import WorkerTask, queue_settings
 
 logger = event_logger("core.worker")
 

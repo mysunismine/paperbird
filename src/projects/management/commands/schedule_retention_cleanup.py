@@ -49,7 +49,9 @@ class Command(BaseCommand):
             when = task.available_at.isoformat()
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Очистка запланирована: task#{task.pk} для проекта {task.payload['project_id']} (доступна с {when})"
+                    "Очистка запланирована: "
+                    f"task#{task.pk} для проекта {task.payload['project_id']} "
+                    f"(доступна с {when})"
                 )
             )
 

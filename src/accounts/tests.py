@@ -40,7 +40,9 @@ class TelethonEventLoopPolicyTests(TestCase):
                 "accounts.services.telethon_setup.asyncio.get_event_loop_policy",
                 return_value=object(),
             ),
-            patch("accounts.services.telethon_setup.asyncio.set_event_loop_policy") as mock_set_policy,
+            patch(
+                "accounts.services.telethon_setup.asyncio.set_event_loop_policy"
+            ) as mock_set_policy,
         ):
             telethon_setup._ensure_windows_event_loop_policy()
             mock_set_policy.assert_called_once()
@@ -66,7 +68,9 @@ class TelethonEventLoopPolicyTests(TestCase):
                 "accounts.services.telethon_setup.asyncio.get_event_loop_policy",
                 return_value=selector_instance,
             ),
-            patch("accounts.services.telethon_setup.asyncio.set_event_loop_policy") as mock_set_policy,
+            patch(
+                "accounts.services.telethon_setup.asyncio.set_event_loop_policy"
+            ) as mock_set_policy,
         ):
             telethon_setup._ensure_windows_event_loop_policy()
             mock_set_policy.assert_not_called()
@@ -221,7 +225,10 @@ class UserProfileFormTests(TestCase):
             instance=self.user,
         )
         self.assertFalse(form.is_valid())
-        self.assertIn("Для сохранения сессии заполните Telethon API ID и API hash.", form.errors["__all__"])
+        self.assertIn(
+            "Для сохранения сессии заполните Telethon API ID и API hash.",
+            form.errors["__all__"],
+        )
 
 
 class TelethonSessionSetupViewTests(TestCase):

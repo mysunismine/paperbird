@@ -4,19 +4,20 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
+from django.template.response import TemplateResponse
 from django.urls import reverse
+from django.utils import timezone
 from django.views import View
 from django.views.generic import DetailView, ListView, TemplateView
-from django.template.response import TemplateResponse
-from django.utils import timezone
 
 from projects.models import Post, Project
 from projects.services.telethon_client import TelethonCredentialsMissingError

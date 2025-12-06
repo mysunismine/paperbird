@@ -6,7 +6,6 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from . import User, make_preset_payload
 from core.constants import (
     IMAGE_DEFAULT_MODEL,
     IMAGE_DEFAULT_QUALITY,
@@ -18,10 +17,11 @@ from core.constants import (
     REWRITE_MODEL_CHOICES,
 )
 from core.models import WorkerTask
-from projects.forms import SourceCreateForm
-from projects.models import Post, Project, ProjectPromptConfig, Source, WebPreset
+from projects.models import Post, Project, ProjectPromptConfig, Source
 from projects.services.prompt_config import ensure_prompt_config
 from stories.paperbird_stories.services import StoryFactory
+
+from . import User, make_preset_payload
 
 
 class ProjectListViewTests(TestCase):
@@ -230,7 +230,9 @@ class ProjectPromptsViewTests(TestCase):
         url = reverse("projects:prompts", args=[self.project.id])
         response = self.client.post(
             url,
-            data=self._form_payload({"system_role": "Ты — редактор {{PROJECT_NAME}} и ведёшь канал."}),
+            data=self._form_payload(
+                {"system_role": "Ты — редактор {{PROJECT_NAME}} и ведёшь канал."}
+            ),
             follow=True,
         )
         self.assertContains(response, "Промт проекта «Редакция» сохранён.")

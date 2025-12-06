@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone as dt_timezone
-from typing import Any, Iterable, Sequence
+from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 try:  # pragma: no cover - optional dependency guard
@@ -19,6 +20,7 @@ try:  # pragma: no cover - optional dependency guard
 except ModuleNotFoundError:  # pragma: no cover
     date_parser = None  # type: ignore[assignment]
 from django.utils import timezone
+
 try:  # pragma: no cover - optional dependency guard
     from markdownify import markdownify as html_to_md  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover
@@ -144,7 +146,7 @@ class SelectorEngine:
         except StopIteration:
             if spec.optional:
                 return None
-            raise LookupError(f"Selector '{expression}' returned nothing")
+            raise LookupError(f"Selector '{expression}' returned nothing") from None
         return self._extract_value(target, spec.attribute)
 
     def _extract_value(self, node: Tag, attribute: str | None) -> str:
@@ -161,7 +163,7 @@ class SelectorEngine:
         multiple: bool
         optional: bool
 
-    def _parse_expression(self, expression: str) -> "SelectorEngine.Expression":
+    def _parse_expression(self, expression: str) -> SelectorEngine.Expression:
         optional = expression.endswith("?")
         multiple = expression.endswith("*")
         expr = expression
@@ -242,7 +244,11 @@ def strip_tracking_params(url: str) -> str:
     parsed = urlparse(url)
     if not parsed.query:
         return url
-    pairs = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if not k.lower().startswith("utm_")]
+    pairs = [
+        (k, v)
+        for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+        if not k.lower().startswith("utm_")
+    ]
     new_query = urlencode(pairs)
     return urlunparse(parsed._replace(query=new_query))
 
@@ -268,7 +274,7 @@ class WebCollector:
         self.validator.validate(preset)
         stats = {"created": 0, "updated": 0, "skipped": 0, "items": 0}
         cutoff = source.retention_cutoff()
-        cutoff_utc = cutoff.astimezone(dt_timezone.utc) if cutoff else None
+        cutoff_utc = cutoff.astimezone(UTC) if cutoff else None
         list_items = self._crawl_list_pages(preset, source)
         logger.info("web_collector_list_items", count=len(list_items), source_id=source.pk)
         for item in list_items:
@@ -291,9 +297,9 @@ class WebCollector:
             if cutoff_utc and posted_at:
                 aware_posted = posted_at
                 if timezone.is_naive(aware_posted):
-                    aware_posted = timezone.make_aware(aware_posted, dt_timezone.utc)
+                    aware_posted = timezone.make_aware(aware_posted, UTC)
                 else:
-                    aware_posted = aware_posted.astimezone(dt_timezone.utc)
+                    aware_posted = aware_posted.astimezone(UTC)
                 if aware_posted < cutoff_utc:
                     stats["skipped"] += 1
                     continue
@@ -355,7 +361,13 @@ class WebCollector:
                     title = self._safe_extract(node, title_expr)
                     published_expr = selectors.get("published_at")
                     published_at = parse_datetime(self._safe_extract(node, published_expr))
-                    items.append(ArticleItem(url=absolute_url, title=title, published_at=published_at))
+                    items.append(
+                        ArticleItem(
+                            url=absolute_url,
+                            title=title,
+                            published_at=published_at,
+                        )
+                    )
                 next_url = None
                 if pagination_type == "selector" and pagination_selector:
                     next_url = self._safe_extract(soup, f"{pagination_selector}@href?")
@@ -364,7 +376,12 @@ class WebCollector:
                 current_url = normalize_url(page.final_url, next_url)
         return items
 
-    def _fetch_article(self, item: ArticleItem, preset: dict[str, Any], source: Source) -> ArticlePayload:
+    def _fetch_article(
+        self,
+        item: ArticleItem,
+        preset: dict[str, Any],
+        source: Source,
+    ) -> ArticlePayload:
         fetch_config = preset.get("fetch") or {}
         article_config = preset.get("article_page") or {}
         selectors = article_config.get("selectors") or {}
@@ -372,33 +389,46 @@ class WebCollector:
         soup = self.selector.parse(response.content)
         self._apply_cleanup(soup, article_config.get("cleanup") or {})
         title = self._safe_extract(soup, selectors.get("title")) or item.title or item.url
-        published_at = parse_datetime(self._safe_extract(soup, selectors.get("published_at"))) or item.published_at or timezone.now()
+        published_at = (
+            parse_datetime(self._safe_extract(soup, selectors.get("published_at")))
+            or item.published_at
+            or timezone.now()
+        )
         content_html = self._extract_content_html(
             soup,
             selectors.get("content"),
             response.content,
         )
-        content_html = self._normalize_html(content_html, response.final_url, article_config.get("normalize") or {})
+        content_html = self._normalize_html(
+            content_html,
+            response.final_url,
+            article_config.get("normalize") or {},
+        )
         content_md = self._to_markdown(content_html, article_config.get("normalize") or {})
         canonical_expr = selectors.get("canonical_url")
         canonical_url = self._safe_extract(soup, canonical_expr)
         if canonical_url:
             canonical_url = normalize_url(response.final_url, canonical_url)
         images_expr = selectors.get("images")
-        images = self._extract_images(soup, images_expr, response.final_url, article_config.get("media") or {})
+        images = self._extract_images(
+            soup,
+            images_expr,
+            response.final_url,
+            article_config.get("media") or {},
+        )
         metadata = {
             "title": title,
             "published_at": published_at.isoformat(),
             "source": source.title or source.username or source.id,
         }
         additional_fields = ("category", "author", "source_name", "source_url", "summary")
-        for field in additional_fields:
-            expr = selectors.get(field)
+        for field_name in additional_fields:
+            expr = selectors.get(field_name)
             if not expr:
                 continue
             value = self._safe_extract(soup, expr)
             if value:
-                metadata[field] = value
+                metadata[field_name] = value
         source_url = selectors.get("source_url")
         if source_url:
             resolved = self._safe_extract(soup, source_url)
@@ -466,7 +496,11 @@ class WebCollector:
     ) -> list[str]:
         if not expression:
             return []
-        expressions = [expression] if isinstance(expression, str) else [expr for expr in expression if expr]
+        expressions = (
+            [expression]
+            if isinstance(expression, str)
+            else [expr for expr in expression if expr]
+        )
         values: list[str] = []
         for expr in expressions:
             try:
@@ -511,7 +545,12 @@ class WebCollector:
             return value[0] if value else None
         return value
 
-    def _extract_with_fallback(self, node: Tag | BeautifulSoup, expression: str | None, base: str) -> str:
+    def _extract_with_fallback(
+        self,
+        node: Tag | BeautifulSoup,
+        expression: str | None,
+        base: str,
+    ) -> str:
         value = self._safe_extract(node, expression or "@href")
         return normalize_url(base, value or "")
 

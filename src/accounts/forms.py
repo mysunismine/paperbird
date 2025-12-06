@@ -84,7 +84,9 @@ class TelethonSessionStartForm(forms.Form):
     def clean_phone(self) -> str:
         phone = self.cleaned_data["phone"].strip()
         if not phone.startswith("+"):
-            raise forms.ValidationError("Номер должен быть указан в международном формате, начиная с +")
+            raise forms.ValidationError(
+                "Номер должен быть указан в международном формате, начиная с +"
+            )
         if len(phone) < 10:
             raise forms.ValidationError("Проверьте длину номера телефона")
         return phone
@@ -97,7 +99,11 @@ class TelethonSessionCodeForm(forms.Form):
         label="Код из Telegram",
         max_length=10,
         widget=forms.TextInput(
-            attrs={"class": "form-control", "placeholder": "Код из сообщения", "autocomplete": "one-time-code"}
+            attrs={
+                "class": "form-control",
+                "placeholder": "Код из сообщения",
+                "autocomplete": "one-time-code",
+            }
         ),
     )
     password = forms.CharField(

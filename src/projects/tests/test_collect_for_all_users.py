@@ -3,8 +3,9 @@ from unittest.mock import AsyncMock, patch
 
 from django.test import TransactionTestCase
 
-from . import User
 from projects.services.collector import collect_for_all_users
+
+from . import User
 
 
 class CollectForAllUsersTests(TransactionTestCase):

@@ -1,6 +1,5 @@
 """Маршруты управления аутентификацией и профилем."""
 
-from django.contrib.auth.views import LogoutView
 from django.urls import path
 
 from accounts.views import (

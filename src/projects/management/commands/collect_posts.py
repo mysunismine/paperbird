@@ -46,7 +46,10 @@ class Command(BaseCommand):
         parser.add_argument(
             "--all-users",
             action="store_true",
-            help="Собрать посты для всех пользователей сразу (доступно только в разовом или follow-режиме без указания username).",
+            help=(
+                "Собрать посты для всех пользователей сразу (доступно только в разовом "
+                "или follow-режиме без указания username)."
+            ),
         )
 
     def handle(self, *args, **options):

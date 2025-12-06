@@ -387,7 +387,7 @@ class RewriteResult:
             if isinstance(node, str):
                 add_text(node)
                 return
-            if isinstance(node, (list, tuple, set)):
+            if isinstance(node, list | tuple | set):
                 for item in node:
                     collect(item)
                 return
@@ -410,7 +410,7 @@ class RewriteResult:
                     if key in node:
                         collect(node[key])
                 for value in node.values():
-                    if isinstance(value, (list, tuple, set, dict)):
+                    if isinstance(value, list | tuple | set | dict):
                         collect(value)
                 return
             add_text(str(node))
@@ -545,8 +545,8 @@ class Publication(models.Model):
             return None
         return f"https://t.me/{alias}/{message_id}"
 
+
 class RewritePreset(models.Model):
-    """Настраиваемый пресет рерайта для проекта."""
     """Настраиваемый пресет рерайта для проекта."""
 
     project = models.ForeignKey(

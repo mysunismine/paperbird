@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from projects.models import Post, Project, ProjectPromptConfig
 from projects.services.time_preferences import build_project_datetime_context
@@ -19,13 +19,20 @@ PROMPT_SECTION_ORDER: list[tuple[str, str]] = [
 ]
 
 PROMPT_SECTION_HINTS: dict[str, str] = {
-    "system_role": "Опишите роль модели. Используйте {{PROJECT_NAME}} для подпстановки названия.",
+    "system_role": (
+        "Опишите роль модели. Используйте {{PROJECT_NAME}} для подпстановки названия."
+    ),
     "task_instruction": "Формулируйте задачу и ожидаемые действия модели.",
-    "documents_intro": "Расскажите, как работать с источниками. Токен {{POSTS}} заменится на список новостей.",
+    "documents_intro": (
+        "Расскажите, как работать с источниками. Токен {{POSTS}} заменится на список "
+        "новостей."
+    ),
     "style_requirements": "Дайте тон, требования к языку и форматированию.",
     "output_format": "Опишите JSON схему. Можно добавить блоки ``` для удобства.",
     "output_example": "Приведите пример корректного JSON ответа.",
-    "editor_comment_note": "Используйте {{EDITOR_COMMENT}} для подстановки комментария редактора.",
+    "editor_comment_note": (
+        "Используйте {{EDITOR_COMMENT}} для подстановки комментария редактора."
+    ),
 }
 
 PROMPT_TEMPLATE_TOKENS: dict[str, str] = {
@@ -43,14 +50,17 @@ PROMPT_TEMPLATE_TOKENS: dict[str, str] = {
 DEFAULT_PROMPT_SECTIONS: dict[str, str] = {
     "system_role": "Ты — редактор новостного Telegram-канала на тему: {{PROJECT_NAME}}.",
     "task_instruction": (
-        "Твоя задача — переписать предоставленные новости в указанном стиле, сохраняя смысл и факты.\n"
-        "Если есть несколько новостей, объедини их логично и последовательно. Используй только самые важные факты.\n"
+        "Твоя задача — переписать предоставленные новости в указанном стиле, сохраняя "
+        "смысл и факты.\n"
+        "Если есть несколько новостей, объедини их логично и последовательно. Используй "
+        "только самые важные факты.\n"
         "Текущий заголовок: {{TITLE}}."
     ),
     "documents_intro": (
         "Тебе даны следующие источники:\n"
         "{{POSTS}}\n"
-        "Текущая дата проекта: {{CURRENT_DATETIME}} ({{CURRENT_UTC_OFFSET}} / {{CURRENT_TIMEZONE}}).\n"
+        "Текущая дата проекта: {{CURRENT_DATETIME}} "
+        "({{CURRENT_UTC_OFFSET}} / {{CURRENT_TIMEZONE}}).\n"
         "Если какой‑то источник пустой или повторяется, просто пропусти его."
     ),
     "style_requirements": (
@@ -71,15 +81,18 @@ DEFAULT_PROMPT_SECTIONS: dict[str, str] = {
         '  "sources": ["https://t.me/source/123", "https://t.me/source/456"]\n'
         "}\n"
         "```\n"
-        "Если невозможно соблюсти формат — всё равно верни JSON с пустыми строками вместо отсутствующих полей.\n"
+        "Если невозможно соблюсти формат — всё равно верни JSON с пустыми строками "
+        "вместо отсутствующих полей.\n"
         "Не добавляй ничего за пределами JSON."
     ),
     "output_example": (
         "```json\n"
         "{\n"
         '  "title": "Учёные нашли способ обучать ИИ быстрее",\n'
-        '  "summary": "Исследователи предложили новый метод обучения, ускоряющий обработку данных.",\n'
-        '  "content": "Инженеры из MIT разработали алгоритм, который сокращает время обучения моделей на 40%. ...",\n'
+        '  "summary": "Исследователи предложили новый метод обучения, ускоряющий '
+        'обработку данных.",\n'
+        '  "content": "Инженеры из MIT разработали алгоритм, который сокращает время '
+        'обучения моделей на 40%. ...",\n'
         '  "hashtags": "#ИИ #наука #технологии",\n'
         '  "sources": ["https://t.me/source/123"]\n'
         "}\n"

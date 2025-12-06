@@ -7,7 +7,7 @@ import logging
 import mimetypes
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone as dt_timezone
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 
 from asgiref.sync import sync_to_async
@@ -57,7 +57,7 @@ class PostCollector:
         """Выполняет сбор постов для проекта."""
         factory = TelethonClientFactory(user=self.user)
         sources = await sync_to_async(list)(
-        project.sources.filter(is_active=True, type=Source.Type.TELEGRAM).order_by("id")
+            project.sources.filter(is_active=True, type=Source.Type.TELEGRAM).order_by("id")
         )
         project_cutoff = project.retention_cutoff()
         async with factory.connect() as client:
@@ -89,7 +89,7 @@ class PostCollector:
                             if timezone.is_naive(aware_date):
                                 aware_date = timezone.make_aware(
                                     aware_date,
-                                    dt_timezone.utc,
+                                    UTC,
                                 )
                             if aware_date < project_cutoff:
                                 break
@@ -197,10 +197,15 @@ class PostCollector:
                 media_bytes=media_bytes,
             )
 
-    async def _download_message_media(self, *, message: Message, source: Source) -> StoredMedia | None:
+    async def _download_message_media(
+        self,
+        *,
+        message: Message,
+        source: Source,
+    ) -> StoredMedia | None:
         """Скачивает и сохраняет медиа для сообщения."""
 
-        if not isinstance(message.media, (MessageMediaPhoto, MessageMediaDocument)):
+        if not isinstance(message.media, MessageMediaPhoto | MessageMediaDocument):
             return None
 
         try:
@@ -247,7 +252,13 @@ class PostCollector:
     def _media_storage_path(self, *, source: Source, message_id: int, extension: str) -> Path:
         """Генерирует путь для хранения медиафайла."""
         filename = f"{message_id}_{uuid.uuid4().hex}{extension}"
-        return Path("uploads") / "media" / str(source.project_id or "0") / str(source.pk or "0") / filename
+        return (
+            Path("uploads")
+            / "media"
+            / str(source.project_id or "0")
+            / str(source.pk or "0")
+            / filename
+        )
 
     def _resolve_media_extension(self, message: Message) -> str:
         """Определяет расширение файла медиа по информации сообщения."""
@@ -326,9 +337,15 @@ async def collect_for_all_users(
             try:
                 await collect_for_user(user, project_id=project_id, limit=limit)
             except TelethonCredentialsMissingError as exc:
-                logger.warning("collect_for_all_users_skipped", extra={"user_id": user.pk, "reason": str(exc)})
+                logger.warning(
+                    "collect_for_all_users_skipped",
+                    extra={"user_id": user.pk, "reason": str(exc)},
+                )
             except Exception as exc:  # pragma: no cover - защитный слой вокруг сети
-                logger.exception("collect_for_all_users_error", extra={"user_id": user.pk, "error": str(exc)})
+                logger.exception(
+                    "collect_for_all_users_error",
+                    extra={"user_id": user.pk, "error": str(exc)},
+                )
 
     while True:
         await _run_once()
@@ -413,7 +430,7 @@ def _normalize_raw(value):
         return [_normalize_raw(item) for item in value]
     if isinstance(value, tuple):
         return [_normalize_raw(item) for item in value]
-    if isinstance(value, (datetime, date, time)):
+    if isinstance(value, datetime | date | time):
         return value.isoformat()
     if isinstance(value, bytes):
         try:

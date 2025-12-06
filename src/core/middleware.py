@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from django.http import HttpRequest, HttpResponse
+
 from core.logging import event_logger, generate_correlation_id, logging_context
 
 

@@ -1,11 +1,10 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.views.generic import RedirectView, TemplateView
 
-from projects.models import Post, Project
+from projects.models import Project
 
 
 class HomeView(TemplateView):
