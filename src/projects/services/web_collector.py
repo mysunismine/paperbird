@@ -1,4 +1,4 @@
-"""Universal web collector that ingests articles using JSON presets."""
+"""Универсальный веб-сборщик, который собирает статьи с использованием JSON-пресетов."""
 
 from __future__ import annotations
 

@@ -46,12 +46,14 @@ from .forms import (
 
 
 def _split_csv(value: str | None) -> list[str]:
+    """Разделяет строку CSV на список строк."""
     if not value:
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def _parse_bool(value: str | None) -> bool | None:
+    """Парсит строковое значение в булево."""
     if value is None:
         return None
     lowered = value.strip().lower()
@@ -63,6 +65,7 @@ def _parse_bool(value: str | None) -> bool | None:
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
+    """Парсит строковое значение в datetime."""
     if not value:
         return None
     parsed = parse_datetime(value)
@@ -77,6 +80,7 @@ class ProjectListView(LoginRequiredMixin, ListView):
     context_object_name = "projects"
 
     def get_queryset(self):
+        """Возвращает queryset проектов текущего пользователя с аннотациями."""
         return (
             Project.objects.filter(owner=self.request.user)
             .annotate(
@@ -93,6 +97,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
     template_name = "projects/post_list.html"
 
     def dispatch(self, request, *args, **kwargs):
+        """Проверяет права доступа к проекту и инициализирует его."""
         self.project = get_object_or_404(
             Project, pk=kwargs["pk"], owner=request.user
         )
@@ -102,6 +107,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         return super().dispatch(request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
+        """Обрабатывает POST-запросы для управления сборщиком."""
         action = request.POST.get("action")
         if action == "collector_start":
             return self._start_collector()
@@ -111,6 +117,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         return redirect(request.path)
 
     def _build_options(self) -> PostFilterOptions:
+        """Строит объект PostFilterOptions из параметров GET-запроса."""
         query = self.request.GET
         statuses = set(query.getlist("statuses"))
         source_ids = {
@@ -132,6 +139,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         return options
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Формирует контекст для шаблона."""
         context = super().get_context_data(**kwargs)
         options = self._build_options()
         queryset = (
@@ -160,6 +168,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         return context
 
     def render_to_response(self, context, **response_kwargs):
+        """Рендерит ответ для AJAX-запросов."""
         if self.request.headers.get("X-Requested-With") == "XMLHttpRequest":
             return render(
                 self.request,
@@ -170,6 +179,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         return super().render_to_response(context, **response_kwargs)
 
     def _collector_context(self) -> dict[str, Any]:
+        """Формирует контекст для отображения состояния сборщика."""
         next_task = (
             WorkerTask.objects.filter(
                 queue=WorkerTask.Queue.COLLECTOR,
@@ -204,6 +214,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         }
 
     def _start_collector(self):
+        """Запускает сборщик для проекта."""
         project = self.project
         requires_telethon = self._has_telegram_sources()
         if requires_telethon and not self.request.user.has_telethon_credentials:
@@ -232,6 +243,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         return redirect(self.request.path)
 
     def _stop_collector(self):
+        """Останавливает сборщик для проекта."""
         project = self.project
         if not project.collector_enabled:
             messages.info(self.request, "Сборщик уже остановлен.")
@@ -256,6 +268,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         return redirect(self.request.path)
 
     def _ensure_collector_task(self, *, delay: int) -> None:
+        """Гарантирует, что задача сборщика поставлена в очередь."""
         if self._has_telegram_sources():
             self._schedule_queue(
                 WorkerTask.Queue.COLLECTOR,
@@ -270,6 +283,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
             )
 
     def _schedule_queue(self, queue: str, *, delay: int, interval: int) -> None:
+        """Планирует задачу для указанной очереди."""
         exists = WorkerTask.objects.filter(
             queue=queue,
             payload__project_id=self.project.id,
@@ -288,14 +302,46 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         )
 
     def _has_telegram_sources(self) -> bool:
+        """Проверяет наличие активных Telegram-источников в проекте."""
         return self.project.sources.filter(is_active=True, type=Source.Type.TELEGRAM).exists()
 
     def _has_web_sources(self) -> bool:
+        """Проверяет наличие активных веб-источников в проекте."""
         return self.project.sources.filter(
             is_active=True,
             type=Source.Type.WEB,
             web_preset__status=WebPreset.Status.ACTIVE,
         ).exists()
+
+
+class ProjectPostDetailView(LoginRequiredMixin, TemplateView):
+    """Отображает полный текст и медиа конкретного поста."""
+
+    template_name = "projects/post_detail.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        """Проверяет права доступа к проекту и посту."""
+        self.project = get_object_or_404(
+            Project, pk=kwargs["project_pk"], owner=request.user
+        )
+        self.post = get_object_or_404(
+            Post.objects.select_related("source", "project"),
+            pk=kwargs["post_pk"],
+            project=self.project,
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Формирует контекст для шаблона."""
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                "project": self.project,
+                "post": self.post,
+                "media_items": self.post.media_items,
+            }
+        )
+        return context
 
 
 class ProjectCreateView(LoginRequiredMixin, CreateView):
@@ -306,11 +352,13 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
     success_url = reverse_lazy("projects:list")
 
     def get_form_kwargs(self) -> dict[str, Any]:
+        """Возвращает аргументы для формы, включая владельца."""
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.request.user
         return kwargs
 
     def form_valid(self, form):  # type: ignore[override]
+        """Обрабатывает валидную форму, сохраняет проект и выводит сообщение."""
         response = super().form_valid(form)
         messages.success(
             self.request,
@@ -329,14 +377,17 @@ class ProjectSettingsView(LoginRequiredMixin, UpdateView):
     success_url = reverse_lazy("projects:list")
 
     def get_queryset(self):
+        """Возвращает queryset проектов текущего пользователя."""
         return Project.objects.filter(owner=self.request.user)
 
     def get_form_kwargs(self) -> dict[str, Any]:
+        """Возвращает аргументы для формы, включая владельца."""
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.request.user
         return kwargs
 
     def form_valid(self, form):  # type: ignore[override]
+        """Обрабатывает валидную форму, сохраняет настройки и выводит сообщение."""
         response = super().form_valid(form)
         messages.success(
             self.request,
@@ -352,6 +403,7 @@ class ProjectPromptsView(LoginRequiredMixin, FormView):
     form_class = ProjectPromptConfigForm
 
     def dispatch(self, request, *args, **kwargs):
+        """Проверяет права доступа к проекту и инициализирует конфигурацию промта."""
         self.project = get_object_or_404(
             Project, pk=kwargs["pk"], owner=request.user
         )
@@ -359,11 +411,13 @@ class ProjectPromptsView(LoginRequiredMixin, FormView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self) -> dict[str, Any]:
+        """Возвращает аргументы для формы, включая инстанс конфигурации промта."""
         kwargs = super().get_form_kwargs()
         kwargs["instance"] = self.config
         return kwargs
 
     def form_valid(self, form):  # type: ignore[override]
+        """Обрабатывает валидную форму, сохраняет конфигурацию промта и выводит сообщение."""
         form.save()
         messages.success(
             self.request,
@@ -372,6 +426,7 @@ class ProjectPromptsView(LoginRequiredMixin, FormView):
         return redirect("projects:prompts", pk=self.project.pk)
 
     def form_invalid(self, form):
+        """Обрабатывает невалидную форму, выводит сообщение об ошибке."""
         messages.error(
             self.request,
             "Исправьте ошибки в шаблоне промта и попробуйте снова.",
@@ -379,6 +434,7 @@ class ProjectPromptsView(LoginRequiredMixin, FormView):
         return super().form_invalid(form)
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Формирует контекст для шаблона."""
         context = super().get_context_data(**kwargs)
         form = context.get("form") or self.get_form()
         context.update(
@@ -391,6 +447,7 @@ class ProjectPromptsView(LoginRequiredMixin, FormView):
         return context
 
     def _build_sections(self, form):
+        """Строит список секций промта для отображения в форме."""
         sections = []
         for field_name, heading in PROMPT_SECTION_ORDER:
             field = form[field_name]
@@ -408,6 +465,7 @@ class ProjectPromptExportView(LoginRequiredMixin, View):
     """Формирует предпросмотр промтов в текстовом виде."""
 
     def get(self, request, *args, **kwargs):
+        """Генерирует и возвращает текстовый файл с экспортом промтов."""
         project = get_object_or_404(
             Project, pk=kwargs["pk"], owner=request.user
         )
@@ -422,6 +480,7 @@ class ProjectPromptExportView(LoginRequiredMixin, View):
         return response
 
     def _render_export(self, project: Project) -> str:
+        """Рендерит промты для экспорта."""
         rendered = render_prompt(
             project=project,
             posts=[],
@@ -437,6 +496,7 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
     template_name = "projects/project_sources.html"
 
     def dispatch(self, request, *args, **kwargs):
+        """Проверяет права доступа к проекту и инициализирует его."""
         self.project = get_object_or_404(
             Project,
             pk=kwargs["pk"],
@@ -445,6 +505,7 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Формирует контекст для шаблона."""
         context = super().get_context_data(**kwargs)
         context.update(
             {
@@ -456,12 +517,14 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
         return context
 
     def post(self, request, *args, **kwargs):
+        """Обрабатывает POST-запросы для управления источниками."""
         if request.POST.get("action") == "delete":
             return self._handle_delete(request)
         messages.error(request, "Неизвестное действие.")
         return redirect("projects:sources", pk=self.project.pk)
 
     def _handle_delete(self, request):
+        """Обрабатывает запрос на удаление источника."""
         source_id = request.POST.get("source_id")
         source = self.project.sources.filter(pk=source_id).first()
         if source is None:
@@ -479,6 +542,7 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
     form_class = SourceCreateForm
 
     def dispatch(self, request, *args, **kwargs):
+        """Проверяет права доступа к проекту и инициализирует его."""
         self.project = get_object_or_404(
             Project,
             pk=kwargs["project_pk"],
@@ -487,16 +551,19 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self) -> dict[str, Any]:
+        """Возвращает аргументы для формы, включая проект."""
         kwargs = super().get_form_kwargs()
         kwargs["project"] = self.project
         return kwargs
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Формирует контекст для шаблона."""
         context = super().get_context_data(**kwargs)
         context["project"] = self.project
         return context
 
     def form_valid(self, form):  # type: ignore[override]
+        """Обрабатывает валидную форму, сохраняет источник и перенаправляет."""
         source = form.save()
         if source.type == Source.Type.WEB:
             self._schedule_web_source_collection(source)
@@ -505,10 +572,12 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
         return redirect("projects:sources", pk=source.project_id)
 
     def form_invalid(self, form):
+        """Обрабатывает невалидную форму, выводит сообщение об ошибке."""
         messages.error(self.request, "Исправьте ошибки формы и попробуйте снова.")
         return super().form_invalid(form)
 
     def _schedule_web_source_collection(self, source: Source) -> None:
+        """Планирует сбор для веб-источника."""
         payload = {
             "project_id": source.project_id,
             "interval": max(source.project.collector_web_interval, 60),
@@ -541,22 +610,26 @@ class ProjectSourceUpdateView(LoginRequiredMixin, UpdateView):
     context_object_name = "source"
 
     def get_queryset(self):
+        """Возвращает queryset источников для текущего пользователя и проекта."""
         return Source.objects.filter(
             project__owner=self.request.user,
             project_id=self.kwargs["project_pk"],
         ).select_related("project")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Формирует контекст для шаблона."""
         context = super().get_context_data(**kwargs)
         context["project"] = self.object.project
         return context
 
     def get_form_kwargs(self) -> dict[str, Any]:
+        """Возвращает аргументы для формы, включая проект."""
         kwargs = super().get_form_kwargs()
         kwargs["project"] = self.get_object().project
         return kwargs
 
     def form_valid(self, form):  # type: ignore[override]
+        """Обрабатывает валидную форму, сохраняет источник и выводит сообщение."""
         source = form.save()
         messages.success(self.request, "Источник обновлён.")
         return redirect("projects:sources", pk=source.project_id)
@@ -569,6 +642,7 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
     queues = [WorkerTask.Queue.COLLECTOR, WorkerTask.Queue.COLLECTOR_WEB]
 
     def dispatch(self, request, *args, **kwargs):
+        """Проверяет права доступа к проекту и инициализирует его."""
         self.project = get_object_or_404(
             Project,
             pk=kwargs["pk"],
@@ -577,6 +651,7 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
         return super().dispatch(request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
+        """Обрабатывает POST-запросы для управления задачами в очереди."""
         action = request.POST.get("action")
         task_id = request.POST.get("task_id")
         if not task_id or not task_id.isdigit():
@@ -600,6 +675,7 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
         return redirect("projects:queue", pk=self.project.pk)
 
     def _cancel_task(self, task: WorkerTask) -> None:
+        """Отменяет задачу в очереди."""
         if task.status not in {WorkerTask.Status.QUEUED, WorkerTask.Status.RUNNING}:
             messages.info(self.request, "Задачу уже нельзя отменить.")
             return
@@ -614,6 +690,7 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
         messages.success(self.request, "Задача отменена.")
 
     def _retry_task(self, task: WorkerTask) -> None:
+        """Повторно ставит задачу в очередь."""
         if task.status == WorkerTask.Status.RUNNING:
             messages.error(self.request, "Сначала остановите задачу, затем запустите снова.")
             return
@@ -625,6 +702,7 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
         messages.success(self.request, "Новая задача поставлена в очередь.")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        """Формирует контекст для шаблона."""
         context = super().get_context_data(**kwargs)
         tasks = (
             WorkerTask.objects.filter(queue__in=self.queues, payload__project_id=self.project.id)
@@ -637,3 +715,4 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
             }
         )
         return context
+

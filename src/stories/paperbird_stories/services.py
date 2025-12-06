@@ -110,17 +110,20 @@ def build_yandex_model_uri(model: str, *, folder_id: str, scheme: str = "gpt") -
 
 
 def _looks_like_yandex_text_model(model: str) -> bool:
+    """Проверяет, похожа ли модель на текстовую модель Yandex."""
     lowered = (model or "").lower()
     prefixes = ("yandex", "qwen", "gpt-oss", "gemma", "gpt://")
     return any(lowered.startswith(prefix) for prefix in prefixes)
 
 
 def _looks_like_yandex_art_model(model: str) -> bool:
+    """Проверяет, похожа ли модель на модель YandexART."""
     lowered = (model or "").lower()
     return lowered.startswith("yandex") or lowered.startswith("art://")
 
 
 def _strip_code_fence(text: str) -> str:
+    """Удаляет ограничители кода."""
     if not text:
         return text
     stripped = text.strip()
@@ -137,6 +140,7 @@ def _strip_code_fence(text: str) -> str:
 
 
 def _openai_temperature_for_model(model: str) -> float:
+    """Возвращает температуру OpenAI для модели."""
     lowered = (model or "").lower()
     if any(lowered.startswith(prefix) for prefix in ("gpt-5", "gpt-5o")):
         return 1.0
@@ -263,6 +267,7 @@ class StoryFactory:
         title: str = "",
         editor_comment: str = "",
     ) -> Story:
+        """Создает сюжет и прикрепляет к нему посты."""
         if not post_ids:
             raise StoryCreationError("Список постов пуст")
         order_map = {post_id: index for index, post_id in enumerate(post_ids)}
@@ -302,6 +307,7 @@ class StoryRewriter:
         preset: RewritePreset | None = None,
         messages_override: Sequence[dict[str, str]] | None = None,
     ) -> RewriteTask:
+        """Выполняет рерайт сюжета."""
         messages, user_comment = make_prompt_messages(
             story,
             editor_comment=editor_comment,
@@ -366,27 +372,8 @@ class StoryRewriter:
         raise RewriteFailed(last_error)
 
 
-class OpenAIChatProvider:
-    """Минимальная обёртка для OpenAI Chat Completions API."""
-
-    api_url = "https://api.openai.com/v1/chat/completions"
-
-    def __init__(
-        self,
-        *,
-        api_key: str | None = None,
-        model: str | None = None,
-        timeout: int | float | None = None,
-    ) -> None:
-        self.api_key = api_key or getattr(settings, "OPENAI_API_KEY", "")
-        self.model = model or getattr(settings, "OPENAI_MODEL", "gpt-4o-mini")
-        base_url = getattr(settings, "OPENAI_BASE_URL", "").strip()
-        self.api_url = base_url or self.api_url
-        self.timeout = timeout or getattr(settings, "OPENAI_TIMEOUT", 30)
-        if not self.api_key:
-            raise RewriteFailed("OPENAI_API_KEY не задан")
-
     def run(self, *, messages: Sequence[dict[str, str]]) -> ProviderResponse:
+        """Выполняет запрос к OpenAI Chat Completions API."""
         import urllib.error
         import urllib.request
 
@@ -428,6 +415,7 @@ class OpenAIChatProvider:
 
     @staticmethod
     def _parse_message(message: dict[str, Any]) -> dict:
+        """Парсит сообщение от OpenAI."""
         parsed = message.get("parsed")
         if isinstance(parsed, dict):
             return parsed

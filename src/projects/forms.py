@@ -1,4 +1,4 @@
-"""Form classes for project management UI."""
+"""Классы форм для UI управления проектами."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ TIMEZONE_CHOICES.extend(sorted((tz, tz) for tz in available_timezones() if tz !=
 
 
 class ProjectCreateForm(forms.ModelForm):
-    """Form to create a project owned by the current user."""
+    """Форма для создания проекта, принадлежащего текущему пользователю."""
 
     rewrite_model = forms.ChoiceField(
         label="Модель рерайта",

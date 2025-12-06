@@ -1,4 +1,4 @@
-"""Handlers for background maintenance tasks in the projects app."""
+"""Обработчики для фоновых задач обслуживания в приложении projects."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ logger = event_logger("projects.collector_web")
 
 
 def retention_cleanup_task(task: WorkerTask) -> dict[str, Any]:
-    """Remove expired posts for the requested project."""
+    """Удаляет просроченные посты для указанного проекта."""
 
     payload = task.payload or {}
     project_id = payload.get("project_id")
@@ -58,7 +58,7 @@ def retention_cleanup_task(task: WorkerTask) -> dict[str, Any]:
 
 
 def register_project_workers() -> None:
-    """Ensure maintenance queue handlers are registered."""
+    """Гарантирует, что обработчики очереди обслуживания зарегистрированы."""
 
     global _is_registered
     if _is_registered:
@@ -71,7 +71,7 @@ def register_project_workers() -> None:
 
 
 def refresh_source_metadata_task(task: WorkerTask) -> dict[str, Any]:
-    """Fetch metadata for a source via Telethon and store it."""
+    """Получает метаданные для источника через Telethon и сохраняет их."""
 
     payload = task.payload or {}
     source_id = payload.get("source_id")
@@ -128,7 +128,7 @@ def refresh_source_metadata_task(task: WorkerTask) -> dict[str, Any]:
 
 
 def collect_project_posts_task(task: WorkerTask) -> dict[str, Any]:
-    """Launch Telegram collector for a specific project."""
+    """Запускает сборщик Telegram для определенного проекта."""
 
     payload = task.payload or {}
     project_id = payload.get("project_id")
@@ -190,7 +190,7 @@ def collect_project_posts_task(task: WorkerTask) -> dict[str, Any]:
 
 
 def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
-    """Launch universal web collector for web sources in a project."""
+    """Запускает универсальный веб-сборщик для веб-источников в проекте."""
 
     payload = task.payload or {}
     project_id = payload.get("project_id")

@@ -1,4 +1,4 @@
-"""Management command to run a background worker for a queue."""
+"""Management-команда для запуска фонового воркера для очереди."""
 
 from __future__ import annotations
 
@@ -9,39 +9,39 @@ from core.services.worker import make_runner
 
 
 class Command(BaseCommand):
-    help = "Run background worker for the specified queue"
+    help = "Запускает фоновый воркер для указанной очереди"
 
     def add_arguments(self, parser) -> None:
-        parser.add_argument("queue", help="Queue name to process")
+        parser.add_argument("queue", help="Имя очереди для обработки")
         parser.add_argument(
             "--worker-id",
             dest="worker_id",
-            help="Explicit worker identifier (defaults to hostname/pid)",
+            help="Явный идентификатор воркера (по умолчанию hostname/pid)",
         )
         parser.add_argument(
             "--handler",
             dest="handler",
-            help="Dotted path to handler callable (optional if queue registered)",
+            help="Путь к обработчику (опционально, если очередь зарегистрирована)",
         )
         parser.add_argument(
             "--batch-size",
             dest="batch_size",
             type=int,
             default=1,
-            help="Number of tasks to reserve per iteration",
+            help="Количество задач для резервирования за итерацию",
         )
         parser.add_argument(
             "--sleep",
             dest="idle_sleep",
             type=float,
             default=1.0,
-            help="Sleep duration in seconds when queue is empty",
+            help="Длительность паузы в секундах, когда очередь пуста",
         )
         parser.add_argument(
             "--once",
             action="store_true",
             dest="run_once",
-            help="Process a single batch and exit",
+            help="Обработать одну пачку и выйти",
         )
 
     def handle(self, *args, **options):

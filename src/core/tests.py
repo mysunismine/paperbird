@@ -1,4 +1,4 @@
-"""Tests for worker queue and error handling."""
+"""Тесты для очереди воркеров и обработки ошибок."""
 
 from __future__ import annotations
 
@@ -24,7 +24,10 @@ User = get_user_model()
 
 
 class WorkerQueueTests(TestCase):
+    """Тесты для механизма фоновых задач."""
+
     def test_enqueue_task_uses_queue_defaults(self) -> None:
+        """Проверяет, что задача использует настройки очереди по умолчанию."""
         task = enqueue_task("rewrite", payload={"story_id": 42})
         self.assertEqual(task.queue, "rewrite")
         self.assertEqual(task.status, WorkerTask.Status.QUEUED)
@@ -33,6 +36,7 @@ class WorkerQueueTests(TestCase):
         self.assertLessEqual(task.available_at - timezone.now(), timedelta(seconds=1))
 
     def test_worker_marks_task_succeeded(self) -> None:
+        """Проверяет, что воркер помечает задачу как успешно выполненную."""
         task = enqueue_task("default", payload={"value": 10})
 
         def handler(current_task: WorkerTask) -> dict:
@@ -52,12 +56,14 @@ class WorkerQueueTests(TestCase):
         self.assertFalse(attempts[0].will_retry)
 
     def test_enqueue_task_preserves_correlation_from_context(self) -> None:
+        """Проверяет, что correlation_id из контекста сохраняется в задаче."""
         with logging_context(correlation_id="cid-test"):
             task = enqueue_task("default", payload={"value": 1})
 
         self.assertEqual(task.payload["correlation_id"], "cid-test")
 
     def test_worker_requeues_on_retryable_error(self) -> None:
+        """Проверяет, что воркер ставит задачу на повторное выполнение при ошибке."""
         task = enqueue_task("default", payload={"value": 5})
         before = timezone.now()
 
@@ -85,6 +91,7 @@ class WorkerQueueTests(TestCase):
         self.assertEqual(attempts[0].error_code, "TEMP_ERROR")
 
     def test_worker_fails_when_attempts_exhausted(self) -> None:
+        """Проверяет, что задача помечается как проваленная после исчерпания попыток."""
         task = enqueue_task("default", payload={}, max_attempts=1)
 
         def handler(current_task: WorkerTask) -> dict:
@@ -102,6 +109,7 @@ class WorkerQueueTests(TestCase):
         self.assertFalse(attempts[0].will_retry)
 
     def test_worker_respects_non_retryable_errors(self) -> None:
+        """Проверяет, что воркер не повторяет задачу при фатальной ошибке."""
         task = enqueue_task("default", payload={}, max_attempts=3)
 
         def handler(current_task: WorkerTask) -> dict:
@@ -118,6 +126,7 @@ class WorkerQueueTests(TestCase):
         self.assertFalse(attempt.will_retry)
 
     def test_stale_tasks_revived_before_processing(self) -> None:
+        """Проверяет, что зависшие задачи возвращаются в очередь."""
         task = enqueue_task("collector_web", payload={"value": 1})
         stale_time = timezone.now() - timedelta(minutes=15)
         WorkerTask.objects.filter(pk=task.pk).update(
@@ -133,6 +142,8 @@ class WorkerQueueTests(TestCase):
 
 
 class FeedViewTests(TestCase):
+    """Тесты для представлений ленты."""
+
     def setUp(self) -> None:
         self.user = User.objects.create_user("viewer", password="secret")
         self.client.force_login(self.user)
@@ -161,24 +172,30 @@ class FeedViewTests(TestCase):
         )
 
     def test_feed_requires_authentication(self) -> None:
+        """Проверяет, что анонимный пользователь перенаправляется на страницу входа."""
         self.client.logout()
         response = self.client.get(reverse("feed"))
         self.assertEqual(response.status_code, 302)
         self.assertIn("accounts/login", response.url)
 
     def test_feed_lists_latest_posts(self) -> None:
+        """Проверяет, что лента по умолчанию показывает посты последнего проекта."""
         response = self.client.get(reverse("feed"))
         expected = reverse("feed-detail", args=[self.other_project.pk])
         self.assertRedirects(response, expected)
 
     def test_feed_filters_by_project(self) -> None:
+        """Проверяет, что лента фильтрует посты по выбранному проекту."""
         response = self.client.get(reverse("feed"), data={"project": self.project.id})
         expected = reverse("feed-detail", args=[self.project.pk])
         self.assertRedirects(response, expected)
 
 
 class StructuredLoggingTests(TestCase):
+    """Тесты для структурированного логирования."""
+
     def test_event_logger_combines_context(self) -> None:
+        """Проверяет, что логгер событий корректно объединяет контексты."""
         logger = event_logger("paperbird.tests")
         with logging_context(correlation_id="cid-1", user_id=42, project_id=7):
             with self.assertLogs("paperbird.tests", level="INFO") as captured:
@@ -194,15 +211,19 @@ class StructuredLoggingTests(TestCase):
 
 
 class RequestContextMiddlewareTests(TestCase):
+    """Тесты для middleware контекста запроса."""
+
     def setUp(self) -> None:
         self.factory = RequestFactory()
 
     def test_propagates_existing_correlation_id(self) -> None:
+        """Проверяет, что middleware использует существующий correlation_id."""
         response = self.client.get("/", HTTP_X_CORRELATION_ID="abc123")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["X-Correlation-ID"], "abc123")
 
     def test_logs_unhandled_exception(self) -> None:
+        """Проверяет, что необработанные исключения логируются."""
         def raising_view(request):
             raise RuntimeError("Взрыв")
 
@@ -223,11 +244,14 @@ class RequestContextMiddlewareTests(TestCase):
 
 @override_settings(ROOT_URLCONF="core.tests_urls", DEBUG=False)
 class ServerErrorViewTests(TestCase):
+    """Тесты для страницы ошибки 500."""
+
     def setUp(self) -> None:
         super().setUp()
         self.client.raise_request_exception = False
 
     def test_custom_error_page_renders_with_correlation(self) -> None:
+        """Проверяет, что кастомная страница 500 отображает correlation_id."""
         response = self.client.get("/boom/")
         self.assertEqual(response.status_code, 500)
         self.assertContains(response, "Упс! Что-то пошло не так", status_code=500)
@@ -238,8 +262,11 @@ class ServerErrorViewTests(TestCase):
 
 
 class RunCollectorsCommandTests(TestCase):
+    """Тесты для команды `run_collectors`."""
+
     @patch("core.management.commands.run_collectors.make_runner")
     def test_run_collectors_once(self, mock_make_runner) -> None:
+        """Тестирует разовый запуск команды."""
         class FakeRunner:
             def __init__(self, queue):
                 self.queue = queue
@@ -258,6 +285,7 @@ class RunCollectorsCommandTests(TestCase):
     @patch("core.management.commands.run_collectors.time.sleep")
     @patch("core.management.commands.run_collectors.make_runner")
     def test_iterations_limit(self, mock_make_runner, mock_sleep) -> None:
+        """Тестирует ограничение на количество итераций."""
         created_runners = []
 
         class IdleRunner:

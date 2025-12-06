@@ -18,9 +18,23 @@
 ### Project
 - **id** (UUID / Integer): Уникальный идентификатор проекта.
 - **user_id** (FK -> User): Владелец проекта.
-- **title** (String): Название проекта.
+- **name** (String): Название проекта.
 - **description** (String): Описание проекта.
+- **is_active** (Boolean): Активен ли проект.
+- **publish_target** (String): Целевой канал для публикации.
+- **locale** (String): Локаль для форматирования даты и времени (например, `ru_RU`).
+- **time_zone** (String): Часовой пояс проекта (например, `Europe/Moscow`).
+- **rewrite_model** (String): Модель GPT для рерайта.
+- **image_model** (String): Модель для генерации изображений.
+- **image_size** (String): Размер генерируемых изображений.
+- **image_quality** (String): Качество генерируемых изображений.
+- **retention_days** (Integer): Срок хранения постов в днях.
+- **collector_enabled** (Boolean): Включен ли сборщик постов.
+- **collector_telegram_interval** (Integer): Интервал опроса Telegram-источников в секундах.
+- **collector_web_interval** (Integer): Интервал запуска веб-парсера в секундах.
+- **collector_last_run** (Datetime): Время последнего запуска сборщика.
 - **created_at** (Datetime): Дата создания.
+- **updated_at** (Datetime): Дата последнего обновления.
 
 ### Source (Канал или чат)
 - **id** (UUID / Integer): Уникальный идентификатор источника.

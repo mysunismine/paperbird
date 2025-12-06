@@ -1,4 +1,4 @@
-"""Utilities for working with language detection."""
+"""Утилиты для работы с определением языка."""
 
 from __future__ import annotations
 

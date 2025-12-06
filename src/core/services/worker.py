@@ -1,4 +1,4 @@
-"""Worker queue helpers: enqueue tasks, run workers, and handle errors."""
+"""Вспомогательные утилиты для очереди задач: постановка задач, запуск воркеров и обработка ошибок."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ logger = event_logger("core.worker")
 
 
 class TaskExecutionError(RuntimeError):
-    """Structured error signalling how the worker should react."""
+    """Структурированная ошибка, сигнализирующая, как должен реагировать воркер."""
 
     def __init__(
         self,
@@ -42,16 +42,16 @@ class TaskExecutionError(RuntimeError):
 
 
 class TaskHandler(Protocol):  # pragma: no cover - protocol definition
-    """Callable signature that processes a task."""
+    """Сигнатура вызываемого объекта, который обрабатывает задачу."""
 
     def __call__(self, task: WorkerTask) -> dict[str, Any] | None:
-        """Process task in place and optionally return result payload."""
+        """Обрабатывает задачу и опционально возвращает результат."""
         ...
 
 
 @dataclass(slots=True)
 class WorkerRunner:
-    """Simple loop-based runner for worker queues."""
+    """Простой исполнитель на основе цикла для очередей воркеров."""
 
     queue: str
     handler: TaskHandler
@@ -73,7 +73,7 @@ class WorkerRunner:
     # --- public API ---------------------------------------------------------
 
     def run_once(self) -> int:
-        """Fetch and process a batch of tasks once."""
+        """Получает и обрабатывает одну пачку задач."""
 
         revived = 0
         if self.stale_lock_timeout:
@@ -108,7 +108,7 @@ class WorkerRunner:
         return processed
 
     def run_forever(self) -> None:  # pragma: no cover - requires long-running loop
-        """Continuously poll the queue until interrupted."""
+        """Непрерывно опрашивает очередь до прерывания."""
 
         logger.info(
             "worker_started",
@@ -238,7 +238,7 @@ class WorkerRunner:
 
 @dataclass(slots=True)
 class WorkerRegistry:
-    """Keeps a mapping of queue names to handlers."""
+    """Хранит сопоставление имен очередей с обработчиками."""
 
     _handlers: dict[str, TaskHandler]
 
@@ -262,13 +262,13 @@ registry = WorkerRegistry()
 
 
 def register_handler(queue: str, handler: TaskHandler) -> None:
-    """Register handler in module-level registry."""
+    """Регистрирует обработчик в реестре на уровне модуля."""
 
     registry.register(queue, handler)
 
 
 def get_handler(queue: str) -> TaskHandler:
-    """Return handler from registry or raise LookupError."""
+    """Возвращает обработчик из реестра или вызывает LookupError."""
 
     return registry.get(queue)
 
@@ -283,7 +283,7 @@ def enqueue_task(
     base_retry_delay: int | None = None,
     max_retry_delay: int | None = None,
 ) -> WorkerTask:
-    """Create a queued task with defaults derived from queue settings."""
+    """Создает задачу в очереди с настройками по умолчанию, взятыми из настроек очереди."""
 
     queue_name = queue.lower()
     settings = queue_settings(queue_name)
@@ -313,7 +313,7 @@ def enqueue_task(
 
 
 def make_worker_id(queue: str) -> str:
-    """Generate deterministic-ish worker id using hostname and pid."""
+    """Генерирует (относительно) детерминированный ID воркера, используя имя хоста и PID."""
 
     hostname = socket.gethostname().split(".")[0]
     pid = os.getpid()
@@ -328,7 +328,7 @@ def make_runner(
     batch_size: int = 1,
     idle_sleep: float = 1.0,
 ) -> WorkerRunner:
-    """Convenience factory to build runner using registry when handler not provided."""
+    """Фабрика для сборки исполнителя, использующая реестр, если обработчик не предоставлен."""
 
     if handler is None:
         handler = get_handler(queue)

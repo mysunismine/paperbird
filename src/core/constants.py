@@ -1,4 +1,4 @@
-"""Shared constants used across the Paperbird project."""
+"""Общие константы, используемые в проекте Paperbird."""
 
 from __future__ import annotations
 

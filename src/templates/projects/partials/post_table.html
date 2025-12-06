@@ -38,6 +38,9 @@
           {% with display_text=post.display_message %}
             {% if display_text %}
               <div class="text-body">{{ display_text|truncatechars:500|linebreaksbr }}</div>
+              <div class="mt-2">
+                <a class="link-primary" href="{% url 'feed-post-detail' project.id post.id %}">Открыть полностью</a>
+              </div>
             {% else %}
               <span class="text-muted">Текст отсутствует</span>
             {% endif %}

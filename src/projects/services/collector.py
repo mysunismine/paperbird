@@ -30,12 +30,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CollectOptions:
+    """Параметры сбора."""
+
     limit: int = DEFAULT_COLLECT_LIMIT
     with_media: bool = True
 
 
 @dataclass
 class StoredMedia:
+    """Результат загрузки медиа из Telegram."""
     """Результат загрузки медиа из Telegram."""
 
     media_type: str
@@ -51,6 +54,7 @@ class PostCollector:
         self.options = options or CollectOptions()
 
     async def collect_for_project(self, project: Project) -> None:
+        """Выполняет сбор постов для проекта."""
         factory = TelethonClientFactory(user=self.user)
         sources = await sync_to_async(list)(
         project.sources.filter(is_active=True, type=Source.Type.TELEGRAM).order_by("id")
@@ -127,6 +131,7 @@ class PostCollector:
             )()
 
     async def _process_message(self, *, message: Message, source: Source) -> bool:
+        """Обрабатывает одно сообщение из Telegram."""
         message_text = message.message or ""
         if message_text and not source.matches_keywords(message_text):
             return False
@@ -178,6 +183,7 @@ class PostCollector:
         media_path: str,
         media_bytes: bytes | None,
     ) -> None:
+        """Сохраняет пост в базу данных."""
         with transaction.atomic():
             Post.create_or_update(
                 project=source.project,
@@ -239,10 +245,12 @@ class PostCollector:
         )
 
     def _media_storage_path(self, *, source: Source, message_id: int, extension: str) -> Path:
+        """Генерирует путь для хранения медиафайла."""
         filename = f"{message_id}_{uuid.uuid4().hex}{extension}"
         return Path("uploads") / "media" / str(source.project_id or "0") / str(source.pk or "0") / filename
 
     def _resolve_media_extension(self, message: Message) -> str:
+        """Определяет расширение файла медиа по информации сообщения."""
         file_info = getattr(message, "file", None)
         extension = ""
         if file_info is not None:
@@ -337,6 +345,7 @@ async def collect_for_user_live(
     interval: int = 60,
 ) -> None:
     """Постоянный сбор постов с указанным интервалом опроса."""
+    """Постоянный сбор постов с указанным интервалом опроса."""
 
     delay = max(interval, 5)
     while True:
@@ -396,7 +405,7 @@ def collect_for_all_users_sync(
 
 
 def _normalize_raw(value):
-    """Recursively convert unsupported JSON types (e.g., datetime) to strings."""
+    """Рекурсивно преобразует неподдерживаемые типы JSON (например, datetime) в строки."""
 
     if isinstance(value, dict):
         return {key: _normalize_raw(sub) for key, sub in value.items()}

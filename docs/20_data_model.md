@@ -32,15 +32,27 @@
 | created_at  | datetime       | да    | Дата создания                            |
 
 ### Project
-| Поле        | Тип            | Обяз. | Описание                                  |
-|-------------|----------------|-------|--------------------------------------------|
-| id          | UUID / int     | да    | Уникальный идентификатор проекта           |
-| user_id     | UUID / int     | да    | Владелец (User)                            |
-| name        | str            | да    | Название проекта                           |
-| description | str            | нет   | Описание                                   |
-| filters     | JSON/dict      | нет   | Фильтры для сбора данных                   |
-| params      | JSON/dict      | нет   | Прочие параметры проекта                   |
-| created_at  | datetime       | да    | Дата создания                              |
+| Поле                          | Тип            | Обяз. | Описание                                                          |
+|-------------------------------|----------------|-------|-------------------------------------------------------------------|
+| id                            | UUID / int     | да    | Уникальный идентификатор проекта                                  |
+| owner_id                      | UUID / int     | да    | Владелец (User)                                                   |
+| name                          | str            | да    | Название проекта                                                  |
+| description                   | str            | нет   | Описание                                                          |
+| is_active                     | bool           | да    | Активен ли проект                                                 |
+| publish_target                | str            | нет   | Целевой канал для публикации (например, @my_channel)              |
+| locale                        | str            | да    | Локаль для форматирования даты и времени (например, ru_RU)        |
+| time_zone                     | str            | да    | Часовой пояс проекта (например, Europe/Moscow)                    |
+| rewrite_model                 | str            | да    | Модель GPT для рерайта                                            |
+| image_model                   | str            | да    | Модель для генерации изображений                                  |
+| image_size                    | str            | да    | Размер генерируемых изображений                                   |
+| image_quality                 | str            | да    | Качество генерируемых изображений                                 |
+| retention_days                | int            | да    | Срок хранения постов в днях                                       |
+| collector_enabled             | bool           | да    | Включен ли сборщик постов                                         |
+| collector_telegram_interval   | int            | да    | Интервал опроса Telegram-источников в секундах                    |
+| collector_web_interval        | int            | да    | Интервал запуска веб-парсера в секундах                           |
+| collector_last_run            | datetime       | нет   | Время последнего запуска сборщика                                 |
+| created_at                    | datetime       | да    | Дата создания                                                     |
+| updated_at                    | datetime       | да    | Дата последнего обновления                                        |
 
 ### Source
 | Поле        | Тип            | Обяз. | Описание                                    |
@@ -154,8 +166,9 @@ User
   "user_id": "f8c1a2b4-1234-4f6c-9a01-111111111111",
   "name": "Новости ИТ",
   "description": "Сбор новостей из Telegram-каналов",
-  "filters": {"lang": "ru"},
-  "params": {"interval": "1h"},
+  "locale": "ru_RU",
+  "time_zone": "Europe/Moscow",
+  "publish_target": "@it_news_channel",
   "created_at": "2024-05-01T11:00:00Z"
 }
 ```

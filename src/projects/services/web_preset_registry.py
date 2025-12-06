@@ -1,4 +1,4 @@
-"""Registry and validation helpers for web collector presets."""
+"""Реестр и вспомогательные функции валидации для пресетов веб-сборщика."""
 
 from __future__ import annotations
 
@@ -23,12 +23,12 @@ logger = logging.getLogger(__name__)
 
 
 class PresetValidationError(RuntimeError):
-    """Raised when preset payload is not valid JSON or violates schema."""
+    """Вызывается, когда полезная нагрузка пресета не является валидным JSON или нарушает схему."""
 
 
 @dataclass(slots=True)
 class PresetMetadata:
-    """Normalized metadata extracted from a preset payload."""
+    """Нормализованные метаданные, извлеченные из полезной нагрузки пресета."""
 
     name: str
     version: str
@@ -37,7 +37,7 @@ class PresetMetadata:
 
 
 class WebPresetValidator:
-    """Validates preset payloads using JSON Schema."""
+    """Валидирует полезные нагрузки пресетов с использованием JSON-схемы."""
 
     def __init__(self) -> None:
         schema = load_web_preset_schema()
@@ -46,7 +46,7 @@ class WebPresetValidator:
         self._validator = Draft202012Validator(schema)
 
     def validate(self, payload: dict[str, Any]) -> PresetMetadata:
-        """Validate payload and return normalized metadata."""
+        """Валидирует полезную нагрузку и возвращает нормализованные метаданные."""
 
         try:
             self._validator.validate(payload)
@@ -65,7 +65,7 @@ class WebPresetValidator:
 
 
 class WebPresetRegistry:
-    """Stores presets, enforces schema validation, and toggles status."""
+    """Хранит пресеты, обеспечивает валидацию схемы и переключает статус."""
 
     def __init__(self, validator: WebPresetValidator | None = None) -> None:
         self.validator = validator or WebPresetValidator()
@@ -76,7 +76,7 @@ class WebPresetRegistry:
         *,
         activate: bool = True,
     ) -> WebPreset:
-        """Parse JSON payload, validate, and persist preset."""
+        """Парсит JSON-полезную нагрузку, валидирует и сохраняет пресет."""
 
         data = self._parse(payload)
         meta = self.validator.validate(data)
@@ -102,6 +102,7 @@ class WebPresetRegistry:
 
     @staticmethod
     def _parse(payload: str | bytes) -> dict[str, Any]:
+        """Парсит JSON-полезную нагрузку."""
         try:
             if isinstance(payload, bytes):
                 payload = payload.decode("utf-8")
@@ -110,7 +111,7 @@ class WebPresetRegistry:
             raise PresetValidationError(f"Некорректный JSON: {exc}") from exc
 
     def _refresh_source_snapshots(self, *, preset: WebPreset, snapshot: dict[str, Any]) -> None:
-        """Update snapshots for all sources linked to the preset."""
+        """Обновляет снимки для всех источников, связанных с пресетом."""
 
         sources = list(Source.objects.filter(web_preset=preset).only("pk"))
         if not sources:

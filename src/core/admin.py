@@ -1,4 +1,4 @@
-"""Admin registration for core worker models."""
+"""Регистрация моделей воркера в админ-панели."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ from .models import WorkerTask, WorkerTaskAttempt
 
 @admin.register(WorkerTask)
 class WorkerTaskAdmin(admin.ModelAdmin):
+    """Настройки админ-панели для фоновых задач."""
+
     list_display = (
         "id",
         "queue",
@@ -34,7 +36,7 @@ class WorkerTaskAdmin(admin.ModelAdmin):
         "last_error_payload",
     )
     fieldsets = (
-        (None, {"fields": ("queue", "status", "priority", "payload", "result")} ),
+        (None, {"fields": ("queue", "status", "priority", "payload", "result")}),
         (
             "Execution",
             {
@@ -74,6 +76,8 @@ class WorkerTaskAdmin(admin.ModelAdmin):
 
 @admin.register(WorkerTaskAttempt)
 class WorkerTaskAttemptAdmin(admin.ModelAdmin):
+    """Настройки админ-панели для попыток выполнения задач."""
+
     list_display = (
         "id",
         "task",

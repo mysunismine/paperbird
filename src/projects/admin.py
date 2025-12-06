@@ -7,6 +7,8 @@ from projects.models import Post, Project, Source, SourceSyncLog, WebPreset
 
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
+    """Настройки админ-панели для проектов."""
+
     list_display = ("name", "owner", "is_active", "created_at")
     list_filter = ("is_active", "created_at")
     search_fields = ("name", "owner__username", "owner__email")
@@ -15,6 +17,8 @@ class ProjectAdmin(admin.ModelAdmin):
 
 @admin.register(Source)
 class SourceAdmin(admin.ModelAdmin):
+    """Настройки админ-панели для источников."""
+
     list_display = (
         "project",
         "title",
@@ -38,6 +42,8 @@ class SourceAdmin(admin.ModelAdmin):
 
 @admin.register(Post)
 class PostAdmin(admin.ModelAdmin):
+    """Настройки админ-панели для постов."""
+
     list_display = (
         "origin_type",
         "telegram_id",
@@ -57,6 +63,8 @@ class PostAdmin(admin.ModelAdmin):
 
 @admin.register(SourceSyncLog)
 class SourceSyncLogAdmin(admin.ModelAdmin):
+    """Настройки админ-панели для логов синхронизации."""
+
     list_display = ("source", "status", "fetched_messages", "skipped_messages", "started_at")
     list_filter = ("status", "source__project")
     search_fields = ("source__title", "source__username")
@@ -65,6 +73,8 @@ class SourceSyncLogAdmin(admin.ModelAdmin):
 
 @admin.register(WebPreset)
 class WebPresetAdmin(admin.ModelAdmin):
+    """Настройки админ-панели для веб-пресетов."""
+
     list_display = ("name", "version", "status", "schema_version", "updated_at")
     list_filter = ("status",)
     search_fields = ("name", "version", "description")

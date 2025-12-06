@@ -1,4 +1,4 @@
-"""Helpers for refreshing Telegram source metadata."""
+"""Вспомогательные утилиты для обновления метаданных источников Telegram."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from projects.models import Source
 
 
 def enqueue_source_refresh(source: Source, *, scheduled_for=None) -> WorkerTask:
-    """Schedule background task to refresh metadata for the given source."""
+    """Планирует фоновую задачу для обновления метаданных указанного источника."""
 
     return enqueue_task(
         WorkerTask.Queue.SOURCE,

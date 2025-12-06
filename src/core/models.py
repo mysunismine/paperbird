@@ -1,4 +1,4 @@
-"""Core domain models: worker tasks and their execution attempts."""
+"""Основные доменные модели: фоновые задачи и попытки их выполнения."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ from core.constants import (
 
 
 class WorkerTask(models.Model):
-    """Persistent representation of background tasks handled by workers."""
+    """Персистентное представление фоновых задач, обрабатываемых воркерами."""
 
     class Queue(models.TextChoices):
         COLLECTOR = "collector", "Collector"
@@ -115,7 +115,7 @@ class WorkerTask(models.Model):
 
     @classmethod
     def reserve(cls, *, queue: str, worker_id: str, limit: int = 1) -> list[WorkerTask]:
-        """Reserve tasks for execution by locking records."""
+        """Резервирует задачи для выполнения, блокируя записи."""
 
         now = timezone.now()
         with transaction.atomic():
@@ -135,7 +135,7 @@ class WorkerTask(models.Model):
 
     @classmethod
     def revive_stale(cls, *, queue: str, max_age_seconds: int) -> int:
-        """Return count of tasks moved back to queued state if lock expired."""
+        """Возвращает количество задач, возвращенных в очередь, если их блокировка истекла."""
 
         if max_age_seconds <= 0:
             return 0
@@ -156,7 +156,7 @@ class WorkerTask(models.Model):
     # --- статусы --------------------------------------------------------------
 
     def _mark_running_now(self, *, worker_id: str, now) -> None:
-        """Internal helper to mark task as running inside a transaction."""
+        """Внутренний метод для пометки задачи как выполняющейся внутри транзакции."""
 
         self.status = self.Status.RUNNING
         self.locked_by = worker_id
@@ -177,7 +177,7 @@ class WorkerTask(models.Model):
         )
 
     def mark_succeeded(self, *, result: dict[str, Any] | None = None) -> None:
-        """Persist success result and log the attempt."""
+        """Сохраняет успешный результат и логирует попытку."""
 
         now = timezone.now()
         started_at = self.started_at
@@ -212,7 +212,7 @@ class WorkerTask(models.Model):
         error_payload: dict[str, Any] | None = None,
         retry_in: timedelta | int | float | None = None,
     ) -> None:
-        """Requeue task with exponential backoff and log failure attempt."""
+        """Переводит задачу в очередь с экспоненциальной задержкой и логирует неудачную попытку."""
 
         delay = self._compute_retry_delay(retry_in=retry_in)
         now = timezone.now()
@@ -258,7 +258,7 @@ class WorkerTask(models.Model):
         error_message: str,
         error_payload: dict[str, Any] | None = None,
     ) -> None:
-        """Mark task as permanently failed."""
+        """Помечает задачу как окончательно проваленную."""
 
         now = timezone.now()
         started_at = self.started_at
@@ -309,7 +309,7 @@ class WorkerTask(models.Model):
         return timedelta(seconds=int(clamped_seconds))
 
     def can_retry(self) -> bool:
-        """Returns True when task has remaining retry budget."""
+        """Возвращает True, если у задачи остались попытки для повторного выполнения."""
 
         return self.attempts < self.max_attempts
 
@@ -346,7 +346,7 @@ class WorkerTask(models.Model):
 
 
 class WorkerTaskAttempt(models.Model):
-    """Audit log for worker task attempts."""
+    """Журнал аудита попыток выполнения фоновых задач."""
 
     task = models.ForeignKey(
         WorkerTask,
@@ -435,3 +435,4 @@ def queue_settings(queue: str) -> QueueSettings:
     """Возвращает настройки для указанной очереди."""
 
     return QUEUE_DEFAULTS.get(queue, QueueSettings())
+

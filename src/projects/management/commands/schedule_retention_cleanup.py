@@ -1,4 +1,4 @@
-"""Enqueue maintenance tasks to purge expired posts."""
+"""Ставит в очередь задачи обслуживания для удаления просроченных постов."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Helpers for configuring and rendering project prompts."""
+"""Вспомогательные утилиты для настройки и рендеринга промтов проекта."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ DEFAULT_PROMPT_SECTIONS: dict[str, str] = {
 
 @dataclass(slots=True)
 class RenderedPrompt:
-    """Result of rendering prompt fragments."""
+    """Результат рендеринга фрагментов промта."""
 
     sections: list[tuple[str, str]]
 
@@ -113,13 +113,13 @@ class RenderedPrompt:
 
 
 def default_prompt_payload() -> dict[str, str]:
-    """Returns a copy of the default sections."""
+    """Возвращает копию секций промта по умолчанию."""
 
     return DEFAULT_PROMPT_SECTIONS.copy()
 
 
 def ensure_prompt_config(project: Project) -> ProjectPromptConfig:
-    """Ensures a prompt config exists for the project."""
+    """Убеждается, что конфигурация промта существует для проекта."""
 
     config, _ = ProjectPromptConfig.objects.get_or_create(
         project=project,
@@ -137,7 +137,7 @@ def render_prompt(
     preset_instruction: str = "",
     preview_mode: bool = False,
 ) -> RenderedPrompt:
-    """Render prompt sections with replacements."""
+    """Рендерит секции промта с заменами."""
 
     config = ensure_prompt_config(project)
     datetime_context = build_project_datetime_context(project)
@@ -253,6 +253,6 @@ def _render_editor_comment(
 
 
 def tokens_help() -> list[tuple[str, str]]:
-    """Returns available template tokens and their meaning."""
+    """Возвращает доступные токены шаблона и их значения."""
 
     return list(PROMPT_TEMPLATE_TOKENS.items())

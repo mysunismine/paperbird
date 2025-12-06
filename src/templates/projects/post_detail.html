@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Пост проекта {{ project.name }} — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-start mb-3 gap-3">
+    <div>
+      <h1 class="h4 mb-1">Пост из проекта «{{ project.name }}»</h1>
+      <p class="text-muted mb-0">
+        {{ post.posted_at|date:"d.m.Y H:i" }}
+        • {{ post.source.title|default:post.source.username|default:post.source.telegram_id|default:"Источник" }}
+        {% if post.origin_type == "telegram" %}
+          • Telegram
+        {% else %}
+          • Web
+        {% endif %}
+      </p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-secondary" href="{% url 'feed-detail' project.id %}">К ленте</a>
+      {% if post.external_link %}
+        <a class="btn btn-primary" href="{{ post.external_link }}" target="_blank" rel="noopener">Открыть оригинал</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="d-flex flex-wrap gap-3 mb-3 align-items-center text-muted small">
+        <span class="badge text-bg-light">ID {{ post.origin_identifier|default:post.id }}</span>
+        <span class="badge text-bg-light">{{ post.get_status_display }}</span>
+        {% if post.language and post.language != "unknown" %}
+          <span class="badge text-bg-light">Язык: {{ post.get_language_display }}</span>
+        {% endif %}
+        {% if post.has_media %}
+          <span class="badge text-bg-light">С медиа</span>
+        {% endif %}
+      </div>
+
+      <div class="mb-4">
+        {% if post.display_message %}
+          <div class="fs-5" style="white-space: pre-line;">{{ post.display_message }}</div>
+        {% else %}
+          <p class="text-muted mb-0">Текст поста отсутствует.</p>
+        {% endif %}
+      </div>
+
+      {% if media_items %}
+        <div class="border-top pt-3">
+          <h2 class="h6 mb-3">Медиа</h2>
+          <div class="d-flex flex-wrap gap-3">
+            {% for item in media_items %}
+              <a
+                href="{{ item.url }}"
+                target="_blank"
+                rel="noopener"
+                class="post-media-thumb border rounded overflow-hidden d-flex align-items-center justify-content-center"
+                style="width: 200px; height: 150px;"
+                aria-label="{% if item.kind == 'video' %}Открыть видео{% else %}Открыть изображение{% endif %}"
+              >
+                {% if item.kind == "video" %}
+                  <div class="w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-body-secondary text-muted">
+                    <div class="fs-1 lh-1">▶</div>
+                    <div class="small fw-semibold text-uppercase">Видео</div>
+                  </div>
+                {% else %}
+                  <img
+                    src="{{ item.url }}"
+                    alt="Медиа поста"
+                    loading="lazy"
+                    class="img-fluid h-100 w-100 object-fit-cover"
+                  />
+                {% endif %}
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

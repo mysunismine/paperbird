@@ -1,4 +1,4 @@
-"""Utilities for handling project-specific locale and timezone preferences."""
+"""Утилиты для обработки настроек локали и часового пояса проекта."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def _format_offset(delta: timedelta) -> str:
 
 
 def resolve_timezone(value: str | None):
-    """Returns a tzinfo for the provided label or raises ValueError."""
+    """Возвращает объект tzinfo для заданной метки или вызывает ValueError."""
 
     label = (value or "").strip() or "UTC"
     try:
@@ -49,6 +49,7 @@ def resolve_timezone(value: str | None):
 
 
 def is_timezone_valid(value: str | None) -> bool:
+    """Проверяет, является ли часовой пояс корректным."""
     try:
         resolve_timezone(value)
         return True
@@ -57,6 +58,7 @@ def is_timezone_valid(value: str | None) -> bool:
 
 
 def format_datetime_for_locale(moment: datetime, locale: str | None) -> str:
+    """Форматирует дату и время в соответствии с локалью."""
     locale = (locale or "").lower()
     if locale.startswith("ru"):
         return moment.strftime("%d.%m.%Y %H:%M")
@@ -64,7 +66,7 @@ def format_datetime_for_locale(moment: datetime, locale: str | None) -> str:
 
 
 def build_project_datetime_context(project) -> dict[str, Any]:
-    """Returns a dictionary with localized date/time strings for a project."""
+    """Возвращает словарь с локализованными строками даты/времени для проекта."""
 
     tz_label = project.time_zone or "UTC"
     try:

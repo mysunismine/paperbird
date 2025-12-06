@@ -1,4 +1,4 @@
-"""Run multiple collector queues from a single process."""
+"""Запускает несколько очередей сборщиков в одном процессе."""
 
 from __future__ import annotations
 
@@ -11,47 +11,47 @@ from core.services.worker import make_runner
 
 
 class Command(BaseCommand):
-    help = "Run Telegram and web collectors together"
+    help = "Запускает Telegram- и веб-сборщики вместе"
 
     def add_arguments(self, parser) -> None:
         parser.add_argument(
             "--queues",
             nargs="+",
             default=["collector", "collector_web"],
-            help="List of queues to process (defaults to collector and collector_web)",
+            help="Список очередей для обработки (по умолчанию collector и collector_web)",
         )
         parser.add_argument(
             "--worker-prefix",
             dest="worker_prefix",
             default="collectors",
-            help="Prefix for worker ids (queue name is appended)",
+            help="Префикс для ID воркеров (добавляется имя очереди)",
         )
         parser.add_argument(
             "--batch-size",
             dest="batch_size",
             type=int,
             default=1,
-            help="Tasks reserved per iteration for each queue",
+            help="Количество задач, резервируемых за итерацию для каждой очереди",
         )
         parser.add_argument(
             "--sleep",
             dest="idle_sleep",
             type=float,
             default=1.0,
-            help="Sleep duration when no queues produced work",
+            help="Длительность паузы, когда ни одна очередь не произвела работы",
         )
         parser.add_argument(
             "--once",
             action="store_true",
             dest="run_once",
-            help="Process a single batch for all queues and exit",
+            help="Обработать одну пачку для всех очередей и выйти",
         )
         parser.add_argument(
             "--iterations",
             dest="iterations",
             type=int,
             default=None,
-            help="Optional limit on loop iterations (useful for tests)",
+            help="Опциональное ограничение на количество итераций цикла (полезно для тестов)",
         )
 
     def handle(self, *args, **options):

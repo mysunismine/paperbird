@@ -63,6 +63,7 @@ class PostFilterOptions:
     languages: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
+        """Обрабатывает параметры после инициализации."""
         self.statuses = {status for status in self.statuses if status}
         self.include_keywords = _normalize_keyword_set(self.include_keywords)
         self.exclude_keywords = _normalize_keyword_set(self.exclude_keywords)
