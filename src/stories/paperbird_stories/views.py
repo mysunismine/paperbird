@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import mimetypes
+from pathlib import Path
 from typing import Any, Sequence
 
 from django.conf import settings
@@ -515,6 +517,7 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             generate_form=self._generate_form_initial(),
             attach_form=None,
             delete_form=self._delete_form(),
+            source_media=self._source_media(),
         )
         return self.render_to_response(context)
 
@@ -527,6 +530,8 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             return self._handle_attach(request)
         if action == "remove":
             return self._handle_remove(request)
+        if action == "attach_source":
+            return self._handle_attach_source(request)
         messages.error(request, "Неизвестное действие")
         return redirect("stories:detail", pk=self.object.pk)
 
@@ -584,6 +589,7 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             preview=preview,
             attach_form=attach_form,
             delete_form=self._delete_form(),
+            source_media=self._source_media(),
         )
         return self.render_to_response(context)
 
@@ -624,6 +630,7 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             attach_form=form,
             preview=preview,
             delete_form=self._delete_form(),
+            source_media=self._source_media(),
         )
         return self.render_to_response(context)
 
@@ -635,6 +642,35 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             return redirect("stories:detail", pk=self.object.pk)
         messages.error(request, "Не удалось удалить изображение")
         return redirect("stories:detail", pk=self.object.pk)
+
+    def _handle_attach_source(self, request):
+        post_id = request.POST.get("post_id")
+        if not post_id or not str(post_id).isdigit():
+            messages.error(request, "Некорректный идентификатор поста.")
+            return redirect("stories:image", pk=self.object.pk)
+
+        post = get_object_or_404(
+            self.object.ordered_posts().select_related("source"),
+            pk=int(post_id),
+        )
+        media = self._find_post_media(post)
+        if not media:
+            messages.error(request, "У поста нет доступного медиафайла.")
+            return redirect("stories:image", pk=self.object.pk)
+
+        try:
+            data = media["path"].read_bytes()
+        except OSError:
+            messages.error(request, "Не удалось прочитать файл медиа.")
+            return redirect("stories:image", pk=self.object.pk)
+
+        prompt = f"Оригинальное изображение из поста #{post.id}"
+        self.object.attach_image(prompt=prompt, data=data, mime_type=media["mime"])
+        messages.success(
+            request,
+            f"Изображение из поста «{post}» прикреплено к сюжету.",
+        )
+        return redirect("stories:image", pk=self.object.pk)
 
     def _generate_form_initial(
         self,
@@ -664,3 +700,43 @@ class StoryImageView(LoginRequiredMixin, DetailView):
         if self.object.image_file:
             return StoryImageDeleteForm()
         return None
+
+    def _source_media(self) -> list[dict[str, Any]]:
+        media: list[dict[str, Any]] = []
+        posts = self.object.ordered_posts().select_related("source")
+        for post in posts:
+            candidate = self._find_post_media(post)
+            if candidate:
+                media.append(candidate)
+        return media
+
+    def _find_post_media(self, post):
+        path_value = (post.media_path or "").strip()
+        if not path_value:
+            return None
+
+        root = Path(settings.MEDIA_ROOT or ".").resolve()
+        media_path = Path(path_value)
+        if not media_path.is_absolute():
+            media_path = root / media_path
+        try:
+            resolved = media_path.resolve()
+        except (OSError, RuntimeError):
+            return None
+
+        if root and not str(resolved).startswith(str(root)):
+            return None
+        if not resolved.exists() or not resolved.is_file():
+            return None
+
+        mime, _ = mimetypes.guess_type(str(resolved))
+        if mime and not mime.startswith("image/"):
+            return None
+
+        return {
+            "post": post,
+            "path": resolved,
+            "mime": mime or "image/jpeg",
+            "url": post.media_url,
+            "file_name": resolved.name,
+        }

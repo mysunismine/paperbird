@@ -171,7 +171,18 @@
               "type": "string"
             },
             "images": {
-              "type": "string"
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                }
+              ]
             },
             "canonical_url": {
               "type": "string"

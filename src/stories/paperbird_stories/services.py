@@ -17,7 +17,7 @@ import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from django.conf import settings
 from django.db import transaction
@@ -418,13 +418,45 @@ class OpenAIChatProvider:
 
         try:
             choice = data["choices"][0]
-            content = choice["message"]["content"]
+            message = choice["message"]
             response_id = data.get("id")
-            parsed = json.loads(content)
-        except (KeyError, json.JSONDecodeError, IndexError) as exc:
+            parsed = self._parse_message(message)
+        except (KeyError, json.JSONDecodeError, IndexError, TypeError, ValueError) as exc:
             raise RewriteFailed("Некорректный ответ OpenAI") from exc
 
         return ProviderResponse(result=parsed, raw=data, response_id=response_id)
+
+    @staticmethod
+    def _parse_message(message: dict[str, Any]) -> dict:
+        parsed = message.get("parsed")
+        if isinstance(parsed, dict):
+            return parsed
+
+        content = message.get("content")
+        text = OpenAIChatProvider._extract_text(content)
+        if not text:
+            raise ValueError("Ответ OpenAI не содержит текста")
+        return json.loads(text)
+
+    @staticmethod
+    def _extract_text(content: Any) -> str:
+        if isinstance(content, str):
+            return content.strip()
+
+        parts: list[str] = []
+        if isinstance(content, dict):
+            candidate = content.get("text") or content.get("content")
+            if isinstance(candidate, str):
+                parts.append(candidate)
+        elif isinstance(content, list):
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    candidate = item.get("text") or item.get("content")
+                    if isinstance(candidate, str):
+                        parts.append(candidate)
+        return "\n".join(part.strip() for part in parts if part.strip())
 
 
 class YandexGPTProvider:

@@ -1,0 +1,69 @@
+{
+  "name": "ria_animals",
+  "version": "1.0.0",
+  "description": "РИА Новости — рубрика «Животные»",
+  "schema_version": 1,
+  "match": {
+    "domains": ["ria.ru"],
+    "include": ["https://ria.ru/tag_zhivotnye_3/"]
+  },
+  "fetch": {
+    "timeout_sec": 15,
+    "rate_limit_rps": 0.5,
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      "Accept-Language": "ru,en;q=0.9"
+    },
+    "robots_policy": "respect"
+  },
+  "render": {
+    "enabled": false
+  },
+  "list_page": {
+    "seeds": ["https://ria.ru/tag_zhivotnye_3/"],
+    "selectors": {
+      "items": "#content > div > div.layout-rubric__main > div > div.list.list-tags > div",
+      "url": "div.list-item__content > a.list-item__title.color-font-hover-only@href",
+      "title": "div.list-item__content > a.list-item__title.color-font-hover-only"
+    }
+  },
+  "article_page": {
+    "selectors": {
+      "title": "#endless div.layout-article__main div.article__header > div.article__title",
+      "summary": "#endless div.layout-article__main div.article__header > h1.article__second-title",
+      "content": "#endless div.layout-article__main div.article__body div.article__text, #endless div.layout-article__main div.article__body .photoview__desc-text*",
+      "images": [
+        "#endless div.layout-article__main div.article__body img@src*",
+        "#endless div.layout-article__main div.article__body .photoview__open@data-photoview-src*",
+        "#endless div.layout-article__main div.article__header .media img@src*"
+      ],
+      "published_at": "meta[property=\"article:published_time\"]@content"
+    },
+    "cleanup": {
+      "remove": [
+        "script",
+        "style",
+        "aside",
+        "div.article__aggr",
+        "div.mia-analytics",
+        "div.media__after",
+        "div.media script",
+        "noscript"
+      ]
+    },
+    "normalize": {
+      "make_absolute_urls": true
+    }
+  },
+  "tests": [
+    {
+      "url": "https://ria.ru/20251101/kapibary-2052442204.html",
+      "expect": {
+        "title_contains": "Капибары",
+        "content_min_len": 500,
+        "images_count_min": 1
+      }
+    }
+  ]
+}

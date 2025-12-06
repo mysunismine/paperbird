@@ -51,6 +51,7 @@ from stories.paperbird_stories.services import (
     _strip_code_fence,
     _openai_temperature_for_model,
     build_prompt,
+    OpenAIChatProvider,
     OpenAIImageProvider,
     YandexArtProvider,
     YandexGPTProvider,
@@ -116,6 +117,7 @@ class PromptBuilderTests(TestCase):
             telegram_id=1,
             message="Текст поста",
             posted_at=timezone.now(),
+            canonical_url="https://example.com/news/1",
         )
         messages = build_prompt(
             posts=[post],
@@ -128,6 +130,7 @@ class PromptBuilderTests(TestCase):
         self.assertIn("НОВОСТЬ #1", messages[1]["content"])
         self.assertIn("Сжать до 5 предложений", messages[1]["content"])
         self.assertIn("Заголовок", messages[1]["content"])
+        self.assertIn("https://example.com/news/1", messages[1]["content"])
 
 
 class StoryRewriterTests(TestCase):
@@ -655,6 +658,46 @@ class StoryImageViewTests(TestCase):
             stored_path = os.path.join(settings.MEDIA_ROOT, self.story.image_file.name)
             self.assertTrue(os.path.exists(stored_path))
 
+    def test_attach_source_uses_post_media(self) -> None:
+        media_root = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(media_root, ignore_errors=True))
+        source = Source.objects.create(project=self.project, telegram_id=1)
+        media_rel_path = os.path.join("uploads", "media", "photo.png")
+        full_path = os.path.join(media_root, media_rel_path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "wb") as handle:
+            handle.write(b"original-image")
+
+        post = Post.objects.create(
+            project=self.project,
+            source=source,
+            telegram_id=123,
+            message="Пост с фото",
+            posted_at=timezone.now(),
+            has_media=True,
+            media_path=media_rel_path,
+        )
+        self.story.attach_posts([post])
+
+        with override_settings(MEDIA_ROOT=media_root, MEDIA_URL="/media/"):
+            response = self.client.post(
+                reverse("stories:image", kwargs={"pk": self.story.pk}),
+                data={
+                    "action": "attach_source",
+                    "post_id": post.pk,
+                },
+                follow=True,
+            )
+
+            self.assertEqual(response.status_code, HTTPStatus.OK)
+            self.story.refresh_from_db()
+            self.assertTrue(self.story.image_file)
+            stored_path = os.path.join(media_root, self.story.image_file.name)
+            self.assertTrue(os.path.exists(stored_path))
+            with open(stored_path, "rb") as saved:
+                self.assertEqual(saved.read(), b"original-image")
+            self.assertIn("Оригинальное изображение", self.story.image_prompt)
+
 
     def test_remove_action_deletes_file(self) -> None:
         media_root = tempfile.mkdtemp()
@@ -701,6 +744,62 @@ class RewriteHelperTests(SimpleTestCase):
     def test_openai_temperature_for_gpt5(self) -> None:
         self.assertEqual(_openai_temperature_for_model("gpt-5"), 1.0)
         self.assertEqual(_openai_temperature_for_model("gpt-4o-mini"), OPENAI_DEFAULT_TEMPERATURE)
+
+
+class OpenAIChatProviderParsingTests(SimpleTestCase):
+    class _FakeResponse:
+        def __init__(self, payload: dict) -> None:
+            self.body = json.dumps(payload).encode("utf-8")
+
+        def read(self):
+            return self.body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    @override_settings(OPENAI_API_KEY="sk-test")
+    def test_parses_list_based_content(self) -> None:
+        payload = {
+            "id": "chatcmpl-list",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": '{"title": "Hi", "content": "Body"}'},
+                        ],
+                    }
+                }
+            ],
+        }
+        provider = OpenAIChatProvider(model="gpt-5")
+        with patch("urllib.request.urlopen", return_value=self._FakeResponse(payload)):
+            response = provider.run(messages=[{"role": "user", "content": "Hello"}])
+        self.assertEqual(response.result["title"], "Hi")
+        self.assertEqual(response.response_id, "chatcmpl-list")
+
+    @override_settings(OPENAI_API_KEY="sk-test")
+    def test_uses_parsed_payload_when_available(self) -> None:
+        payload = {
+            "id": "chatcmpl-parsed",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [],
+                        "parsed": {"title": "From parsed", "content": "Structured"},
+                    }
+                }
+            ],
+        }
+        provider = OpenAIChatProvider(model="gpt-5")
+        with patch("urllib.request.urlopen", return_value=self._FakeResponse(payload)):
+            response = provider.run(messages=[{"role": "user", "content": "Hello"}])
+        self.assertEqual(response.result["title"], "From parsed")
+        self.assertEqual(response.response_id, "chatcmpl-parsed")
 
 
 class StoryViewTests(TestCase):

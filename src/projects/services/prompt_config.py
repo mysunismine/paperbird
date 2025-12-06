@@ -216,8 +216,23 @@ def _render_documents(
     blocks: list[str] = []
     for index, post in enumerate(posts, start=1):
         body = (post.message or "").strip() or "(пустой текст)"
-        blocks.append(f"НОВОСТЬ #{index}:\n{body}")
+        link = _preferred_link(post)
+        if link:
+            blocks.append(f"НОВОСТЬ #{index}:\n{body}\nСсылка на источник: {link}")
+        else:
+            blocks.append(f"НОВОСТЬ #{index}:\n{body}")
     return "\n\n".join(blocks)
+
+
+def _preferred_link(post: Post) -> str:
+    if post.canonical_url:
+        return post.canonical_url
+    if post.source_url:
+        return post.source_url
+    link = getattr(post, "external_link", None)
+    if isinstance(link, str) and link.strip():
+        return link.strip()
+    return ""
 
 
 def _render_editor_comment(

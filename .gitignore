@@ -15,5 +15,3 @@ media/
 # Tooling
 .ruff_cache/
 
-# Presets
-presets/

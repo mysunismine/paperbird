@@ -6,7 +6,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone as dt_timezone
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 try:  # pragma: no cover - optional dependency guard
@@ -460,21 +460,33 @@ class WebCollector:
     def _extract_images(
         self,
         soup: BeautifulSoup,
-        expression: str | None,
+        expression: str | Sequence[str] | None,
         base_url: str,
         media_cfg: dict[str, Any],
     ) -> list[str]:
         if not expression:
             return []
-        result = self.selector.extract(soup, expression)
-        if not isinstance(result, list):
-            result = [result]
+        expressions = [expression] if isinstance(expression, str) else [expr for expr in expression if expr]
+        values: list[str] = []
+        for expr in expressions:
+            try:
+                result = self.selector.extract(soup, expr)
+            except LookupError:
+                continue
+            if isinstance(result, list):
+                values.extend(result)
+            elif result:
+                values.append(result)
         prefix = ((media_cfg.get("images") or {}).get("prefix")) or base_url
-        urls = []
-        for value in result:
+        urls: list[str] = []
+        seen: set[str] = set()
+        for value in values:
             if not value:
                 continue
             candidate = normalize_url(prefix, value)
+            if candidate in seen:
+                continue
+            seen.add(candidate)
             urls.append(candidate)
         if (media_cfg.get("images") or {}).get("strip_tracking_params"):
             urls = [strip_tracking_params(u) for u in urls]

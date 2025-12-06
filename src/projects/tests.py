@@ -1300,6 +1300,45 @@ class WebCollectorTests(TestCase):
         self.assertIn("Первый абзац текста", post.message)
         self.assertIn("Второй абзац", post.message)
 
+    def test_collect_merges_multiple_image_selectors(self) -> None:
+        multi_preset = make_preset_payload("multi_images")
+        multi_preset["article_page"]["selectors"]["images"] = [
+            "div.body img@src*",
+            "div.body .gallery@data-src*",
+        ]
+        checksum = hashlib.sha256(
+            json.dumps(multi_preset, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        preset = WebPreset.objects.create(
+            name=multi_preset["name"],
+            version=multi_preset["version"],
+            schema_version=1,
+            status=WebPreset.Status.ACTIVE,
+            checksum=checksum,
+            config=multi_preset,
+        )
+        source = Source.objects.create(
+            project=self.project,
+            type=Source.Type.WEB,
+            title="Images source",
+            web_preset=preset,
+            web_preset_snapshot=multi_preset,
+            is_active=True,
+        )
+        self.fetcher.responses["https://example.com/article-1"] = """
+        <html><body>
+          <div class="body">
+            <img src="/images/photo.jpg" />
+            <div class="gallery" data-src="https://cdn.example.com/extra.jpg"></div>
+          </div>
+        </body></html>
+        """
+        collector = WebCollector(fetcher=self.fetcher)
+        collector.collect(source)
+        post = Post.objects.get(source=source)
+        self.assertIn("https://example.com/images/photo.jpg", post.images_manifest)
+        self.assertIn("https://cdn.example.com/extra.jpg", post.images_manifest)
+
 
 class CollectProjectWebSourcesTaskTests(TestCase):
     def setUp(self) -> None:

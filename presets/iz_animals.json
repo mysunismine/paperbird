@@ -1,0 +1,90 @@
+{
+  "name": "izvestia_zhivotnye",
+  "version": "1.0.0",
+  "description": "Рубрика «Животные» на iz.ru",
+  "schema_version": 1,
+  "match": {
+    "domains": [
+      "iz.ru",
+      "www.iz.ru"
+    ],
+    "include": [
+      "https://iz.ru/tag/zhivotnye"
+    ]
+  },
+  "fetch": {
+    "timeout_sec": 20,
+    "rate_limit_rps": 0.5,
+    "headers": {
+      "User-Agent": "PaperbirdWebCollector/1.0 (+https://paperbird.ai)"
+    },
+    "robots_policy": "respect"
+  },
+  "render": {
+    "enabled": false
+  },
+  "list_page": {
+    "seeds": [
+      "https://iz.ru/tag/zhivotnye"
+    ],
+    "url_prefix": "https://iz.ru",
+    "selectors": {
+      "items": "#__layout > div > div > div > div.page-wrapper > section > div > div.tabs-content meta[itemprop='mainEntityOfPage']",
+      "url": "@content"
+    },
+    "pagination": {
+      "type": "none",
+      "max_pages": 1
+    }
+  },
+  "article_page": {
+    "selectors": {
+      "title": "#block-purple-content h1[itemprop='headline'] span",
+      "content": "#block-purple-content div.text-article div[itemprop='articleBody'], #block-purple-content div.text-article .text-article__inside",
+      "images": [
+        "#block-purple-content div.text-article div[itemprop='articleBody'] img@src*",
+        "#block-purple-content div.text-article div[itemprop='articleBody'] img@data-src*",
+        "#block-purple-content div.text-article .text-article__inside img@data-src*",
+        "#block-purple-content .big_photo__img img@data-src?",
+        "#block-purple-content .big_photo__img link[itemprop='url contentUrl']@href?"
+      ]
+    },
+    "cleanup": {
+      "remove": [
+        "#block-purple-content .article_buttons_block",
+        "#block-purple-content .voice_text",
+        "#block-purple-content .switch",
+        "#block-purple-content .more_style_one",
+        "#block-purple-content .share_bottom2",
+        "#block-purple-content .text-article__share",
+        "#block-purple-content .recommendation-block",
+        "#block-purple-content .layer-156899108290698944",
+        "#block-purple-content .layer-159981936089648000-2",
+        "#block-purple-content .dzen-fos",
+        "#block-purple-content .dzen-fos__wrapper"
+      ]
+    },
+    "normalize": {
+      "html_to_md": true,
+      "collapse_whitespace": true,
+      "make_absolute_urls": true,
+      "strip_tracking_params": true
+    },
+    "media": {
+      "images": {
+        "prefix": "https://cdn.iz.ru",
+        "min_width": 640
+      }
+    }
+  },
+  "tests": [
+    {
+      "url": "https://iz.ru/1989040/uchenye-rasskazali-o-sposobnosti-shmelei-raspoznavat-azbuku-morze-izi",
+      "expect": {
+        "title_contains": "шмелей",
+        "content_min_len": 1000,
+        "images_count_min": 1
+      }
+    }
+  ]
+}
