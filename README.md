@@ -150,7 +150,7 @@ flake8
 
 ## Создатель
 
-Меня зовут Андрей Удалов, я python-backend разработчик.
+Меня зовут Андрей Удалов, я Python backend разработчик.
 
 Мой ник в телеграме [@mysunismine](https://t.me/mysunismine)
 
