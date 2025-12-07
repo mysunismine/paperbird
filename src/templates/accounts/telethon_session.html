@@ -7,100 +7,94 @@
     <div class="col-lg-7 col-xl-6">
       <div class="d-flex justify-content-between align-items-start mb-4">
         <div>
-          <h1 class="h4 mb-1">Генерация Telethon-сессии</h1>
-          <p class="text-muted mb-0">Сервис проведёт через авторизацию Telegram и сохранит строковую сессию автоматически.</p>
+          <h1 class="h3 mb-1">Генерация Telethon-сессии</h1>
+          <p class="text-muted mb-0">Мастер авторизации в Telegram для сохранения сессии.</p>
         </div>
         <a class="btn btn-outline-secondary" href="{% url 'accounts:profile' %}">К профилю</a>
       </div>
 
-      {% if step == "start" %}
-        <div class="card shadow-sm mb-4">
-          <div class="card-body">
+      <div class="card shadow-sm">
+        <div class="card-header bg-light">
+          {# Visual Stepper #}
+          <div class="nav nav-pills d-flex justify-content-center">
+            <div class="nav-item flex-fill text-center">
+              <div class="nav-link {% if step == 'start' %}active{% else %}text-muted{% endif %}" style="border-radius: 0.375rem 0 0 0.375rem;">
+                <span class="badge rounded-pill {% if step == 'start' %}bg-primary{% else %}bg-secondary{% endif %} me-2">1</span>
+                Ввод номера
+              </div>
+            </div>
+            <div class="nav-item flex-fill text-center">
+              <div class="nav-link {% if step == 'code' %}active{% else %}text-muted bg-light{% endif %}" style="border-radius: 0 0.375rem 0.375rem 0;">
+                <span class="badge rounded-pill {% if step == 'code' %}bg-primary{% else %}bg-secondary{% endif %} me-2">2</span>
+                Подтверждение
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card-body p-4">
+          {% if step == "start" %}
+            {# Step 1 Form #}
             <h2 class="h5">Шаг 1. Подтвердите номер</h2>
             <p class="text-muted small">Мы отправим код в Telegram (или SMS) на указанный номер. Убедитесь, что у вас под рукой телефон или десктоп-клиент.</p>
             <form method="post" novalidate>
               {% csrf_token %}
               <input type="hidden" name="step" value="start" />
               {% if start_form.non_field_errors %}
-                <div class="alert alert-danger" role="alert">
-                  {% for error in start_form.non_field_errors %}
-                    <div>{{ error }}</div>
-                  {% endfor %}
-                </div>
+                <div class="alert alert-danger" role="alert">{{ start_form.non_field_errors|join:", " }}</div>
               {% endif %}
               <div class="mb-3">
                 <label class="form-label" for="{{ start_form.phone.id_for_label }}">{{ start_form.phone.label }}</label>
                 {{ start_form.phone }}
-                {% if start_form.phone.help_text %}
-                  <div class="form-text">{{ start_form.phone.help_text }}</div>
-                {% endif %}
-                {% for error in start_form.phone.errors %}
-                  <div class="invalid-feedback d-block">{{ error }}</div>
-                {% endfor %}
+                {% if start_form.phone.help_text %}<div class="form-text">{{ start_form.phone.help_text }}</div>{% endif %}
+                {% for error in start_form.phone.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
               </div>
               <div class="mb-4 form-check">
                 {{ start_form.force_sms }}
                 <label class="form-check-label" for="{{ start_form.force_sms.id_for_label }}">{{ start_form.force_sms.label }}</label>
-                {% if start_form.force_sms.help_text %}
-                  <div class="form-text">{{ start_form.force_sms.help_text }}</div>
-                {% endif %}
-                {% for error in start_form.force_sms.errors %}
-                  <div class="invalid-feedback d-block">{{ error }}</div>
-                {% endfor %}
+                {% if start_form.force_sms.help_text %}<div class="form-text">{{ start_form.force_sms.help_text }}</div>{% endif %}
               </div>
-              <button type="submit" class="btn btn-primary">Отправить код</button>
+              <button type="submit" class="btn btn-primary w-100">
+                <i class="bi bi-send me-1"></i>Отправить код
+              </button>
             </form>
-          </div>
-        </div>
-      {% else %}
-        <div class="card shadow-sm mb-4">
-          <div class="card-body">
+          {% else %}
+            {# Step 2 Form #}
             <h2 class="h5">Шаг 2. Введите код</h2>
             <p class="text-muted small mb-3">Код для номера <strong>{{ phone }}</strong> уже отправлен. Если у вас включена двухфакторная защита, приготовьте пароль.</p>
             <form method="post" novalidate class="mb-3">
               {% csrf_token %}
               <input type="hidden" name="step" value="code" />
               {% if code_form.non_field_errors %}
-                <div class="alert alert-danger" role="alert">
-                  {% for error in code_form.non_field_errors %}
-                    <div>{{ error }}</div>
-                  {% endfor %}
-                </div>
+                <div class="alert alert-danger" role="alert">{{ code_form.non_field_errors|join:", " }}</div>
               {% endif %}
               <div class="mb-3">
                 <label class="form-label" for="{{ code_form.code.id_for_label }}">{{ code_form.code.label }}</label>
                 {{ code_form.code }}
-                {% for error in code_form.code.errors %}
-                  <div class="invalid-feedback d-block">{{ error }}</div>
-                {% endfor %}
+                {% for error in code_form.code.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
               </div>
               <div class="mb-3">
                 <label class="form-label" for="{{ code_form.password.id_for_label }}">{{ code_form.password.label }}</label>
                 {{ code_form.password }}
-                {% if code_form.password.help_text %}
-                  <div class="form-text">{{ code_form.password.help_text }}</div>
-                {% endif %}
-                {% for error in code_form.password.errors %}
-                  <div class="invalid-feedback d-block">{{ error }}</div>
-                {% endfor %}
+                {% if code_form.password.help_text %}<div class="form-text">{{ code_form.password.help_text }}</div>{% endif %}
+                {% for error in code_form.password.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
               </div>
               <div class="d-flex gap-2">
-                <button type="submit" class="btn btn-primary">Подтвердить</button>
+                <button type="submit" class="btn btn-primary">
+                  <i class="bi bi-check-circle me-1"></i>Подтвердить
+                </button>
                 <button type="submit" name="cancel" value="1" class="btn btn-outline-secondary">Начать заново</button>
               </div>
             </form>
-            <form method="post" class="d-inline">
-              {% csrf_token %}
-              <input type="hidden" name="step" value="start" />
-              <input type="hidden" name="phone" value="{{ phone }}" />
-              <button type="submit" class="btn btn-sm btn-outline-primary">Отправить код повторно</button>
-            </form>
+          {% endif %}
+        </div>
+        <div class="card-footer bg-light-subtle">
+          <div class="alert alert-info small d-flex mb-0" role="alert">
+            <i class="bi bi-shield-check me-2"></i>
+            <div>
+              <strong>Важно:</strong> Paperbird не сохраняет пароль от Telegram. Мы используем его только для завершения авторизации на вашей стороне.
+            </div>
           </div>
         </div>
-      {% endif %}
-
-      <div class="alert alert-info small" role="alert">
-        <strong>Важно:</strong> Paperbird не сохраняет пароль от Telegram. Мы используем его только для завершения авторизации на вашей стороне.
       </div>
     </div>
   </div>

@@ -5,7 +5,13 @@ from .feed import ProjectPostDetailView, ProjectPostListView
 from .projects import ProjectCreateView, ProjectListView
 from .prompts import ProjectPromptExportView, ProjectPromptsView
 from .settings import ProjectSettingsView
-from .sources import ProjectSourceCreateView, ProjectSourcesView, ProjectSourceUpdateView
+from .sources import (
+    ProjectSourceCreateView,
+    ProjectSourceDetailView,
+    ProjectSourcesView,
+    ProjectSourceUpdateView,
+    delete_source,
+)
 
 __all__ = [
     "ProjectCollectorQueueView",
@@ -17,6 +23,8 @@ __all__ = [
     "ProjectPromptsView",
     "ProjectSettingsView",
     "ProjectSourceCreateView",
+    "ProjectSourceDetailView",
     "ProjectSourcesView",
     "ProjectSourceUpdateView",
+    "delete_source",
 ]

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import mimetypes
+import uuid
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
+import httpx
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -100,6 +105,7 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         publish_initial = {}
         if self.object.project.publish_target:
             publish_initial["target"] = self.object.project.publish_target
+        publish_initial.setdefault("media_order", "after")
         context.setdefault("publish_form", StoryPublishForm(initial=publish_initial))
         context["publish_blocked"] = not bool(self.object.project.publish_target)
         context["project_settings_url"] = reverse(
@@ -107,7 +113,10 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         )
         context["publications"] = self.object.publications.order_by("-created_at")
         context["last_task"] = self.object.rewrite_tasks.first()
-        context["story_posts"] = self.object.story_posts.select_related("post", "post__source")
+        story_posts = list(self.object.story_posts.select_related("post", "post__source"))
+        for story_post in story_posts:
+            story_post.can_attach = self._can_attach_media(story_post.post)
+        context["story_posts"] = story_posts
         context["can_edit_content"] = self.object.status in {
             Story.Status.READY,
             Story.Status.PUBLISHED,
@@ -135,6 +144,8 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             return self._handle_publish(request)
         if action == "save":
             return self._handle_save(request)
+        if action == "attach_media":
+            return self._handle_attach_media(request)
             messages.error(request, "Неизвестное действие")
         return redirect(self.get_success_url())
 
@@ -284,11 +295,15 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             return redirect(self._build_success_url(step="publish"))
 
         target = form.cleaned_data["target"]
+        media_order = form.cleaned_data.get("media_order") or "after"
         publish_at = form.cleaned_data.get("publish_at")
         try:
             publisher: StoryPublisher = default_publisher_for_story(self.object)
             publication = publisher.publish(
-                self.object, target=target, scheduled_for=publish_at
+                self.object,
+                target=target,
+                scheduled_for=publish_at,
+                media_order=media_order,
             )
         except (PublicationFailed, TelethonCredentialsMissingError) as exc:
             messages.error(request, f"Публикация не удалась: {exc}")
@@ -319,6 +334,173 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             text,
             extra_tags="inline rewrite",
         )
+
+    def _handle_attach_media(self, request):
+        """Прикрепляет медиа поста к сюжету для публикации."""
+        selected_ids = request.POST.getlist("media_post_id")
+        if not selected_ids:
+            messages.error(request, "Выберите медиа, чтобы прикрепить его к сюжету.")
+            return redirect(self._build_success_url(step="rewrite"))
+
+        posts_qs = self.object.ordered_posts().select_related("source")
+        posts = posts_qs.filter(id__in=[int(value) for value in selected_ids if value.isdigit()])
+        for post in posts:
+            media_info = self._find_post_media(post, allow_download=True)
+            if not media_info:
+                continue
+            try:
+                data = media_info["path"].read_bytes()
+            except OSError:
+                continue
+            try:
+                self.object.attach_image(
+                    prompt="",
+                    data=data,
+                    mime_type=media_info["mime"],
+                )
+            except Exception as exc:
+                messages.error(request, f"Не удалось прикрепить изображение: {exc}")
+                return redirect(self._build_success_url(step="rewrite"))
+            messages.success(request, "Медиа прикреплено: будет отправлено после текста.")
+            return redirect(self._build_success_url(step="rewrite"))
+
+        messages.error(request, "Не удалось найти локальный файл среди выбранных медиа.")
+        return redirect(self._build_success_url(step="rewrite"))
+
+    def _find_post_media(self, post, *, allow_download: bool = False):
+        """Возвращает информацию о локальном медиафайле поста, если он доступен."""
+        path_value = self._candidate_media_path(post)
+        if not path_value and allow_download:
+            external = self._first_external_image(post)
+            if external:
+                return self._download_external_media(post, external)
+        if not path_value:
+            return None
+
+        root = Path(settings.MEDIA_ROOT or ".").resolve()
+        media_path = Path(path_value)
+        if not media_path.is_absolute():
+            media_path = root / media_path
+        try:
+            resolved = media_path.resolve()
+        except (OSError, RuntimeError):
+            return None
+
+        if root and not str(resolved).startswith(str(root)):
+            return None
+        if not resolved.exists() or not resolved.is_file():
+            return None
+
+        mime, _ = mimetypes.guess_type(str(resolved))
+        if mime and not mime.startswith("image/"):
+            return None
+
+        return {
+            "path": resolved,
+            "mime": mime or "image/jpeg",
+        }
+
+    def _candidate_media_path(self, post) -> str | None:
+        """Определяет путь к медиа поста или извлекает его из локального URL."""
+        media_prefix = (settings.MEDIA_URL or "").rstrip("/")
+        path_value = (post.media_path or "").strip()
+        if path_value:
+            normalized = self._normalize_media_path(path_value, media_prefix)
+            if normalized:
+                return normalized
+
+        if not media_prefix:
+            return None
+
+        for item in getattr(post, "media_items", []):
+            url = ""
+            if isinstance(item, dict):
+                url = (item.get("url") or "").strip()
+            elif isinstance(item, str):
+                url = item.strip()
+            if not url:
+                continue
+            relative = self._relative_media_path(url, media_prefix)
+            if relative:
+                return relative
+        return None
+
+    def _can_attach_media(self, post) -> bool:
+        if self._find_post_media(post, allow_download=False):
+            return True
+        return bool(self._first_external_image(post))
+
+    @staticmethod
+    def _first_external_image(post) -> str | None:
+        for item in getattr(post, "media_items", []):
+            url = item.get("url") if isinstance(item, dict) else item
+            if not url:
+                continue
+            parsed = urlparse(url)
+            if parsed.scheme in {"http", "https"}:
+                return url
+        return None
+
+    def _download_external_media(self, post, url: str):
+        timeout = float(getattr(settings, "OPENAI_IMAGE_TIMEOUT", 60))
+        try:
+            response = httpx.get(url, timeout=timeout)
+        except Exception:
+            return None
+        if response.status_code != 200 or not response.content:
+            return None
+
+        content_type = response.headers.get("content-type") or ""
+        mime = content_type.split(";")[0].strip() if content_type else ""
+        if mime and not mime.startswith("image/"):
+            return None
+
+        extension = (
+            mimetypes.guess_extension(mime)
+            or Path(urlparse(url).path).suffix
+            or ".jpg"
+        )
+        filename = f"{post.id}_{uuid.uuid4().hex}{extension}"
+        relative_path = (
+            Path("uploads")
+            / "media"
+            / str(post.project_id or "0")
+            / str(post.source_id or "0")
+            / filename
+        )
+        absolute_root = Path(settings.MEDIA_ROOT or ".")
+        absolute_path = absolute_root / relative_path
+        absolute_path.parent.mkdir(parents=True, exist_ok=True)
+        absolute_path.write_bytes(response.content)
+
+        post.media_path = relative_path.as_posix()
+        if mime:
+            post.media_type = mime
+        post.save(update_fields=["media_path", "media_type", "updated_at"])
+
+        return {
+            "path": absolute_path,
+            "mime": mime or "image/jpeg",
+        }
+
+    @staticmethod
+    def _relative_media_path(url: str, media_prefix: str) -> str | None:
+        return StoryDetailView._normalize_media_path(url, media_prefix)
+
+    @staticmethod
+    def _normalize_media_path(path_value: str, media_prefix: str) -> str | None:
+        raw = (path_value or "").strip()
+        if not raw:
+            return None
+        parsed = urlparse(raw)
+        prefix = (media_prefix or "").rstrip("/")
+        path_part = parsed.path if (parsed.scheme or parsed.netloc) else raw
+        if prefix and path_part.startswith(prefix):
+            trimmed = path_part[len(prefix) :].lstrip("/")
+            return trimmed or None
+        if parsed.scheme or parsed.netloc:
+            return None
+        return raw or None
 
     def _derive_step(self, requested_step: str | None) -> str:
         available = {"sources", "prompt", "rewrite", "publish"}

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.views.generic import TemplateView
 
 from core.models import WorkerTask
-from core.services.worker import enqueue_task
 from projects.models import Project
 
 
@@ -17,7 +17,14 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
     """Отображает очередь задач коллектора для проекта."""
 
     template_name = "projects/project_queue.html"
+    partial_template_name = "projects/partials/task_list.html"
     queues = [WorkerTask.Queue.COLLECTOR, WorkerTask.Queue.COLLECTOR_WEB]
+
+    def get_template_names(self):
+        """Возвращает частичный шаблон при AJAX-запросе."""
+        if self.request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return [self.partial_template_name]
+        return [self.template_name]
 
     def dispatch(self, request, *args, **kwargs):
         """Проверяет права доступа к проекту и инициализирует его."""
@@ -72,7 +79,10 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
         if task.status == WorkerTask.Status.RUNNING:
             messages.error(self.request, "Сначала остановите задачу, затем запустите снова.")
             return
-        enqueue_task(
+        # Импортируем здесь, чтобы позволить тестам патчить projects.views.feed.enqueue_task
+        from projects.views import feed
+
+        feed.enqueue_task(
             task.queue,
             payload=task.payload,
             scheduled_for=timezone.now(),
@@ -80,16 +90,39 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
         messages.success(self.request, "Новая задача поставлена в очередь.")
 
     def get_context_data(self, **kwargs):
-        """Формирует контекст для шаблона."""
+        """Формирует контекст для шаблона, включая агрегированную статистику."""
         context = super().get_context_data(**kwargs)
-        tasks = (
-            WorkerTask.objects.filter(queue__in=self.queues, payload__project_id=self.project.id)
-            .order_by("-available_at", "-id")
+        tasks_qs = WorkerTask.objects.filter(
+            queue__in=self.queues, payload__project_id=self.project.id
         )
+
+        # Aggregate stats for the dashboard
+        stats = tasks_qs.aggregate(
+            failed=Count("id", filter=Q(status=WorkerTask.Status.FAILED)),
+            running=Count("id", filter=Q(status=WorkerTask.Status.RUNNING)),
+            queued=Count("id", filter=Q(status=WorkerTask.Status.QUEUED)),
+            total=Count("id"),
+        )
+        overall_status = "ok" if stats["failed"] == 0 else "error"
+
+        # Sort tasks to show failures first, then running, then queued
+        tasks = tasks_qs.annotate(
+            status_order=Case(
+                When(status=WorkerTask.Status.FAILED, then=Value(1)),
+                When(status=WorkerTask.Status.RUNNING, then=Value(2)),
+                When(status=WorkerTask.Status.QUEUED, then=Value(3)),
+                default=Value(4),
+                output_field=IntegerField(),
+            )
+        ).order_by("status_order", "-available_at")
+
         context.update(
             {
                 "project": self.project,
                 "tasks": tasks,
+                "stats": stats,
+                "overall_status": overall_status,
+                "last_refreshed": timezone.now(),
             }
         )
         return context

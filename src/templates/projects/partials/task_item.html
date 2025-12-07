@@ -1,0 +1,114 @@
+{% load humanize %}
+<div class="list-group-item px-3">
+  <div class="d-flex w-100 align-items-start">
+    {# STATUS ICON #}
+    <div class="me-3">
+      {% if task.status == 'failed' %}
+        <i class="bi bi-x-circle-fill h4 text-danger"></i>
+      {% elif task.status == 'running' %}
+        <div class="spinner-border spinner-border-sm text-primary" role="status">
+          <span class="visually-hidden">Выполняется...</span>
+        </div>
+      {% elif task.status == 'queued' %}
+        <i class="bi bi-clock-history h4 text-muted"></i>
+      {% else %}
+        <i class="bi bi-question-circle h4 text-secondary"></i>
+      {% endif %}
+    </div>
+
+    {# MAIN INFO #}
+    <div class="flex-grow-1">
+      <div class="d-flex justify-content-between">
+        <h3 class="h6 mb-1">
+          {% if task.queue == 'collector' %}
+            Сбор из Telegram
+          {% elif task.queue == 'collector_web' %}
+            Сбор из Web
+          {% else %}
+            Задача #{{ task.id }}
+          {% endif %}
+        </h3>
+        <span class="text-muted small">
+          Попытки: {{ task.attempts }}/{{ task.max_attempts }}
+        </span>
+      </div>
+      <p class="small text-muted mb-1">
+        Будет запущена: {{ task.available_at|date:"d.m.Y H:i:s" }}
+        ({{ task.available_at|naturaltime }})
+      </p>
+      {% if task.last_error_message %}
+        <div class="small text-danger text-truncate" style="max-width: 500px;">
+          <i class="bi bi-exclamation-triangle"></i>
+          {{ task.last_error_message }}
+        </div>
+      {% endif %}
+    </div>
+
+    {# ACTIONS #}
+    <div class="ms-3">
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="bi bi-three-dots-vertical"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li>
+            <button class="dropdown-item" type="button" data-bs-toggle="collapse" data-bs-target="#task-payload-{{ task.id }}">
+              <i class="bi bi-file-code me-2"></i>Параметры
+            </button>
+          </li>
+          {% if task.last_error_message %}
+            <li>
+              <button class="dropdown-item" type="button" data-bs-toggle="collapse" data-bs-target="#task-error-{{ task.id }}">
+                <i class="bi bi-bug me-2"></i>Ошибка
+              </button>
+            </li>
+          {% endif %}
+          
+          {% if task.status == 'failed' or task.status == 'cancelled' %}
+            <li><hr class="dropdown-divider" /></li>
+            <li>
+              <form method="post" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="retry_task" />
+                <input type="hidden" name="task_id" value="{{ task.id }}" />
+                <button class="dropdown-item" type="submit">
+                  <i class="bi bi-arrow-clockwise me-2"></i>Запустить снова
+                </button>
+              </form>
+            </li>
+          {% endif %}
+          
+          {% if task.status == 'queued' or task.status == 'running' %}
+            <li><hr class="dropdown-divider" /></li>
+            <li>
+              <form method="post" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="cancel_task" />
+                <input type="hidden" name="task_id" value="{{ task.id }}" />
+                <button class="dropdown-item text-danger" type="submit">
+                  <i class="bi bi-x-circle me-2"></i>Отменить
+                </button>
+              </form>
+            </li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  {# COLLAPSIBLE DETAILS #}
+  <div class="collapse mt-3" id="task-payload-{{ task.id }}">
+    <div class="bg-light p-3 rounded">
+      <h4 class="h6">Параметры (Payload)</h4>
+      <pre class="small mb-0 text-wrap"><code>{{ task.payload|pprint }}</code></pre>
+    </div>
+  </div>
+  {% if task.last_error_message %}
+    <div class="collapse mt-2" id="task-error-{{ task.id }}">
+      <div class="bg-light p-3 rounded">
+        <h4 class="h6">Полный текст ошибки</h4>
+        <pre class="small mb-0 text-wrap text-danger"><code>{{ task.last_error_message }}</code></pre>
+      </div>
+    </div>
+  {% endif %}
+</div>

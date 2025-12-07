@@ -58,6 +58,8 @@ async def collect_for_all_users(
         return await sync_to_async(list, thread_sensitive=True)(qs)
 
     async def _run_once() -> None:
+        from projects.services import collector as collector_pkg
+
         users = await _eligible_users()
         if not users:
             logger.info("collect_for_all_users_no_credentials")
@@ -66,7 +68,11 @@ async def collect_for_all_users(
             if not user.has_telethon_credentials:
                 continue
             try:
-                await collect_for_user(user, project_id=project_id, limit=limit)
+                await collector_pkg.collect_for_user(
+                    user,
+                    project_id=project_id,
+                    limit=limit,
+                )
             except TelethonCredentialsMissingError as exc:
                 logger.warning(
                     "collect_for_all_users_skipped",

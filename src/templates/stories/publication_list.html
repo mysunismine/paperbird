@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load humanize %}
 
 {% block title %}Публикации — Paperbird{% endblock %}
 
@@ -8,157 +9,168 @@
     <p class="text-muted mb-0">История отправленных и запланированных публикаций по вашим проектам.</p>
   </div>
 
+  {# TODO: Filtering logic needs to be implemented in the view #}
+  <div class="d-flex flex-wrap gap-2 border-bottom pb-3 mb-3">
+    <button class="btn btn-dark">Все</button>
+    <button class="btn btn-outline-secondary">Запланированы</button>
+    <button class="btn btn-outline-secondary">Опубликованы</button>
+    <button class="btn btn-outline-secondary">С ошибкой</button>
+  </div>
+
   {% if publication_forms %}
-    {% for item in publication_forms %}
-      {% with publication=item.0 form=item.1 %}
-        <div class="card shadow-sm mb-4">
-          <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-3">
-            <div>
-              <div class="fw-semibold">
-                <a href="{% url 'stories:detail' publication.story_id %}">{{ publication.story.title|default:"Сюжет" }}</a>
-              </div>
-              <div class="text-muted small">
-                {{ publication.story.project.name }} · Создана {{ publication.created_at|date:"d.m.Y H:i" }}
-              </div>
-            </div>
-            <div class="d-flex align-items-center gap-2">
-              <span class="badge text-bg-secondary">{{ publication.get_status_display }}</span>
-              {% if publication.message_url %}
-                <a class="btn btn-sm btn-outline-primary" href="{{ publication.message_url }}" target="_blank" rel="noopener">
-                  Открыть сообщение
+    <div class="list-group">
+      {% for item in publication_forms %}
+        {% with publication=item.0 form=item.1 %}
+          <div class="list-group-item">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-start gap-3">
+              {# Main Info #}
+              <div class="flex-grow-1">
+                <a href="{% url 'stories:detail' publication.story_id %}" class="fw-semibold text-body text-decoration-none">
+                  {{ publication.story.title|default:"Сюжет без названия" }}
                 </a>
-              {% endif %}
+                <p class="small text-muted mb-1">
+                  Проект: {{ publication.story.project.name }}
+                </p>
+                <div class="d-flex align-items-center gap-2">
+                  <i class="bi bi-send text-muted"></i>
+                  <span class="small">{{ publication.target }}</span>
+                </div>
+              </div>
+
+              {# Status & Actions #}
+              <div class="d-flex flex-column align-items-md-end" style="min-width: 220px;">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  {% if publication.status == 'published' %}
+                    <span class="badge text-bg-success">Опубликована</span>
+                  {% elif publication.status == 'scheduled' %}
+                    <span class="badge text-bg-primary">Запланирована</span>
+                  {% elif publication.status == 'failed' %}
+                    <span class="badge text-bg-danger">Ошибка</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">{{ publication.get_status_display }}</span>
+                  {% endif %}
+                  {% if publication.message_url %}
+                    <a class="btn btn-sm btn-outline-primary" href="{{ publication.message_url }}" target="_blank" rel="noopener" title="Открыть в Telegram">
+                      <i class="bi bi-telegram"></i>
+                    </a>
+                  {% endif %}
+                </div>
+                <p class="small text-muted mb-2">
+                  {% if publication.status == 'scheduled' and publication.scheduled_for %}
+                    {{ publication.scheduled_for|naturaltime }}
+                  {% else %}
+                    {{ publication.published_at|naturaltime|default:"—" }}
+                  {% endif %}
+                </p>
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    Действия <i class="bi bi-chevron-down"></i>
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li>
+                      <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editModal-{{ publication.id }}">
+                        <i class="bi bi-pencil me-2"></i>Изменить
+                      </button>
+                    </li>
+                    <li><hr class="dropdown-divider" /></li>
+                    <li>
+                      <button type="button" class="dropdown-item text-danger" data-bs-toggle="modal" data-bs-target="#deleteModal-{{ publication.id }}">
+                        <i class="bi bi-trash me-2"></i>Удалить
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="card-body">
-            <form method="post" class="mb-0">
-              {% csrf_token %}
-              <input type="hidden" name="publication_id" value="{{ publication.id }}" />
-              {% if page_obj %}
-                <input type="hidden" name="page" value="{{ page_obj.number }}" />
-              {% endif %}
-              {% for hidden in form.hidden_fields %}
-                {{ hidden }}
-              {% endfor %}
-              {% if form.non_field_errors %}
-                <div class="alert alert-danger">
-                  {% for error in form.non_field_errors %}
-                    <div>{{ error }}</div>
-                  {% endfor %}
-                </div>
-              {% endif %}
-              <div class="row g-3">
-                <div class="col-md-4">
-                  <label class="form-label" for="{{ form.status.id_for_label }}">{{ form.status.label }}</label>
-                  {{ form.status }}
-                  {% if form.status.help_text %}
-                    <div class="form-text">{{ form.status.help_text }}</div>
-                  {% endif %}
-                  {% for error in form.status.errors %}
-                    <div class="invalid-feedback d-block">{{ error }}</div>
-                  {% endfor %}
-                </div>
-                <div class="col-md-4">
-                  <label class="form-label" for="{{ form.target.id_for_label }}">{{ form.target.label }}</label>
-                  {{ form.target }}
-                  {% if form.target.help_text %}
-                    <div class="form-text">{{ form.target.help_text }}</div>
-                  {% endif %}
-                  {% for error in form.target.errors %}
-                    <div class="invalid-feedback d-block">{{ error }}</div>
-                  {% endfor %}
-                </div>
-                <div class="col-md-4">
-                  <label class="form-label" for="{{ form.scheduled_for.id_for_label }}">{{ form.scheduled_for.label }}</label>
-                  {{ form.scheduled_for }}
-                  {% if form.scheduled_for.help_text %}
-                    <div class="form-text">{{ form.scheduled_for.help_text }}</div>
-                  {% endif %}
-                  {% for error in form.scheduled_for.errors %}
-                    <div class="invalid-feedback d-block">{{ error }}</div>
-                  {% endfor %}
-                </div>
-              </div>
-              <div class="row g-3 mt-0">
-                <div class="col-md-4">
-                  <label class="form-label" for="{{ form.published_at.id_for_label }}">{{ form.published_at.label }}</label>
-                  {{ form.published_at }}
-                  {% if form.published_at.help_text %}
-                    <div class="form-text">{{ form.published_at.help_text }}</div>
-                  {% endif %}
-                  {% for error in form.published_at.errors %}
-                    <div class="invalid-feedback d-block">{{ error }}</div>
-                  {% endfor %}
-                </div>
-                <div class="col-md-8">
-                  <div class="small text-muted">
-                    {% if publication.message_ids %}
-                      Идентификаторы сообщений: {{ publication.message_ids|join:", " }}
-                    {% else %}
-                      Сообщения ещё не созданы.
+
+          {# Edit Modal #}
+          <div class="modal fade" id="editModal-{{ publication.id }}" tabindex="-1" aria-labelledby="editModalLabel-{{ publication.id }}" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+              <div class="modal-content">
+                <form method="post" class="mb-0">
+                  <div class="modal-header">
+                    <h1 class="modal-title fs-5" id="editModalLabel-{{ publication.id }}">Редактировать публикацию</h1>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                  </div>
+                  <div class="modal-body">
+                    {% csrf_token %}
+                    <input type="hidden" name="publication_id" value="{{ publication.id }}" />
+                    {% if page_obj %}<input type="hidden" name="page" value="{{ page_obj.number }}" />{% endif %}
+                    {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+                    {% if form.non_field_errors %}
+                      <div class="alert alert-danger">{{ form.non_field_errors|join:", " }}</div>
                     {% endif %}
+                    <div class="row g-3">
+                      <div class="col-md-4">
+                        <label class="form-label" for="{{ form.status.id_for_label }}">{{ form.status.label }}</label>
+                        {{ form.status }}
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label" for="{{ form.target.id_for_label }}">{{ form.target.label }}</label>
+                        {{ form.target }}
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label" for="{{ form.scheduled_for.id_for_label }}">{{ form.scheduled_for.label }}</label>
+                        {{ form.scheduled_for }}
+                      </div>
+                    </div>
+                    <div class="mt-3">
+                      <label class="form-label" for="{{ form.error_message.id_for_label }}">{{ form.error_message.label }}</label>
+                      {{ form.error_message }}
+                    </div>
                   </div>
-                  <div class="small text-muted">
-                    Попытки отправки: {{ publication.attempts }} · Обновлено {{ publication.updated_at|date:"d.m.Y H:i" }}
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" name="submit_action" value="save" class="btn btn-primary">Сохранить</button>
                   </div>
-                </div>
+                </form>
               </div>
-              <div class="mt-3">
-                <label class="form-label" for="{{ form.result_text.id_for_label }}">{{ form.result_text.label }}</label>
-                {{ form.result_text }}
-                {% if form.result_text.help_text %}
-                  <div class="form-text">{{ form.result_text.help_text }}</div>
-                {% endif %}
-                {% for error in form.result_text.errors %}
-                  <div class="invalid-feedback d-block">{{ error }}</div>
-                {% endfor %}
-              </div>
-              <div class="mt-3">
-                <label class="form-label" for="{{ form.error_message.id_for_label }}">{{ form.error_message.label }}</label>
-                {{ form.error_message }}
-                {% if form.error_message.help_text %}
-                  <div class="form-text">{{ form.error_message.help_text }}</div>
-                {% endif %}
-                {% for error in form.error_message.errors %}
-                  <div class="invalid-feedback d-block">{{ error }}</div>
-                {% endfor %}
-              </div>
-              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-4">
-                <div class="text-muted small">
-                  ID публикации: {{ publication.id }}
-                </div>
-                <div class="d-flex gap-2">
-                  <button type="submit" name="submit_action" value="save" class="btn btn-primary">
-                    Сохранить
-                  </button>
-                  <button
-                    type="submit"
-                    name="submit_action"
-                    value="delete"
-                    class="btn btn-outline-danger"
-                    onclick="return confirm('Удалить публикацию?')"
-                  >
-                    Удалить
-                  </button>
-                </div>
-              </div>
-            </form>
+            </div>
           </div>
-        </div>
-      {% endwith %}
-    {% endfor %}
+
+          {# Delete Modal #}
+          <div class="modal fade" id="deleteModal-{{ publication.id }}" tabindex="-1" aria-labelledby="deleteModalLabel-{{ publication.id }}" aria-hidden="true">
+            <div class="modal-dialog">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h1 class="modal-title fs-5" id="deleteModalLabel-{{ publication.id }}">Подтвердите удаление</h1>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                  Вы уверены, что хотите удалить эту запись о публикации?
+                </div>
+                <div class="modal-footer">
+                  <form method="post" class="mb-0">
+                    {% csrf_token %}
+                    <input type="hidden" name="publication_id" value="{{ publication.id }}" />
+                    {% if page_obj %}<input type="hidden" name="page" value="{{ page_obj.number }}" />{% endif %}
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" name="submit_action" value="delete" class="btn btn-danger">Да, удалить</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        {% endwith %}
+      {% endfor %}
+    </div>
 
     {% if is_paginated %}
       <nav aria-label="Навигация по публикациям" class="mt-4">
         <ul class="pagination">
           {% if page_obj.has_previous %}
-            <li class="page-item">
-              <a class="page-link" href="?page={{ page_obj.previous_page_number }}">Назад</a>
-            </li>
+            <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">Назад</a></li>
           {% else %}
             <li class="page-item disabled"><span class="page-link">Назад</span></li>
           {% endif %}
-          <li class="page-item disabled"><span class="page-link">Страница {{ page_obj.number }} из {{ page_obj.paginator.num_pages }}</span></li>
+          {% for i in paginator.page_range %}
+            {% if page_obj.number == i %}
+              <li class="page-item active" aria-current="page"><span class="page-link">{{ i }}</span></li>
+            {% elif i > page_obj.number|add:'-3' and i < page_obj.number|add:'3' %}
+              <li class="page-item"><a class="page-link" href="?page={{ i }}">{{ i }}</a></li>
+            {% endif %}
+          {% endfor %}
           {% if page_obj.has_next %}
             <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Вперёд</a></li>
           {% else %}

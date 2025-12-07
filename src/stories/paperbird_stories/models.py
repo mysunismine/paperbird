@@ -448,6 +448,12 @@ class Publication(models.Model):
     error_message = models.TextField("Ошибка", blank=True)
     attempts = models.PositiveIntegerField("Попытки", default=0)
     raw_response = models.JSONField("Ответ Telegram", default=dict, blank=True)
+    media_order = models.CharField(
+        "Порядок медиа",
+        max_length=10,
+        choices=[("before", "Перед текстом"), ("after", "После текста")],
+        default="after",
+    )
     created_at = models.DateTimeField("Создано", auto_now_add=True)
     updated_at = models.DateTimeField("Обновлено", auto_now=True)
 

@@ -13,8 +13,11 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from telethon.tl.custom.message import Message
-from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
+from telethon.tl.custom.message import Message as TelethonMessage
+from telethon.tl.types import (
+    MessageMediaDocument as TelethonMessageMediaDocument,
+    MessageMediaPhoto as TelethonMessageMediaPhoto,
+)
 
 from accounts.models import User
 from core.constants import DEFAULT_COLLECT_LIMIT
@@ -24,6 +27,24 @@ from projects.services.telethon_client import TelethonClientFactory
 from .utils import _normalize_raw
 
 logger = logging.getLogger(__name__)
+
+
+def _collector_message_type() -> type[TelethonMessage]:
+    from projects.services import collector as collector_pkg
+
+    return getattr(collector_pkg, "Message", TelethonMessage)
+
+
+def _collector_media_types() -> tuple[
+    type[TelethonMessageMediaPhoto],
+    type[TelethonMessageMediaDocument],
+]:
+    from projects.services import collector as collector_pkg
+
+    return (
+        getattr(collector_pkg, "MessageMediaPhoto", TelethonMessageMediaPhoto),
+        getattr(collector_pkg, "MessageMediaDocument", TelethonMessageMediaDocument),
+    )
 
 
 @dataclass
@@ -78,7 +99,7 @@ class PostCollector:
                         limit=None,
                         min_id=last_message_id,
                     ):
-                        if not isinstance(message, Message):
+                        if not isinstance(message, _collector_message_type()):
                             continue
                         message_date = getattr(message, "date", None)
                         if project_cutoff and message_date is not None:
@@ -127,7 +148,7 @@ class PostCollector:
                 ).delete()
             )()
 
-    async def _process_message(self, *, message: Message, source: Source) -> bool:
+    async def _process_message(self, *, message: TelethonMessage, source: Source) -> bool:
         """Обрабатывает одно сообщение из Telegram."""
         message_text = message.message or ""
         if message_text and not source.matches_keywords(message_text):
@@ -173,7 +194,7 @@ class PostCollector:
     def _store_post(
         *,
         source: Source,
-        message: Message,
+        message: TelethonMessage,
         message_text: str,
         raw: dict,
         media_type: str,
@@ -197,12 +218,13 @@ class PostCollector:
     async def _download_message_media(
         self,
         *,
-        message: Message,
+        message: TelethonMessage,
         source: Source,
     ) -> StoredMedia | None:
         """Скачивает и сохраняет медиа для сообщения."""
 
-        if not isinstance(message.media, MessageMediaPhoto | MessageMediaDocument):
+        media_photo, media_document = _collector_media_types()
+        if not isinstance(message.media, media_photo | media_document):
             return None
 
         try:
@@ -257,7 +279,7 @@ class PostCollector:
             / filename
         )
 
-    def _resolve_media_extension(self, message: Message) -> str:
+    def _resolve_media_extension(self, message: TelethonMessage) -> str:
         """Определяет расширение файла медиа по информации сообщения."""
         file_info = getattr(message, "file", None)
         extension = ""
@@ -270,7 +292,8 @@ class PostCollector:
             if not extension and getattr(file_info, "name", ""):
                 extension = Path(file_info.name).suffix
 
-        if not extension and isinstance(message.media, MessageMediaPhoto):
+        media_photo, _ = _collector_media_types()
+        if not extension and isinstance(message.media, media_photo):
             extension = ".jpg"
 
         if not extension:

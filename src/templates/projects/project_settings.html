@@ -3,183 +3,154 @@
 {% block title %}Настройки проекта — Paperbird{% endblock %}
 
 {% block content %}
-  <div class="row justify-content-center">
-    <div class="col-lg-8 col-xl-6">
-      <div class="mb-4">
-        <h1 class="h3 mb-1">Настройки проекта «{{ project.name }}»</h1>
-        <p class="text-muted mb-0">
-          Обновите описание, канал публикации, параметры изображений и срок хранения постов.
-        </p>
-      </div>
-      <div class="alert alert-secondary d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
-        <div>
-          <div class="fw-semibold">Промты проекта</div>
-          <div class="mb-0">Редактируйте инструкции рерайта на отдельной странице, чтобы не мешать их с настройками.</div>
+  {% with form_field_template="projects/partials/form_field.html" %}
+    <div class="row justify-content-center">
+      <div class="col-lg-8 col-xl-7">
+        <div class="mb-4">
+          <h1 class="h3 mb-1">Настройки проекта «{{ project.name }}»</h1>
+          <p class="text-muted mb-0">
+            Обновите описание, канал публикации, параметры изображений и срок хранения постов.
+          </p>
         </div>
-        <a class="btn btn-outline-primary" href="{% url 'projects:prompts' project.pk %}">Перейти к промтам</a>
-      </div>
-      <div class="card shadow-sm">
-        <div class="card-body">
-          <form method="post" novalidate>
-            {% csrf_token %}
-            {% if form.non_field_errors %}
-              <div class="alert alert-danger" role="alert">
-                {% for error in form.non_field_errors %}
-                  <div>{{ error }}</div>
-                {% endfor %}
+
+        <div class="alert alert-secondary d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-4">
+          <div>
+            <div class="fw-semibold">Промты проекта</div>
+            <p class="mb-0 small text-muted">Редактируйте инструкции рерайта на отдельной странице, чтобы не смешивать их с основными настройками.</p>
+          </div>
+          <a class="btn btn-outline-primary" href="{% url 'projects:prompts' project.pk %}">
+            <i class="bi bi-pencil-square me-1"></i>
+            Перейти к промтам
+          </a>
+        </div>
+
+        <div class="card shadow-sm">
+          <div class="card-body p-4">
+            <form method="post" novalidate>
+              {% csrf_token %}
+              {% if form.non_field_errors %}
+                <div class="alert alert-danger" role="alert">
+                  {% for error in form.non_field_errors %}
+                    <div>{{ error }}</div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              <h4 class="h5">Основные параметры</h4>
+              <hr class="mt-2 mb-4" />
+              {% include form_field_template with field=form.name %}
+              {% include form_field_template with field=form.description %}
+
+              <h4 class="h5 mt-4">Публикация и локализация</h4>
+              <hr class="mt-2 mb-4" />
+              {% include form_field_template with field=form.publish_target %}
+              <div class="row">
+                <div class="col-md-6">
+                  {% include form_field_template with field=form.locale %}
+                </div>
+                <div class="col-md-6">
+                  {% include form_field_template with field=form.time_zone %}
+                </div>
               </div>
-            {% endif %}
-            <div class="mb-3">
-              <label for="{{ form.name.id_for_label }}" class="form-label">
-                {{ form.name.label }}
-              </label>
-              {{ form.name }}
-              {% if form.name.help_text %}
-                <div class="form-text">{{ form.name.help_text }}</div>
-              {% endif %}
-              {% for error in form.name.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
+
+              <h4 class="h5 mt-4">AI-генерация</h4>
+              <hr class="mt-2 mb-4" />
+              <div class="row">
+                <div class="col-md-6">
+                  {% include form_field_template with field=form.rewrite_model %}
+                </div>
+                <div class="col-md-6">
+                  {% include form_field_template with field=form.image_model %}
+                </div>
+              </div>
+              <div class="row">
+                <div class="col-md-6">
+                  {% include form_field_template with field=form.image_size %}
+                </div>
+                <div class="col-md-6">
+                  {% include form_field_template with field=form.image_quality %}
+                </div>
+              </div>
+
+              <h4 class="h5 mt-4">Сбор данных и хранение</h4>
+              <hr class="mt-2 mb-4" />
+              <div class="row">
+                <div class="col-md-6">
+                  {% include form_field_template with field=form.collector_telegram_interval %}
+                </div>
+                <div class="col-md-6">
+                  {% include form_field_template with field=form.collector_web_interval %}
+                </div>
+              </div>
+              {% include form_field_template with field=form.retention_days %}
+
+              <div class="d-flex justify-content-end gap-2 border-top pt-4 mt-4">
+                <a class="btn btn-outline-secondary" href="{% url 'projects:list' %}">Отмена</a>
+                <button type="submit" class="btn btn-primary">
+                  <i class="bi bi-check-lg me-1"></i>
+                  Сохранить изменения
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        {# DANGER ZONE #}
+        <h4 class="h5 mt-5 text-danger">Опасная зона</h4>
+        <hr class="mt-2 mb-3" />
+        <div class="card shadow-sm border-danger">
+          <div class="card-body d-flex flex-column flex-md-row align-items-md-center justify-content-between">
+            <div>
+              <div class="fw-semibold">Удаление проекта</div>
+              <p class="mb-0 small text-muted">Это действие необратимо. Все посты, сюжеты и связанные данные будут удалены.</p>
             </div>
-            <div class="mb-4">
-              <label for="{{ form.description.id_for_label }}" class="form-label">
-                {{ form.description.label }}
-              </label>
-              {{ form.description }}
-              {% if form.description.help_text %}
-                <div class="form-text">{{ form.description.help_text }}</div>
-              {% endif %}
-              {% for error in form.description.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-4">
-              <label for="{{ form.publish_target.id_for_label }}" class="form-label">
-                {{ form.publish_target.label }}
-              </label>
-              {{ form.publish_target }}
-              {% if form.publish_target.help_text %}
-                <div class="form-text">{{ form.publish_target.help_text }}</div>
-              {% endif %}
-              {% for error in form.publish_target.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-4">
-              <label for="{{ form.locale.id_for_label }}" class="form-label">
-                {{ form.locale.label }}
-              </label>
-              {{ form.locale }}
-              {% if form.locale.help_text %}
-                <div class="form-text">{{ form.locale.help_text }}</div>
-              {% endif %}
-              {% for error in form.locale.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-4">
-              <label for="{{ form.time_zone.id_for_label }}" class="form-label">
-                {{ form.time_zone.label }}
-              </label>
-              {{ form.time_zone }}
-              {% if form.time_zone.help_text %}
-                <div class="form-text">{{ form.time_zone.help_text }}</div>
-              {% endif %}
-              {% for error in form.time_zone.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-4">
-              <label for="{{ form.rewrite_model.id_for_label }}" class="form-label">
-                {{ form.rewrite_model.label }}
-              </label>
-              {{ form.rewrite_model }}
-              {% if form.rewrite_model.help_text %}
-                <div class="form-text">{{ form.rewrite_model.help_text }}</div>
-              {% endif %}
-              {% for error in form.rewrite_model.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-4">
-              <label for="{{ form.image_model.id_for_label }}" class="form-label">
-                {{ form.image_model.label }}
-              </label>
-              {{ form.image_model }}
-              {% if form.image_model.help_text %}
-                <div class="form-text">{{ form.image_model.help_text }}</div>
-              {% endif %}
-              {% for error in form.image_model.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-4">
-              <label for="{{ form.image_size.id_for_label }}" class="form-label">
-                {{ form.image_size.label }}
-              </label>
-              {{ form.image_size }}
-              {% if form.image_size.help_text %}
-                <div class="form-text">{{ form.image_size.help_text }}</div>
-              {% endif %}
-              {% for error in form.image_size.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-4">
-              <label for="{{ form.image_quality.id_for_label }}" class="form-label">
-                {{ form.image_quality.label }}
-              </label>
-              {{ form.image_quality }}
-              {% if form.image_quality.help_text %}
-                <div class="form-text">{{ form.image_quality.help_text }}</div>
-              {% endif %}
-              {% for error in form.image_quality.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-4">
-              <label for="{{ form.retention_days.id_for_label }}" class="form-label">
-                {{ form.retention_days.label }}
-              </label>
-              {{ form.retention_days }}
-              {% if form.retention_days.help_text %}
-                <div class="form-text">{{ form.retention_days.help_text }}</div>
-              {% endif %}
-              {% for error in form.retention_days.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-4">
-              <label for="{{ form.collector_telegram_interval.id_for_label }}" class="form-label">
-                {{ form.collector_telegram_interval.label }}
-              </label>
-              {{ form.collector_telegram_interval }}
-              {% if form.collector_telegram_interval.help_text %}
-                <div class="form-text">{{ form.collector_telegram_interval.help_text }}</div>
-              {% endif %}
-              {% for error in form.collector_telegram_interval.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="mb-4">
-              <label for="{{ form.collector_web_interval.id_for_label }}" class="form-label">
-                {{ form.collector_web_interval.label }}
-              </label>
-              {{ form.collector_web_interval }}
-              {% if form.collector_web_interval.help_text %}
-                <div class="form-text">{{ form.collector_web_interval.help_text }}</div>
-              {% endif %}
-              {% for error in form.collector_web_interval.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            </div>
-            <div class="d-flex justify-content-end gap-2">
-              <a class="btn btn-outline-secondary" href="{% url 'projects:list' %}">Отмена</a>
-              <button type="submit" class="btn btn-primary">Сохранить изменения</button>
-            </div>
-          </form>
+            <button
+              type="button"
+              class="btn btn-danger mt-3 mt-md-0"
+              data-bs-toggle="modal"
+              data-bs-target="#deleteProjectModal"
+            >
+              <i class="bi bi-trash me-1"></i>
+              Удалить проект
+            </button>
+          </div>
         </div>
       </div>
     </div>
-  </div>
+
+    <!-- Modal for Delete Confirmation -->
+    <div
+      class="modal fade"
+      id="deleteProjectModal"
+      tabindex="-1"
+      aria-labelledby="deleteProjectModalLabel"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h1 class="modal-title fs-5" id="deleteProjectModalLabel">Подтвердите удаление</h1>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Close"
+            ></button>
+          </div>
+          <div class="modal-body">
+            Вы уверены, что хотите удалить проект
+            <strong>«{{ project.name }}»</strong>? Это действие нельзя будет отменить.
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+            <form method="post" action="#">
+              {# URL for project deletion should be added here #}
+              {% csrf_token %}
+              <button type="submit" class="btn btn-danger">Да, удалить</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endwith %}
 {% endblock %}

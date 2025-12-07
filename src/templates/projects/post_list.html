@@ -1,144 +1,128 @@
 {% extends "base.html" %}
+{% load humanize %}
 
 {% block title %}Лента проекта {{ project.name }} — Paperbird{% endblock %}
 
 {% block content %}
-  <div class="mb-4">
-    <h1 class="h3 mb-1">Лента проекта «{{ project.name }}»</h1>
-    <p class="text-muted mb-0">Всего {{ total_posts }} постов • Показано {{ posts|length }}</p>
-  </div>
-
+  {# Simplified Collector Status #}
   <div class="card shadow-sm mb-4">
-    <div class="card-body d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3">
-      <div>
-        <h2 class="h6 mb-1">Сборщик постов</h2>
-        {% if collector.enabled %}
-          <p class="mb-1 text-success">Сборщик активен. Telegram и веб-источники обновляются по расписанию.</p>
-        {% else %}
-          <p class="mb-1 text-warning">Сборщик остановлен. Посты не обновляются автоматически.</p>
-        {% endif %}
-        <p class="text-muted small mb-1">
-          Последний запуск: {{ collector.last_run|date:"d.m.Y H:i"|default:"—" }}
-          {% if collector.next_run and collector.enabled %}
-            • Следующий запуск: {{ collector.next_run|date:"d.m.Y H:i" }}
+    <div class="card-body">
+      <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
+        <div class="d-flex align-items-center">
+          {% if collector.enabled %}
+            <i class="bi bi-robot h2 text-success me-3"></i>
+            <div>
+              <h2 class="h6 mb-1">Сборщик активен</h2>
+              <p class="text-muted small mb-0">
+                Последний запуск: {{ collector.last_run|naturaltime|default:"—" }}
+              </p>
+            </div>
+          {% else %}
+            <i class="bi bi-robot h2 text-warning me-3"></i>
+            <div>
+              <h2 class="h6 mb-1">Сборщик остановлен</h2>
+              <p class="text-muted small mb-0">Посты не обновляются автоматически.</p>
+            </div>
           {% endif %}
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <form method="post" class="d-inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="collector_start" />
+            <button class="btn btn-sm btn-primary" type="submit" {% if collector.enabled or collector.requires_credentials and not collector.has_credentials %}disabled{% endif %}>
+              <i class="bi bi-play-fill me-1"></i>Запустить
+            </button>
+          </form>
+          <form method="post" class="d-inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="collector_stop" />
+            <button class="btn btn-sm btn-outline-secondary" type="submit" {% if not collector.enabled %}disabled{% endif %}>
+              <i class="bi bi-stop-fill me-1"></i>Остановить
+            </button>
+          </form>
+          <a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:queue' project.pk %}">
+            <i class="bi bi-card-list me-1"></i>Очередь задач
+          </a>
+        </div>
+      </div>
+      {% if collector.requires_credentials and not collector.has_credentials %}
+        <p class="text-danger small mb-0 mt-3">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i>
+          Добавьте Telethon-ключи в профиле, чтобы включить сбор Telegram-каналов.
         </p>
-        {% if collector.has_telegram_sources or collector.has_web_sources %}
-          <p class="text-muted small mb-1">
-            Обновление:
-            {% if collector.has_telegram_sources %}
-              Telegram каждые {{ collector.telegram_interval }}&nbsp;с{% if collector.has_web_sources %} • {% endif %}
-            {% endif %}
-            {% if collector.has_web_sources %}
-              веб-парсер каждые {{ collector.web_interval }}&nbsp;с
-            {% endif %}
-          </p>
-        {% endif %}
-        {% if collector.has_web_sources %}
-          <p class="text-muted small mb-1">
-            Веб-парсер:
-            {% if collector.next_web_run and collector.enabled %}
-              следующий запуск {{ collector.next_web_run|date:"d.m.Y H:i" }}
-            {% else %}
-              ожидает запуска
-            {% endif %}
-          </p>
-        {% endif %}
-        {% if collector.requires_credentials and not collector.has_credentials %}
-          <p class="text-danger small mb-0">Добавьте Telethon-ключи в профиле, чтобы включить сбор Telegram-каналов.</p>
-        {% elif not collector.has_web_sources and not collector.has_telegram_sources %}
-          <p class="text-muted small mb-0">Добавьте Telegram-канал или веб-пресет на вкладке «Источники», чтобы запустить сборщик.</p>
-        {% endif %}
-      </div>
-      <div class="d-flex flex-wrap gap-2">
-        <form method="post" class="d-inline">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="collector_start" />
-          <button
-            class="btn btn-sm btn-primary"
-            type="submit"
-            {% if collector.enabled or collector.requires_credentials and not collector.has_credentials %}disabled{% endif %}
-          >
-            Запустить сборщик
-          </button>
-        </form>
-        <form method="post" class="d-inline">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="collector_stop" />
-          <button
-            class="btn btn-sm btn-outline-secondary"
-            type="submit"
-            {% if not collector.enabled %}disabled{% endif %}
-          >
-            Остановить
-          </button>
-        </form>
-        <a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:queue' project.pk %}">Очередь задач</a>
-      </div>
+      {% endif %}
     </div>
   </div>
 
+  {# Project Switcher #}
   {% if projects %}
-    <div class="d-flex flex-wrap gap-2 mb-3">
+    <div class="d-flex flex-wrap gap-2 mb-4">
       {% for item in projects %}
-        <a
-          class="btn btn-sm {% if item.id == project.id %}btn-primary{% else %}btn-outline-secondary{% endif %}"
-          href="{% url 'feed-detail' item.id %}"
-        >
+        <a class="btn btn-sm {% if item.id == project.id %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{% url 'feed-detail' item.id %}">
           {{ item.name }}
         </a>
       {% endfor %}
     </div>
   {% endif %}
 
-  <form method="get" class="mb-3" id="filters-form" novalidate>
-    <div class="d-flex flex-wrap gap-3 align-items-end">
-      <div class="flex-grow-1">
-        <label for="search" class="form-label">Поиск</label>
-        <input type="text" class="form-control" id="search" name="search" value="{{ options.search }}" placeholder="Поиск по тексту" />
-      </div>
-      <div style="min-width: 200px;">
-        <label class="form-label" for="has_media">Медиа</label>
-        <select class="form-select" id="has_media" name="has_media">
-          <option value="" {% if options.has_media is None %}selected{% endif %}>Все посты</option>
-          <option value="true" {% if options.has_media is True %}selected{% endif %}>Только с медиа</option>
-          <option value="false" {% if options.has_media is False %}selected{% endif %}>Только текст</option>
-        </select>
-      </div>
-      <div style="min-width: 260px;">
-        <label class="form-label">Диапазон дат</label>
+  {# Sticky Filter Bar #}
+  <div class="sticky-top bg-light py-3 mb-4 rounded border" style="top: 1rem; z-index: 100;">
+    <form method="get" id="filters-form" novalidate>
+      <div class="d-flex flex-wrap gap-3 align-items-end px-3">
+        <div class="flex-grow-1">
+          <label for="search" class="form-label fw-semibold small">Поиск</label>
+          <input type="text" class="form-control" id="search" name="search" value="{{ options.search }}" placeholder="Поиск по тексту..." />
+        </div>
+        <div style="min-width: 180px;">
+          <label class="form-label fw-semibold small" for="has_media">Медиа</label>
+          <select class="form-select" id="has_media" name="has_media">
+            <option value="" {% if options.has_media is None %}selected{% endif %}>Все посты</option>
+            <option value="true" {% if options.has_media is True %}selected{% endif %}>Только с медиа</option>
+            <option value="false" {% if options.has_media is False %}selected{% endif %}>Только текст</option>
+          </select>
+        </div>
         <div class="d-flex gap-2">
-          <input type="datetime-local" class="form-control" name="date_from" value="{{ options.date_from|date:'Y-m-d\TH:i' }}" />
-          <input type="datetime-local" class="form-control" name="date_to" value="{{ options.date_to|date:'Y-m-d\TH:i' }}" />
+          <button class="btn btn-primary" type="submit">Применить</button>
+          <a class="btn btn-outline-secondary" href="{% url 'feed-detail' project.id %}">Сбросить</a>
         </div>
       </div>
-      <div class="d-flex gap-2">
-        <button class="btn btn-primary" type="submit">Применить</button>
-        <a class="btn btn-outline-secondary" href="{% url 'feed-detail' project.id %}">Сбросить</a>
+    </form>
+    <hr />
+    <div class="d-flex justify-content-between align-items-center px-3">
+      <div class="text-muted small">
+        Найдено: {{ total_posts|intcomma }} • Последнее обновление: <span id="last-updated">{{ last_refreshed|date:"H:i:s" }}</span>
       </div>
-    </div>
-  </form>
-
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div class="text-muted small">Последнее обновление: <span id="last-updated">{{ last_refreshed|date:"H:i:s" }}</span></div>
-    <div class="d-flex gap-2 align-items-center">
-      <span id="selected-counter" class="text-muted small">Ничего не выбрано</span>
-      <form id="create-story-form" action="{% url 'stories:create' %}" method="post" class="d-inline">
-        {% csrf_token %}
-        <input type="hidden" name="project" value="{{ project.id }}" />
-      </form>
-      <button type="button" class="btn btn-primary" id="create-story-btn" disabled>Сделать сюжет</button>
+      <div class="d-flex gap-2 align-items-center">
+        <span id="selected-counter" class="text-muted small">Выбрано: 0</span>
+        <form id="create-story-form" action="{% url 'stories:create' %}" method="post" class="d-inline">
+          {% csrf_token %}
+          <input type="hidden" name="project" value="{{ project.id }}" />
+        </form>
+        <button type="button" class="btn btn-primary" id="create-story-btn" disabled>
+          <i class="bi bi-magic me-1"></i>
+          Создать сюжет
+        </button>
+      </div>
     </div>
   </div>
 
-  <div id="post-table">
-    {% include "projects/partials/post_table.html" %}
+  {# Post Card Grid #}
+  <div id="post-list-container">
+    {% if posts %}
+      <div class="card-grid">
+        {% for post in posts %}
+          {% include "projects/partials/post_card.html" %}
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-info">В этом проекте пока нет постов. Убедитесь, что сборщик работает и источники настроены корректно.</div>
+    {% endif %}
   </div>
 
   <script>
     (function () {
       const projectId = {{ project.id }};
-      const tableContainer = document.getElementById("post-table");
+      const listContainer = document.getElementById("post-list-container");
       const counter = document.getElementById("selected-counter");
       const lastUpdatedEl = document.getElementById("last-updated");
       const createBtn = document.getElementById("create-story-btn");
@@ -153,7 +137,7 @@
 
       function updateCounter() {
         const count = selected.size;
-        counter.textContent = count === 0 ? "Ничего не выбрано" : `Выбрано ${count}`;
+        counter.textContent = `Выбрано: ${count}`;
         if (createBtn) {
           createBtn.disabled = count === 0;
         }
@@ -170,17 +154,17 @@
       }
 
       function attachCheckboxHandlers() {
-        const checkboxes = tableContainer.querySelectorAll('.post-select');
+        const checkboxes = listContainer.querySelectorAll('.post-select');
         const available = new Set();
         checkboxes.forEach((checkbox) => {
-          available.add(checkbox.value);
-          checkbox.checked = selected.has(checkbox.value);
+          const postId = checkbox.value;
+          available.add(postId);
+          checkbox.checked = selected.has(postId);
           checkbox.addEventListener('change', () => {
-            toggleSelection(checkbox.value, checkbox.checked);
-            syncSelectAllState();
+            toggleSelection(postId, checkbox.checked);
           });
         });
-        // remove selections that no longer exist in the table
+        // remove selections for posts that are no longer on the page
         Array.from(selected).forEach((value) => {
           if (!available.has(value)) {
             selected.delete(value);
@@ -188,51 +172,25 @@
         });
         persist();
         updateCounter();
-        syncSelectAllState();
-        const selectAll = tableContainer.querySelector('#select-all-posts');
-        if (selectAll) {
-          selectAll.addEventListener('change', () => {
-            const shouldSelect = selectAll.checked;
-            checkboxes.forEach((cb) => {
-              cb.checked = shouldSelect;
-              toggleSelection(cb.value, shouldSelect);
-            });
-            syncSelectAllState();
-          });
-        }
       }
 
-      function syncSelectAllState() {
-        const selectAll = tableContainer.querySelector('#select-all-posts');
-        if (!selectAll) {
-          return;
-        }
-        const checkboxes = Array.from(tableContainer.querySelectorAll('.post-select'));
-        if (checkboxes.length === 0) {
-          selectAll.checked = false;
-          selectAll.indeterminate = false;
-          return;
-        }
-        const checkedCount = checkboxes.filter((cb) => cb.checked).length;
-        selectAll.checked = checkedCount === checkboxes.length;
-        selectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
-      }
+      function refreshPostList() {
+        // Construct the same URL to fetch the partial content
+        const url = new URL(window.location.href);
+        url.searchParams.set('partial', 'true'); // Tell backend to render only the list
 
-      function refreshTable() {
-        fetch(window.location.href, {
+        fetch(url, {
           headers: {
             'X-Requested-With': 'XMLHttpRequest'
           },
           credentials: 'same-origin'
         })
           .then((response) => {
-            if (!response.ok) {
-              throw new Error('Failed to refresh table');
-            }
+            if (!response.ok) throw new Error('Failed to refresh list');
             return response.text();
           })
           .then((html) => {
-            tableContainer.innerHTML = html;
+            listContainer.innerHTML = html;
             lastUpdatedEl.textContent = new Date().toLocaleTimeString();
             attachCheckboxHandlers();
           })
@@ -242,9 +200,7 @@
       }
 
       function submitStory() {
-        if (!createForm) {
-          return;
-        }
+        if (!createForm) return;
         createForm.querySelectorAll('input[name="posts"]').forEach((node) => node.remove());
         selected.forEach((id) => {
           const input = document.createElement('input');
@@ -259,10 +215,12 @@
       if (createBtn) {
         createBtn.addEventListener('click', submitStory);
       }
+      
       attachCheckboxHandlers();
       updateCounter();
+
       if (autoRefreshEnabled) {
-        setInterval(refreshTable, 30000);
+        setInterval(refreshPostList, 30000);
       }
     })();
   </script>

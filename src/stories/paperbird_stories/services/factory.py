@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from projects.models import Post, Project
+from projects.services.media_downloader import ensure_post_media_local
 from stories.paperbird_stories.models import Story
 
 from .exceptions import StoryCreationError
@@ -39,6 +40,8 @@ class StoryFactory:
                 f"Посты не найдены или не принадлежат проекту: {sorted(missing)}"
             )
         posts.sort(key=lambda post: order_map[post.id])
+        for post in posts:
+            ensure_post_media_local(post)
 
         story = Story.objects.create(
             project=self.project,

@@ -18,6 +18,7 @@ from stories.paperbird_stories.services import (
     PublishResult,
     StoryFactory,
     StoryPublisher,
+    TelethonPublisherBackend,
 )
 from stories.paperbird_stories.workers import publish_story_task
 
@@ -130,6 +131,49 @@ class StoryPublisherTests(TestCase):
 
         self.story.refresh_from_db()
         self.assertEqual(self.story.status, Story.Status.DRAFT)
+
+    @patch("stories.paperbird_stories.services.publisher.TelethonClientFactory")
+    def test_publisher_uses_html_parse_mode(self, mock_factory) -> None:
+        class StubMessage:
+            def __init__(self, mid: int):
+                self.id = mid
+                self.date = timezone.now()
+
+            def to_dict(self):
+                return {"id": self.id}
+
+        class StubClient:
+            def __init__(self):
+                self.sent: list[tuple[str, str | None]] = []
+
+            async def send_message(self, target, text, parse_mode=None):
+                self.sent.append(("message", parse_mode))
+                return StubMessage(10)
+
+            async def send_file(self, target, path, caption=None, parse_mode=None):
+                self.sent.append(("file", parse_mode, caption))
+                return StubMessage(11)
+
+        class StubContext:
+            def __init__(self, client):
+                self.client = client
+
+            async def __aenter__(self):
+                return self.client
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+        stub_client = StubClient()
+        mock_factory.return_value.connect.return_value = StubContext(stub_client)
+        backend = TelethonPublisherBackend(user=self.user)
+        backend.send(
+            story=self.story,
+            text="Текст с <a href='https://x.com'>ссылкой</a>",
+            target="@ch",
+        )
+
+        self.assertIn(("message", "html"), stub_client.sent)
 
     def test_publish_serializes_raw_response(self) -> None:
         sample_dt = timezone.now()

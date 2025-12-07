@@ -1,15 +1,72 @@
 {% extends "base.html" %}
 
-{% block title %}Paperbird{% endblock %}
+{% block title %}Paperbird — Собирайте, переписывайте, публикуйте{% endblock %}
 
 {% block content %}
-  <div class="py-5 text-center">
-    <h1 class="display-6">Добро пожаловать в Paperbird</h1>
-    <p class="lead">Собирайте посты из Telegram, объединяйте их в сюжеты, запускайте рерайт и публикуйте.</p>
-    {% if user.is_authenticated %}
-      <a class="btn btn-primary btn-lg" href="{% url 'projects:list' %}">Перейти к проектам</a>
-    {% else %}
-      <a class="btn btn-outline-primary" href="{% url 'accounts:login' %}">Войдите, чтобы начать</a>
-    {% endif %}
+  {# Hero Section #}
+  <div class="px-4 py-5 my-5 text-center">
+    <div class="mb-4">
+      <i class="bi bi-feather" style="font-size: 3rem; color: var(--bs-primary);"></i>
+    </div>
+    <h1 class="display-5 fw-bold">Ваша контент-студия на базе AI</h1>
+    <div class="col-lg-6 mx-auto">
+      <p class="lead mb-4">Собирайте посты из Telegram и веб-источников, объединяйте их в сюжеты, запускайте рерайт с помощью нейросетей и публикуйте в один клик.</p>
+      <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+        {% if user.is_authenticated %}
+          <a class="btn btn-primary btn-lg px-4 gap-3" href="{% url 'projects:list' %}">
+            <i class="bi bi-folder2-open"></i>
+            Мои проекты
+          </a>
+          <a class="btn btn-outline-secondary btn-lg px-4" href="{% url 'accounts:profile' %}">Профиль</a>
+        {% else %}
+          <a class="btn btn-primary btn-lg px-4 gap-3" href="{% url 'accounts:login' %}">
+            <i class="bi bi-box-arrow-in-right"></i>
+            Войти, чтобы начать
+          </a>
+        {% endif %}
+      </div>
+    </div>
   </div>
+
+  {# Features Section #}
+  <div class="container px-4 py-5 border-top">
+    <h2 class="pb-2 border-bottom h4">Ключевые возможности</h2>
+    <div class="row g-4 py-5 row-cols-1 row-cols-lg-3">
+      <div class="col d-flex align-items-start">
+        <div class="icon-square text-body-emphasis bg-body-secondary d-inline-flex align-items-center justify-content-center fs-4 flex-shrink-0 me-3">
+          <i class="bi bi-cloud-arrow-down-fill text-primary"></i>
+        </div>
+        <div>
+          <h3 class="fs-5">Автоматический сбор</h3>
+          <p>Подключите Telegram-каналы и веб-сайты для непрерывного сбора свежих материалов в единую ленту.</p>
+        </div>
+      </div>
+      <div class="col d-flex align-items-start">
+        <div class="icon-square text-body-emphasis bg-body-secondary d-inline-flex align-items-center justify-content-center fs-4 flex-shrink-0 me-3">
+          <i class="bi bi-magic text-primary"></i>
+        </div>
+        <div>
+          <h3 class="fs-5">AI-рерайт</h3>
+          <p>Создавайте уникальные тексты из собранных новостей в один клик, используя мощные языковые модели.</p>
+        </div>
+      </div>
+      <div class="col d-flex align-items-start">
+        <div class="icon-square text-body-emphasis bg-body-secondary d-inline-flex align-items-center justify-content-center fs-4 flex-shrink-0 me-3">
+          <i class="bi bi-send-fill text-primary"></i>
+        </div>
+        <div>
+          <h3 class="fs-5">Умная публикация</h3>
+          <p>Публикуйте готовые сюжеты с текстом и медиа в ваши каналы сразу или по заранее заданному расписанию.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .icon-square {
+      width: 3rem;
+      height: 3rem;
+      border-radius: 0.75rem;
+    }
+  </style>
 {% endblock %}

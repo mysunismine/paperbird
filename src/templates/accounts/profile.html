@@ -4,23 +4,17 @@
 
 {% block content %}
   <div class="row justify-content-center">
-    <div class="col-lg-8 col-xl-6">
-      <h2 class="mb-3">Профиль</h2>
-      <p class="text-muted">Обновите контактные данные и ключи Telethon.</p>
-      <div class="card border-info-subtle bg-body-tertiary mb-4">
-        <div class="card-body">
-          <h3 class="h6 mb-2">Telethon-сессия</h3>
-          {% if user.telethon_session %}
-            <p class="text-success small mb-3">Строковая сессия сохранена. При необходимости можно перегенерировать её заново.</p>
-            <a class="btn btn-outline-primary btn-sm" href="{% url 'accounts:telethon-setup' %}">Создать новую сессию</a>
-          {% else %}
-            <p class="text-muted small mb-3">Сессия ещё не создана. Нажмите кнопку, чтобы пройти авторизацию и сохранить строку автоматически.</p>
-            <a class="btn btn-primary btn-sm" href="{% url 'accounts:telethon-setup' %}">Сгенерировать сессию</a>
-          {% endif %}
+    <div class="col-lg-8 col-xl-7">
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h1 class="h3 mb-1">Профиль</h1>
+          <p class="text-muted mb-0">Обновите контактные данные, ключи API и настройки безопасности.</p>
         </div>
       </div>
+
       <form method="post" novalidate>
         {% csrf_token %}
+
         {% if form.non_field_errors %}
           <div class="alert alert-danger" role="alert">
             {% for error in form.non_field_errors %}
@@ -28,26 +22,156 @@
             {% endfor %}
           </div>
         {% endif %}
-        {% for field in form %}
-          <div class="mb-3">
-            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-            {{ field }}
-            {% if field.help_text %}
-              <div class="form-text">{{ field.help_text }}</div>
-            {% endif %}
-            {% if field.errors %}
-              {% for error in field.errors %}
-                <div class="invalid-feedback d-block">{{ error }}</div>
-              {% endfor %}
-            {% endif %}
+
+        {# User Info Card #}
+        <div class="card shadow-sm mb-4">
+          <div class="card-header">
+            <h2 class="h5 mb-0">Информация о пользователе</h2>
           </div>
-        {% endfor %}
-        <div class="d-flex gap-2">
-          <button type="submit" class="btn btn-primary">Сохранить</button>
-          <a href="{% url 'accounts:password_change' %}" class="btn btn-outline-secondary">Изменить пароль</a>
-          <a href="{% url 'accounts:logout' %}" class="btn btn-outline-danger">Выйти</a>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label" for="{{ form.first_name.id_for_label }}">{{ form.first_name.label }}</label>
+                {{ form.first_name }}
+              </div>
+              <div class="col-md-6">
+                <label class="form-label" for="{{ form.last_name.id_for_label }}">{{ form.last_name.label }}</label>
+                {{ form.last_name }}
+              </div>
+              <div class="col-12">
+                <label class="form-label" for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>
+                {{ form.email }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {# Telethon Keys Card #}
+        <div class="card shadow-sm mb-4">
+          <div class="card-header">
+            <h2 class="h5 mb-0">Ключи API Telethon</h2>
+          </div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label" for="{{ form.telethon_api_id.id_for_label }}">{{ form.telethon_api_id.label }}</label>
+                {{ form.telethon_api_id }}
+                <div class="form-text">{{ form.telethon_api_id.help_text }}</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label" for="{{ form.telethon_api_hash.id_for_label }}">{{ form.telethon_api_hash.label }}</label>
+                <div class="input-group">
+                  {{ form.telethon_api_hash }}
+                  <button class="btn btn-outline-secondary" type="button" data-role="toggle-password" data-target-id="{{ form.telethon_api_hash.id_for_label }}">
+                    <i class="bi bi-eye-slash"></i>
+                  </button>
+                  <button class="btn btn-outline-secondary" type="button" data-role="copy-to-clipboard" data-target-id="{{ form.telethon_api_hash.id_for_label }}">
+                    <i class="bi bi-clipboard"></i>
+                  </button>
+                </div>
+                <div class="form-text">{{ form.telethon_api_hash.help_text }}</div>
+              </div>
+            </div>
+            <div class="mt-3">
+              <label class="form-label" for="{{ form.telethon_session.id_for_label }}">{{ form.telethon_session.label }}</label>
+              <div class="input-group">
+                {{ form.telethon_session }}
+                <button class="btn btn-outline-secondary" type="button" data-role="toggle-password" data-target-id="{{ form.telethon_session.id_for_label }}">
+                  <i class="bi bi-eye-slash"></i>
+                </button>
+                <button class="btn btn-outline-secondary" type="button" data-role="copy-to-clipboard" data-target-id="{{ form.telethon_session.id_for_label }}">
+                  <i class="bi bi-clipboard"></i>
+                </button>
+              </div>
+              <div class="form-text">{{ form.telethon_session.help_text }}</div>
+            </div>
+          </div>
+          <div class="card-footer bg-light-subtle">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+              <div>
+                <h3 class="h6 mb-1">Сгенерировать сессию</h3>
+                <p class="small text-muted mb-0">
+                  {% if user.telethon_session %}
+                    Сессия сохранена. Нажмите, чтобы создать новую.
+                  {% else %}
+                    Нажмите, чтобы пройти авторизацию и сохранить строку сессии.
+                  {% endif %}
+                </p>
+              </div>
+              <a class="btn btn-sm btn-outline-primary" href="{% url 'accounts:telethon-setup' %}">
+                Мастер генерации сессии
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {# Security Card #}
+        <div class="card shadow-sm mb-4">
+          <div class="card-header">
+            <h2 class="h5 mb-0">Безопасность</h2>
+          </div>
+          <div class="card-body">
+            <p class="text-muted">Здесь вы можете изменить свой пароль или выйти из системы.</p>
+            <div class="d-flex gap-2">
+              <a href="{% url 'accounts:password_change' %}" class="btn btn-outline-secondary">Изменить пароль</a>
+              <a href="{% url 'accounts:logout' %}" class="btn btn-outline-danger">Выйти из системы</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex justify-content-end mt-4">
+          <button type="submit" class="btn btn-primary">Сохранить изменения</button>
         </div>
       </form>
     </div>
   </div>
+
+  <script>
+    (function () {
+      // Show/Hide password-like fields
+      document.querySelectorAll('[data-role="toggle-password"]').forEach(button => {
+        button.addEventListener('click', () => {
+          const targetId = button.dataset.targetId;
+          const targetInput = document.getElementById(targetId);
+          const icon = button.querySelector('i');
+          if (targetInput && icon) {
+            if (targetInput.type === 'password') {
+              targetInput.type = 'text';
+              icon.classList.remove('bi-eye-slash');
+              icon.classList.add('bi-eye');
+            } else {
+              targetInput.type = 'password';
+              icon.classList.remove('bi-eye');
+              icon.classList.add('bi-eye-slash');
+            }
+          }
+        });
+      });
+
+      // Copy to clipboard
+      document.querySelectorAll('[data-role="copy-to-clipboard"]').forEach(button => {
+        button.addEventListener('click', () => {
+          const targetId = button.dataset.targetId;
+          const targetInput = document.getElementById(targetId);
+          if (targetInput) {
+            navigator.clipboard.writeText(targetInput.value).then(() => {
+              const originalIcon = button.innerHTML;
+              button.innerHTML = '<i class="bi bi-check-lg text-success"></i>';
+              setTimeout(() => {
+                button.innerHTML = originalIcon;
+              }, 2000);
+            }).catch(err => {
+              // Could show an error message here
+            });
+          }
+        });
+      });
+
+      // Initialize password fields
+      const hashInput = document.getElementById('{{ form.telethon_api_hash.id_for_label }}');
+      const sessionInput = document.getElementById('{{ form.telethon_session.id_for_label }}');
+      if (hashInput) hashInput.type = 'password';
+      if (sessionInput) sessionInput.type = 'password';
+    })();
+  </script>
 {% endblock %}

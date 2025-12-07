@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
+import httpx
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -183,7 +186,7 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             self.object.ordered_posts().select_related("source"),
             pk=int(post_id),
         )
-        media = self._find_post_media(post)
+        media = self._find_post_media(post, allow_download=True)
         if not media:
             messages.error(request, "У поста нет доступного медиафайла.")
             return redirect("stories:image", pk=self.object.pk)
@@ -194,8 +197,7 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             messages.error(request, "Не удалось прочитать файл медиа.")
             return redirect("stories:image", pk=self.object.pk)
 
-        prompt = f"Оригинальное изображение из поста #{post.id}"
-        self.object.attach_image(prompt=prompt, data=data, mime_type=media["mime"])
+        self.object.attach_image(prompt="", data=data, mime_type=media["mime"])
         messages.success(
             request,
             f"Изображение из поста «{post}» прикреплено к сюжету.",
@@ -240,8 +242,12 @@ class StoryImageView(LoginRequiredMixin, DetailView):
                 media.append(candidate)
         return media
 
-    def _find_post_media(self, post: Post):
-        path_value = (post.media_path or "").strip()
+    def _find_post_media(self, post: Post, *, allow_download: bool = False):
+        path_value = self._candidate_media_path(post)
+        if not path_value and allow_download:
+            external = self._first_external_image(post)
+            if external:
+                return self._download_external_media(post, external)
         if not path_value:
             return None
 
@@ -269,4 +275,102 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             "mime": mime or "image/jpeg",
             "url": post.media_url,
             "file_name": resolved.name,
+        }
+
+    def _candidate_media_path(self, post: Post) -> str | None:
+        media_prefix = (settings.MEDIA_URL or "").rstrip("/")
+        path_value = (post.media_path or "").strip()
+        if path_value:
+            normalized = self._normalize_media_path(path_value, media_prefix)
+            if normalized:
+                return normalized
+
+        if not media_prefix:
+            return None
+
+        for item in getattr(post, "media_items", []):
+            url = ""
+            if isinstance(item, dict):
+                url = (item.get("url") or "").strip()
+            elif isinstance(item, str):
+                url = item.strip()
+            if not url:
+                continue
+            relative = self._relative_media_path(url, media_prefix)
+            if relative:
+                return relative
+        return None
+
+    @staticmethod
+    def _relative_media_path(url: str, media_prefix: str) -> str | None:
+        return StoryImageView._normalize_media_path(url, media_prefix)
+
+    @staticmethod
+    def _normalize_media_path(path_value: str, media_prefix: str) -> str | None:
+        raw = (path_value or "").strip()
+        if not raw:
+            return None
+        parsed = urlparse(raw)
+        prefix = (media_prefix or "").rstrip("/")
+        path_part = parsed.path if (parsed.scheme or parsed.netloc) else raw
+        if prefix and path_part.startswith(prefix):
+            trimmed = path_part[len(prefix) :].lstrip("/")
+            return trimmed or None
+        if parsed.scheme or parsed.netloc:
+            return None
+        return raw or None
+
+    def _first_external_image(self, post: Post) -> str | None:
+        for item in getattr(post, "media_items", []):
+            url = item.get("url") if isinstance(item, dict) else item
+            if not url:
+                continue
+            parsed = urlparse(url)
+            if parsed.scheme in {"http", "https"}:
+                return url
+        return None
+
+    def _download_external_media(self, post: Post, url: str):
+        timeout = float(getattr(settings, "OPENAI_IMAGE_TIMEOUT", 60))
+        try:
+            response = httpx.get(url, timeout=timeout)
+        except Exception:
+            return None
+        if response.status_code != 200 or not response.content:
+            return None
+
+        content_type = response.headers.get("content-type") or ""
+        mime = content_type.split(";")[0].strip() if content_type else ""
+        if mime and not mime.startswith("image/"):
+            return None
+
+        extension = (
+            mimetypes.guess_extension(mime)
+            or Path(urlparse(url).path).suffix
+            or ".jpg"
+        )
+        filename = f"{post.id}_{uuid.uuid4().hex}{extension}"
+        relative_path = (
+            Path("uploads")
+            / "media"
+            / str(post.project_id or "0")
+            / str(post.source_id or "0")
+            / filename
+        )
+        absolute_root = Path(settings.MEDIA_ROOT or ".")
+        absolute_path = absolute_root / relative_path
+        absolute_path.parent.mkdir(parents=True, exist_ok=True)
+        absolute_path.write_bytes(response.content)
+
+        post.media_path = relative_path.as_posix()
+        if mime:
+            post.media_type = mime
+        post.save(update_fields=["media_path", "media_type", "updated_at"])
+
+        return {
+            "post": post,
+            "path": absolute_path,
+            "mime": mime or "image/jpeg",
+            "url": post.media_url,
+            "file_name": absolute_path.name,
         }

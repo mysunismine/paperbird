@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 from datetime import timedelta
 from http import HTTPStatus
 from unittest.mock import MagicMock, patch
@@ -285,3 +288,70 @@ class StoryViewTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertIn("Публикации", content)
         self.assertIn("Сохранить", content)
+
+    @patch("stories.paperbird_stories.views.story_detail.httpx.get")
+    def test_attach_media_downloads_external_image(self, mock_httpx_get) -> None:
+        media_root = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(media_root, ignore_errors=True))
+        mock_httpx_get.return_value = MagicMock(
+            status_code=200,
+            content=b"external-image",
+            headers={"content-type": "image/jpeg"},
+        )
+        external_url = "https://example.com/photo.jpg"
+        post = Post.objects.create(
+            project=self.project,
+            source=self.source,
+            telegram_id=321,
+            message="Пост с внешним изображением",
+            posted_at=timezone.now(),
+            has_media=True,
+            images_manifest=[external_url],
+        )
+        self.story.attach_posts([post])
+
+        with self.settings(MEDIA_ROOT=media_root, MEDIA_URL="/media/"):
+            url = reverse("stories:detail", kwargs={"pk": self.story.pk})
+            response = self.client.post(
+                url,
+                data={"action": "attach_media", "media_post_id": [post.id]},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        mock_httpx_get.assert_called_once_with(external_url, timeout=60.0)
+        self.story.refresh_from_db()
+        post.refresh_from_db()
+        self.assertTrue(post.media_path)
+        self.assertTrue(self.story.image_file)
+        stored_path = os.path.join(media_root, self.story.image_file.name)
+        self.assertTrue(os.path.exists(stored_path))
+
+    def test_story_detail_enables_local_manifest_media(self) -> None:
+        media_root = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(media_root, ignore_errors=True))
+        rel_path = os.path.join("uploads", "media", "manifest.jpg")
+        full_path = os.path.join(media_root, rel_path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "wb") as handle:
+            handle.write(b"img")
+
+        with self.settings(MEDIA_ROOT=media_root, MEDIA_URL="/media/"):
+            post = Post.objects.create(
+                project=self.project,
+                source=self.source,
+                telegram_id=222,
+                message="Пост с локальным манифестом",
+                posted_at=timezone.now(),
+                has_media=True,
+                images_manifest=[f"/media/{rel_path}"],
+            )
+            story = StoryFactory(project=self.project).create(
+                post_ids=[post.id],
+                title="Manifest story",
+            )
+            response = self.client.get(reverse("stories:detail", args=[story.pk]))
+
+        html = response.content.decode("utf-8")
+        self.assertIn('id="media-0-0"', html)
+        self.assertNotIn("Файл недоступен", html)

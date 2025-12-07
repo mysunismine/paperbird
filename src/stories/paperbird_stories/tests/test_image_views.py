@@ -141,7 +141,7 @@ class StoryImageViewTests(TestCase):
             self.assertTrue(os.path.exists(stored_path))
         with open(stored_path, "rb") as saved:
             self.assertEqual(saved.read(), b"original-image")
-        self.assertIn("Оригинальное изображение", self.story.image_prompt)
+        self.assertEqual(self.story.image_prompt, "")
 
     def test_remove_action_deletes_file(self) -> None:
         media_root = tempfile.mkdtemp()

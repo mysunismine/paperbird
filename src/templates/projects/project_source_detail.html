@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}Источник {{ source.title }} — Paperbird{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-lg-8 col-xl-7">
+      {# HEADER & ACTIONS #}
+      <div class="d-flex flex-column flex-md-row align-items-md-start justify-content-between gap-3 mb-4">
+        <div>
+          <div class="d-flex align-items-center mb-2">
+            {% if source.type == "telegram" %}
+              <i class="bi bi-telegram h2 text-info me-3"></i>
+            {% else %}
+              <i class="bi bi-globe2 h2 text-success me-3"></i>
+            {% endif %}
+            <h1 class="h3 mb-0">{{ source.title|default:"(Без названия)" }}</h1>
+          </div>
+          <div class="d-flex align-items-center">
+            <span class="badge fs-6 text-bg-{{ status_color }}">{{ status_display }}</span>
+            {% if source.last_synced_at %}
+              <p class="text-muted mb-0 ms-3">Последняя проверка: {{ source.last_synced_at|naturaltime }}</p>
+            {% endif %}
+          </div>
+        </div>
+        <div class="btn-group">
+          <a href="{% url 'projects:source-edit' project.pk source.pk %}" class="btn btn-primary">
+            <i class="bi bi-pencil-fill me-1"></i> Редактировать
+          </a>
+          <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+            <span class="visually-hidden">Другие действия</span>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="#">
+              <i class="bi bi-arrow-clockwise me-2"></i>Проверить сейчас
+            </a></li>
+            <li><a class="dropdown-item" href="#">
+              <i class="bi bi-pause-circle me-2"></i>Приостановить
+            </a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <button type="button" class="dropdown-item text-danger" data-bs-toggle="modal" data-bs-target="#deleteSourceModal{{ source.pk }}">
+                <i class="bi bi-trash me-2"></i>Удалить
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      {# INFO CARDS #}
+      <div class="row">
+        <div class="col-md-6">
+          <div class="card shadow-sm mb-4">
+            <div class="card-body">
+              <h2 class="h5 card-title">Сводка</h2>
+              <dl class="row mb-0">
+                <dt class="col-sm-5">Тип</dt>
+                <dd class="col-sm-7">{{ source.get_type_display }}</dd>
+
+                <dt class="col-sm-5">Дата добавления</dt>
+                <dd class="col-sm-7">{{ source.created_at|date:"d.m.Y" }}</dd>
+
+                <dt class="col-sm-5">Постов собрано</dt>
+                <dd class="col-sm-7">{{ posts_count|intcomma }}</dd>
+              </dl>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card shadow-sm mb-4">
+            <div class="card-body">
+              <h2 class="h5 card-title">Настройки</h2>
+              <dl class="row mb-0">
+                <dt class="col-sm-8">Убирать дубликаты текста</dt>
+                <dd class="col-sm-4 text-md-end">{% if source.deduplicate_text %}<i class="bi bi-check-circle-fill text-success"></i> Да{% else %}<i class="bi bi-x-circle-fill text-danger"></i> Нет{% endif %}</dd>
+
+                <dt class="col-sm-8">Убирать дубликаты медиа</dt>
+                <dd class="col-sm-4 text-md-end">{% if source.deduplicate_media %}<i class="bi bi-check-circle-fill text-success"></i> Да{% else %}<i class="bi bi-x-circle-fill text-danger"></i> Нет{% endif %}</dd>
+                
+                <dt class="col-sm-5">Срок хранения</dt>
+                <dd class="col-sm-7">{{ source.retention_days|default:"(По умолчанию)" }} дней</dd>
+              </dl>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h2 class="h5 card-title">Конфигурация</h2>
+          {% if source.type == "telegram" %}
+            <dl class="row mb-0">
+              <dt class="col-sm-4">Username</dt>
+              <dd class="col-sm-8">
+                <a href="https://t.me/{{ source.username }}" target="_blank" rel="noopener noreferrer">{{ source.username }}</a>
+              </dd>
+              <dt class="col-sm-4">Invite Link</dt>
+              <dd class="col-sm-8">{{ source.invite_link|default:"-" }}</dd>
+              <dt class="col-sm-4">Peer ID</dt>
+              <dd class="col-sm-8">{{ source.telegram_id|default:"-" }}</dd>
+            </dl>
+          {% else %}
+            <h3 class="h6">Параметры пресета</h3>
+            <pre class="bg-light p-3 rounded small"><code>{{ source.preset_payload|json_script:"preset-data" }}</code></pre>
+          {% endif %}
+        </div>
+      </div>
+      <div class="mt-4">
+        <a href="{% url 'projects:sources' project.pk %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>
+            Все источники
+        </a>
+      </div>
+    </div>
+  </div>
+
+  {# Re-using the delete modal from the list page #}
+  <div class="modal fade" id="deleteSourceModal{{ source.pk }}" tabindex="-1" aria-labelledby="deleteSourceModalLabel{{ source.pk }}" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="deleteSourceModalLabel{{ source.pk }}">Подтвердите удаление</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Вы уверены, что хотите удалить источник <strong>«{{ source.title }}»</strong>?
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+          <form method="post" action="{% url 'projects:sources-delete' project.pk source.pk %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger">Да, удалить</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

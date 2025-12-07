@@ -7,10 +7,10 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
 from django.utils import timezone
-from django.views.generic import FormView, TemplateView, UpdateView
+from django.views.decorators.http import require_POST
+from django.views.generic import DetailView, FormView, TemplateView, UpdateView
 
 from core.models import WorkerTask
-from core.services.worker import enqueue_task
 from projects.models import Project, Source
 
 from ..forms import SourceCreateForm, SourceUpdateForm
@@ -30,6 +30,22 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
         )
         return super().dispatch(request, *args, **kwargs)
 
+    def post(self, request, *args, **kwargs):
+        """Поддерживает удаление источника со страницы списка."""
+        if request.POST.get("action") != "delete":
+            messages.error(request, "Неизвестное действие.")
+            return redirect("projects:sources", pk=self.project.pk)
+
+        source_id = request.POST.get("source_id")
+        if not source_id or not source_id.isdigit():
+            messages.error(request, "Некорректный идентификатор источника.")
+            return redirect("projects:sources", pk=self.project.pk)
+
+        source = get_object_or_404(Source, pk=int(source_id), project=self.project)
+        source.delete()
+        messages.success(request, "Источник удалён.")
+        return redirect("projects:sources", pk=self.project.pk)
+
     def get_context_data(self, **kwargs):
         """Формирует контекст для шаблона."""
         context = super().get_context_data(**kwargs)
@@ -45,29 +61,53 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
         )
         return context
 
-    def post(self, request, *args, **kwargs):
-        """Обрабатывает POST-запросы для управления источниками."""
-        if request.POST.get("action") == "delete":
-            return self._handle_delete(request)
-        messages.error(request, "Неизвестное действие.")
-        return redirect("projects:sources", pk=self.project.pk)
 
-    def _handle_delete(self, request):
-        """Обрабатывает запрос на удаление источника."""
-        source_id = request.POST.get("source_id")
-        source = self.project.sources.filter(pk=source_id).first()
-        if source is None:
-            messages.error(request, "Источник не найден")
+class ProjectSourceDetailView(LoginRequiredMixin, DetailView):
+    """Страница просмотра детальной информации об источнике."""
+
+    model = Source
+    template_name = "projects/project_source_detail.html"
+    context_object_name = "source"
+
+    def get_queryset(self):
+        """Возвращает queryset с предзагрузкой связанных данных."""
+        return (
+            Source.objects.filter(
+                project__owner=self.request.user,
+                project_id=self.kwargs["project_pk"],
+            )
+            .select_related("project")
+            .prefetch_related("posts", "sync_logs")
+        )
+
+    def get_context_data(self, **kwargs):
+        """Формирует контекст для шаблона с дополнительными данными."""
+        context = super().get_context_data(**kwargs)
+        source = self.object
+        context["project"] = source.project
+        context["posts_count"] = source.posts.count()
+
+        # Determine status
+        status_display = "Активен"
+        status_color = "success"
+        if not source.is_active:
+            status_display = "Приостановлен"
+            status_color = "warning"
         else:
-            source.delete()
-            messages.success(request, "Источник удалён.")
-        return redirect("projects:sources", pk=self.project.pk)
+            latest_log = source.sync_logs.order_by("-started_at").first()
+            if latest_log and latest_log.status == "failed":
+                status_display = "Ошибка"
+                status_color = "danger"
+
+        context["status_display"] = status_display
+        context["status_color"] = status_color
+        return context
 
 
 class ProjectSourceCreateView(LoginRequiredMixin, FormView):
     """Отдельная страница добавления нового источника."""
 
-    template_name = "projects/project_source_create.html"
+    template_name = "projects/project_source_form.html"
     form_class = SourceCreateForm
 
     def dispatch(self, request, *args, **kwargs):
@@ -89,6 +129,7 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
         """Формирует контекст для шаблона."""
         context = super().get_context_data(**kwargs)
         context["project"] = self.project
+        context["source"] = None
         return context
 
     def form_valid(self, form):  # type: ignore[override]
@@ -98,7 +139,7 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
             self._schedule_web_source_collection(source)
         else:
             messages.success(self.request, "Источник добавлен к проекту.")
-        return redirect("projects:sources", pk=source.project_id)
+        return redirect("projects:source-detail", project_pk=source.project_id, pk=source.pk)
 
     def form_invalid(self, form):
         """Обрабатывает невалидную форму, выводит сообщение об ошибке."""
@@ -107,13 +148,15 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
 
     def _schedule_web_source_collection(self, source: Source) -> None:
         """Планирует сбор для веб-источника."""
+        from projects.views import feed
+
         payload = {
             "project_id": source.project_id,
             "interval": max(source.project.collector_web_interval, 60),
             "source_id": source.pk,
         }
         try:
-            enqueue_task(
+            feed.enqueue_task(
                 WorkerTask.Queue.COLLECTOR_WEB,
                 payload=payload,
                 scheduled_for=timezone.now(),
@@ -157,8 +200,22 @@ class ProjectSourceUpdateView(LoginRequiredMixin, UpdateView):
         kwargs["project"] = self.get_object().project
         return kwargs
 
-    def form_valid(self, form):  # type: ignore[override]
+    def get_success_url(self):
+        """Возвращает URL для перенаправления после успешного обновления."""
+        return reverse_lazy("projects:sources", kwargs={"pk": self.object.project_id})
+
+    def form_valid(self, form):
         """Обрабатывает валидную форму, сохраняет источник и выводит сообщение."""
-        source = form.save()
+        form.save()
         messages.success(self.request, "Источник обновлён.")
-        return redirect("projects:sources", pk=source.project_id)
+        return redirect(self.get_success_url())
+
+
+@require_POST
+def delete_source(request, project_pk: int, pk: int):
+    """Удаляет источник и перенаправляет на список источников."""
+    project = get_object_or_404(Project, pk=project_pk, owner=request.user)
+    source = get_object_or_404(Source, pk=pk, project=project)
+    source.delete()
+    messages.success(request, "Источник удалён.")
+    return redirect("projects:sources", pk=project_pk)

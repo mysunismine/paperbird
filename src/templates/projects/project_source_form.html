@@ -1,24 +1,35 @@
 {% extends "base.html" %}
 
-{% block title %}Редактирование источника — Paperbird{% endblock %}
+{% block title %}{% if source %}Редактирование источника{% else %}Добавить источник{% endif %} — Paperbird{% endblock %}
 
 {% block content %}
   <div class="row justify-content-center">
     <div class="col-lg-6 col-xl-5">
       <div class="mb-4">
-        <h1 class="h3 mb-1">Редактирование источника</h1>
-        <p class="text-muted mb-0">
-          Обновите параметры подключения источника «{{ source.title|default:"без названия" }}» для проекта «{{ project.name }}».
-        </p>
+        <h1 class="h3 mb-1">
+          {% if source %}Редактирование источника{% else %}Добавить источник{% endif %}
+        </h1>
+        {% if source %}
+          <p class="text-muted mb-0">
+            Обновите параметры подключения источника «{{ source.title|default:"без названия" }}» для проекта «{{ project.name }}».
+          </p>
+        {% else %}
+          <p class="text-muted mb-0">Выберите тип и заполните параметры подключения к источнику для проекта «{{ project.name }}».</p>
+        {% endif %}
       </div>
       <div class="card shadow-sm">
-        <div class="card-body">
+        <div class="card-body p-4">
           <form method="post" enctype="multipart/form-data" novalidate>
             {% csrf_token %}
-            {% include "projects/includes/source_form_fields.html" %}
-            <div class="d-flex justify-content-between mt-4">
-              <a class="btn btn-outline-secondary" href="{% url 'projects:sources' project.pk %}">Назад к источникам</a>
-              <button type="submit" class="btn btn-primary">Сохранить изменения</button>
+            {% with form_field_template="projects/partials/form_field.html" %}
+              {% include "projects/includes/source_form_fields.html" %}
+            {% endwith %}
+            <div class="d-flex justify-content-end gap-2 border-top pt-4 mt-4">
+              <a class="btn btn-outline-secondary" href="{% if source %}{% url 'projects:source-detail' project.pk source.pk %}{% else %}{% url 'projects:sources' project.pk %}{% endif %}">Отмена</a>
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg me-1"></i>
+                {% if source %}Сохранить изменения{% else %}Добавить{% endif %}
+              </button>
             </div>
           </form>
         </div>

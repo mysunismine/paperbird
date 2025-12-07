@@ -7,6 +7,7 @@ import binascii
 from typing import Any
 
 from django import forms
+from django.db import models
 from django.utils import timezone
 
 from core.constants import (
@@ -114,6 +115,11 @@ class StoryPromptConfirmForm(forms.Form):
 
 class StoryPublishForm(forms.Form):
     """Форма для публикации сюжета."""
+
+    class MediaOrder(models.TextChoices):
+        BEFORE = "before", "Медиа перед текстом"
+        AFTER = "after", "Медиа после текста"
+
     target = forms.CharField(
         label="Канал или чат",
         max_length=255,
@@ -128,6 +134,13 @@ class StoryPublishForm(forms.Form):
         widget=forms.DateTimeInput(
             attrs={"type": "datetime-local", "class": "form-control"}
         ),
+    )
+    media_order = forms.ChoiceField(
+        label="Порядок медиа",
+        choices=MediaOrder.choices,
+        initial=MediaOrder.AFTER,
+        required=False,
+        widget=forms.RadioSelect,
     )
 
     def clean_publish_at(self):
@@ -157,6 +170,13 @@ class StoryPublishForm(forms.Form):
         if normalized and not normalized.startswith("@") and not normalized.startswith("-"):
             normalized = f"@{normalized}"
         return normalized
+
+    def clean_media_order(self) -> str:
+        """Возвращает порядок медиа или значение по умолчанию."""
+        value = (self.cleaned_data.get("media_order") or "").strip()
+        if value not in self.MediaOrder.values:
+            return self.MediaOrder.AFTER
+        return value
 
 
 class StoryContentForm(forms.ModelForm):

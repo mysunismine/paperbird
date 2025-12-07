@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 from datetime import datetime
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
@@ -58,3 +62,32 @@ class StoryFactoryTests(TestCase):
         with self.assertRaises(StoryCreationError) as ctx:
             factory.create(post_ids=[self.post_a.id, foreign_post.id])
         self.assertIn("не найдены", str(ctx.exception))
+
+    @patch("projects.services.media_downloader.httpx.get")
+    def test_factory_downloads_external_manifest_media(self, mock_httpx_get) -> None:
+        media_root = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(media_root, ignore_errors=True))
+        mock_httpx_get.return_value.status_code = 200
+        mock_httpx_get.return_value.content = b"image-bytes"
+        mock_httpx_get.return_value.headers = {"content-type": "image/jpeg"}
+        external_url = "https://cdn.example.com/photo.jpg"
+
+        post_with_manifest = Post.objects.create(
+            project=self.project,
+            source=self.source,
+            telegram_id=99,
+            message="Пост с внешним фото",
+            posted_at=timezone.now(),
+            images_manifest=[external_url],
+        )
+        factory = StoryFactory(project=self.project)
+        with self.settings(MEDIA_ROOT=media_root, MEDIA_URL="/media/"):
+            story = factory.create(post_ids=[post_with_manifest.id], title="With media")
+
+        post_with_manifest.refresh_from_db()
+        self.assertTrue(post_with_manifest.media_path)
+        manifest_entry = post_with_manifest.images_manifest[0]
+        self.assertIn("/media/uploads/", manifest_entry["url"])
+        stored_path = os.path.join(media_root, post_with_manifest.media_path)
+        self.assertTrue(os.path.exists(stored_path))
+        self.assertEqual(story.posts.first(), post_with_manifest)

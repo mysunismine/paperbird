@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load humanize %}
 
 {% block title %}Очередь коллектора — {{ project.name }}{% endblock %}
 
@@ -6,85 +7,58 @@
   <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-4">
     <div>
       <h1 class="h3 mb-1">Очередь коллектора проекта «{{ project.name }}»</h1>
-      <p class="text-muted mb-0">Задачи фонового сборщика Telegram и веб-парсера.</p>
+      <p class="text-muted mb-0">Мониторинг задач фонового сборщика.</p>
     </div>
-    <a class="btn btn-outline-secondary" href="{% url 'feed-detail' project.pk %}">К ленте проекта</a>
+    <a class="btn btn-outline-secondary" href="{% url 'feed-detail' project.pk %}">
+      <i class="bi bi-arrow-left me-1"></i>
+      К ленте проекта
+    </a>
   </div>
-  <div class="card shadow-sm">
-    <div class="card-body">
-      {% if tasks %}
-        <div class="table-responsive">
-          <table class="table align-middle">
-            <thead>
-              <tr>
-                <th>Очередь</th>
-                <th>Статус</th>
-                <th>Доступна</th>
-                <th>Попытки</th>
-                <th>Последняя ошибка</th>
-                <th>Параметры</th>
-                <th style="width: 220px;">Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for task in tasks %}
-                <tr>
-                  <td>
-                    {% if task.queue == 'collector' %}
-                      <span class="badge text-bg-info">Telegram</span>
-                    {% else %}
-                      <span class="badge text-bg-success">Web</span>
-                    {% endif %}
-                  </td>
-                  <td>{{ task.get_status_display }}</td>
-                  <td>
-                    <div>{{ task.available_at|date:"d.m.Y H:i" }}</div>
-                    {% if task.status == 'running' %}
-                      <div class="text-muted small">Начата: {{ task.started_at|date:"H:i:s" }}</div>
-                    {% endif %}
-                  </td>
-                  <td>{{ task.attempts }}/{{ task.max_attempts }}</td>
-                  <td>
-                    {% if task.last_error_message %}
-                      <div class="text-danger small">{{ task.last_error_message|truncatechars:80 }}</div>
-                    {% else %}
-                      <span class="text-muted">—</span>
-                    {% endif %}
-                  </td>
-                  <td>
-                    <pre class="small mb-0 text-wrap">{{ task.payload|pprint }}</pre>
-                  </td>
-                  <td>
-                    <div class="d-flex flex-wrap gap-2">
-                      {% if task.status == "queued" or task.status == "running" %}
-                        <form method="post">
-                          {% csrf_token %}
-                          <input type="hidden" name="action" value="cancel_task" />
-                          <input type="hidden" name="task_id" value="{{ task.id }}" />
-                          <button class="btn btn-sm btn-outline-danger" type="submit">Отменить</button>
-                        </form>
-                      {% endif %}
-                      {% if task.status != "running" %}
-                        <form method="post">
-                          {% csrf_token %}
-                          <input type="hidden" name="action" value="retry_task" />
-                          <input type="hidden" name="task_id" value="{{ task.id }}" />
-                          <button class="btn btn-sm btn-outline-primary" type="submit">Запустить снова</button>
-                        </form>
-                      {% endif %}
-                      {% if task.status == "running" and task.queue == "collector_web" %}
-                        <div class="text-muted small">Дождитесь завершения или отмените задачу.</div>
-                      {% endif %}
-                    </div>
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      {% else %}
-        <p class="mb-0 text-muted">Очередь пуста.</p>
-      {% endif %}
-    </div>
+
+  <div id="queue-container">
+    {% include "projects/partials/task_list.html" %}
   </div>
+
+  <script>
+    (function () {
+      const queueContainer = document.getElementById("queue-container");
+
+      function refreshQueue() {
+        if (document.visibilityState === "hidden") {
+          return; // Don't refresh if the page is not visible
+        }
+        fetch(window.location.href, {
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          credentials: "same-origin",
+        })
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error("Failed to refresh queue");
+            }
+            return response.text();
+          })
+          .then((html) => {
+            // Preserve scroll position if user is interacting with details
+            const activeElement = document.activeElement;
+            const isInteractingWithCollapse =
+              activeElement &&
+              (activeElement.matches('[data-bs-toggle="collapse"]') ||
+                activeElement.closest(".collapse.show"));
+
+            if (isInteractingWithCollapse) {
+              return;
+            }
+
+            queueContainer.innerHTML = html;
+          })
+          .catch(() => {
+            // Silently swallow errors to avoid disrupting the UI
+          });
+      }
+
+      setInterval(refreshQueue, 15000); // Refresh every 15 seconds
+    })();
+  </script>
 {% endblock %}

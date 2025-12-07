@@ -10,8 +10,10 @@ from .views import (
     ProjectPromptsView,
     ProjectSettingsView,
     ProjectSourceCreateView,
+    ProjectSourceDetailView,
     ProjectSourcesView,
     ProjectSourceUpdateView,
+    delete_source,
 )
 
 app_name = "projects"
@@ -33,9 +35,19 @@ urlpatterns = [
         name="source-create",
     ),
     path(
+        "<int:project_pk>/sources/<int:pk>/",
+        ProjectSourceDetailView.as_view(),
+        name="source-detail",
+    ),
+    path(
         "<int:project_pk>/sources/<int:pk>/edit/",
         ProjectSourceUpdateView.as_view(),
         name="source-edit",
+    ),
+    path(
+        "<int:project_pk>/sources/<int:pk>/delete/",
+        delete_source,
+        name="sources-delete",
     ),
     path("<int:pk>/queues/", ProjectCollectorQueueView.as_view(), name="queue"),
 ]

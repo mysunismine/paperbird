@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Protocol
 
 from django.db import transaction
@@ -54,6 +55,7 @@ class StoryPublisher:
         *,
         target: str,
         scheduled_for=None,
+        media_order: str = "after",
     ) -> Publication:
         """Публикует сюжет."""
         if not target:
@@ -72,6 +74,7 @@ class StoryPublisher:
                     target=target,
                     result_text=text,
                     scheduled_for=scheduled_for,
+                    media_order=media_order or "after",
                     status=Publication.Status.SCHEDULED,
                 )
 
@@ -115,7 +118,10 @@ class StoryPublisher:
                 if publication.status != Publication.Status.PUBLISHING:
                     publication.mark_publishing()
                 result = self.backend.send(
-                    story=story, text=publication.result_text, target=publication.target
+                    story=story,
+                    text=publication.result_text,
+                    target=publication.target,
+                    media_order=publication.media_order or "after",
                 )
             except Exception as exc:  # pragma: no cover - проверяется тестами
                 publication.mark_failed(error=str(exc))
@@ -152,21 +158,87 @@ class TelethonPublisherBackend:
     def __init__(self, *, user) -> None:
         self.user = user
 
-    async def _send_async(self, *, story: Story, text: str, target: str) -> PublishResult:
+    async def _send_async(
+        self,
+        *,
+        story: Story,
+        text: str,
+        target: str,
+        media_order: str = "after",
+    ) -> PublishResult:
         """Асинхронно отправляет сообщение."""
         factory = TelethonClientFactory(user=self.user)
         async with factory.connect() as client:
-            message = await client.send_message(target, text)
-            message_id = int(getattr(message, "id", 0))
-            if message_id <= 0:
-                raise PublicationFailed("Telegram не вернул идентификатор сообщения")
-            published_at = getattr(message, "date", None) or timezone.now()
-            raw = message.to_dict() if hasattr(message, "to_dict") else None
-            return PublishResult(message_ids=[message_id], published_at=published_at, raw=raw)
+            messages_raw: list[dict] = []
 
-    def send(self, *, story: Story, text: str, target: str) -> PublishResult:
+            send_media_first = media_order == "before"
+
+            def _append_message(message):
+                mid = int(getattr(message, "id", 0))
+                if mid <= 0:
+                    raise PublicationFailed("Telegram не вернул идентификатор сообщения")
+                published_at_value = getattr(message, "date", None) or timezone.now()
+                if hasattr(message, "to_dict"):
+                    messages_raw.append(message.to_dict())
+                return mid, published_at_value
+
+            message_ids: list[int] = []
+            published_at = timezone.now()
+
+            # Если медиа должно быть первым — отправляем файл до текста.
+            if send_media_first and story.image_file:
+                image_path = Path(story.image_file.path)
+                if not image_path.exists():
+                    raise PublicationFailed("Файл изображения сюжета не найден на диске")
+                image_caption = (story.image_prompt or "").strip()
+                image_message = await client.send_file(
+                    target,
+                    image_path.as_posix(),
+                    caption=image_caption or None,
+                    parse_mode="html",
+                )
+                mid, published_at = _append_message(image_message)
+                message_ids.append(mid)
+
+            text_message = await client.send_message(target, text, parse_mode="html")
+            mid, published_at = _append_message(text_message)
+            message_ids.append(mid)
+
+            # Если медиа идёт после текста — отправляем файл вторым.
+            if not send_media_first and story.image_file:
+                image_path = Path(story.image_file.path)
+                if not image_path.exists():
+                    raise PublicationFailed("Файл изображения сюжета не найден на диске")
+                image_caption = (story.image_prompt or "").strip()
+                image_message = await client.send_file(
+                    target,
+                    image_path.as_posix(),
+                    caption=image_caption or None,
+                    parse_mode="html",
+                )
+                mid, _ = _append_message(image_message)
+                message_ids.append(mid)
+
+            raw = {"messages": messages_raw} if messages_raw else None
+            return PublishResult(message_ids=message_ids, published_at=published_at, raw=raw)
+
+    def send(
+        self,
+        *,
+        story: Story,
+        text: str,
+        target: str,
+        media_order: str = "after",
+    ) -> PublishResult:
         """Отправляет сообщение синхронно."""
-        return asyncio.run(self._send_async(story=story, text=text, target=target))
+        return asyncio.run(
+            self._send_async(
+                story=story,
+                text=text,
+                target=target,
+                media_order=media_order,
+            )
+        )
 
 
 def default_publisher_for_story(story: Story) -> StoryPublisher:

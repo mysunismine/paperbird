@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load humanize %}
 
 {% block title %}Сюжеты — Paperbird{% endblock %}
 
@@ -11,41 +12,63 @@
   </div>
 
   {% if stories %}
-    <div class="table-responsive">
-      <table class="table align-middle">
-        <thead>
-          <tr>
-            <th>Заголовок</th>
-            <th>Проект</th>
-            <th>Статус</th>
-            <th>Обновлён</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for story in stories %}
-            <tr>
-              <td class="fw-semibold">{{ story.title|default:"Черновик" }}</td>
-              <td>{{ story.project.name }}</td>
-              <td>
-                <span class="badge text-bg-secondary">{{ story.get_status_display }}</span>
-              </td>
-              <td>{{ story.updated_at|date:"d.m.Y H:i" }}</td>
-              <td class="text-end">
-                <div class="d-inline-flex gap-2">
-                  <a class="btn btn-sm btn-outline-primary" href="{% url 'stories:detail' story.pk %}">Открыть</a>
-                  <form method="post" action="{% url 'stories:delete' story.pk %}">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-sm btn-outline-danger">Удалить</button>
-                  </form>
-                </div>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="card-grid">
+      {% for story in stories %}
+        <div class="card shadow-sm card-hover">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <h2 class="h5 card-title mb-1">
+                <a href="{% url 'stories:detail' story.pk %}" class="text-body text-decoration-none">
+                  {{ story.title|default:"Сюжет без названия" }}
+                </a>
+              </h2>
+              <span class="badge text-bg-secondary">{{ story.get_status_display }}</span>
+            </div>
+            <p class="small text-muted mb-3">Проект: {{ story.project.name }}</p>
+            <p class="card-text">
+              {{ story.body|striptags|truncatechars:150|default:"Текст сюжета еще не сгенерирован." }}
+            </p>
+          </div>
+          <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+            <div class="text-muted small" title="{{ story.updated_at|date:'d.m.Y H:i:s' }}">
+              Обновлён: {{ story.updated_at|naturaltime }}
+            </div>
+            <div class="d-inline-flex gap-2">
+              <a class="btn btn-sm btn-primary" href="{% url 'stories:detail' story.pk %}">
+                <i class="bi bi-pencil-square me-1"></i>Открыть
+              </a>
+              <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteStoryModal-{{ story.pk }}">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {# Delete Confirmation Modal #}
+        <div class="modal fade" id="deleteStoryModal-{{ story.pk }}" tabindex="-1" aria-labelledby="deleteStoryModalLabel-{{ story.pk }}" aria-hidden="true">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h1 class="modal-title fs-5" id="deleteStoryModalLabel-{{ story.pk }}">Подтвердите удаление</h1>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                Вы уверены, что хотите удалить сюжет <strong>"{{ story.title|default:'Сюжет без названия' }}"</strong>?
+                Это действие нельзя будет отменить.
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <form method="post" action="{% url 'stories:delete' story.pk %}" class="d-inline">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-danger">Да, удалить</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
     </div>
   {% else %}
-    <div class="alert alert-info">Пока нет сюжетов. Создайте первый, выбрав посты в проекте.</div>
+    <div class="alert alert-info">Пока нет сюжетов. Создайте первый, выбрав посты в <a href="{% url 'feed' %}" class="alert-link">ленте</a>.</div>
   {% endif %}
 {% endblock %}
