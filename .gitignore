@@ -7,11 +7,36 @@ __pycache__/
 .venv/
 .env
 .django_secret_key
+.envrc
 
 # Django
 staticfiles/
 media/
+test.sqlite3
+*.sqlite3
 
 # Tooling
 .ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.cache/
 
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local env overrides
+infra/.env
+infra/docker-compose.override.yml
+
+# Telethon sessions / logs
+*.session
+*.session-journal
+*.log
+*.pid
