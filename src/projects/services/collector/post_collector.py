@@ -1,13 +1,12 @@
-"""Сборщик постов из Telegram."""
+"""Core Telegram post collector implementation."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import mimetypes
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC
 from pathlib import Path
 
 from asgiref.sync import sync_to_async
@@ -20,10 +19,9 @@ from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
 from accounts.models import User
 from core.constants import DEFAULT_COLLECT_LIMIT
 from projects.models import Post, Project, Source, SourceSyncLog
-from projects.services.telethon_client import (
-    TelethonClientFactory,
-    TelethonCredentialsMissingError,
-)
+from projects.services.telethon_client import TelethonClientFactory
+
+from .utils import _normalize_raw
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +36,6 @@ class CollectOptions:
 
 @dataclass
 class StoredMedia:
-    """Результат загрузки медиа из Telegram."""
     """Результат загрузки медиа из Telegram."""
 
     media_type: str
@@ -283,158 +280,3 @@ class PostCollector:
             extension = f".{extension}"
 
         return extension
-
-
-async def collect_for_user(
-    user: User,
-    *,
-    project_id: int | None = None,
-    limit: int = DEFAULT_COLLECT_LIMIT,
-) -> None:
-    """Асинхронный запуск сборщика для пользователя."""
-
-    if not user.has_telethon_credentials:
-        raise RuntimeError("У пользователя отсутствуют ключи Telethon")
-
-    options = CollectOptions(limit=limit)
-    collector = PostCollector(user=user, options=options)
-    projects_qs = user.projects.filter(is_active=True)
-    if project_id:
-        projects_qs = projects_qs.filter(id=project_id)
-    projects = await sync_to_async(list)(projects_qs.order_by("name"))
-    for project in projects:
-        await collector.collect_for_project(project)
-
-
-async def collect_for_all_users(
-    *,
-    project_id: int | None = None,
-    limit: int = DEFAULT_COLLECT_LIMIT,
-    continuous: bool = False,
-    interval: int = 60,
-) -> None:
-    """Запускает сборщик для всех пользователей с заполненными Telethon-данными."""
-
-    delay = max(interval, 5)
-
-    async def _eligible_users() -> list[User]:
-        qs = (
-            User.objects.filter(is_active=True, telethon_api_id__isnull=False)
-            .exclude(telethon_api_hash="")
-            .exclude(telethon_session="")
-            .order_by("id")
-        )
-        return await sync_to_async(list, thread_sensitive=True)(qs)
-
-    async def _run_once() -> None:
-        users = await _eligible_users()
-        if not users:
-            logger.info("collect_for_all_users_no_credentials")
-            return
-        for user in users:
-            if not user.has_telethon_credentials:
-                continue
-            try:
-                await collect_for_user(user, project_id=project_id, limit=limit)
-            except TelethonCredentialsMissingError as exc:
-                logger.warning(
-                    "collect_for_all_users_skipped",
-                    extra={"user_id": user.pk, "reason": str(exc)},
-                )
-            except Exception as exc:  # pragma: no cover - защитный слой вокруг сети
-                logger.exception(
-                    "collect_for_all_users_error",
-                    extra={"user_id": user.pk, "error": str(exc)},
-                )
-
-    while True:
-        await _run_once()
-        if not continuous:
-            break
-        await asyncio.sleep(delay)
-
-
-async def collect_for_user_live(
-    user: User,
-    *,
-    project_id: int | None = None,
-    limit: int = DEFAULT_COLLECT_LIMIT,
-    interval: int = 60,
-) -> None:
-    """Постоянный сбор постов с указанным интервалом опроса."""
-    """Постоянный сбор постов с указанным интервалом опроса."""
-
-    delay = max(interval, 5)
-    while True:
-        await collect_for_user(user, project_id=project_id, limit=limit)
-        await asyncio.sleep(delay)
-
-
-def collect_for_user_sync(
-    user: User,
-    *,
-    project_id: int | None = None,
-    limit: int = DEFAULT_COLLECT_LIMIT,
-    continuous: bool = False,
-    interval: int = 60,
-) -> None:
-    """Синхронный адаптер для использования в manage-команде."""
-
-    async def runner() -> None:
-        if continuous:
-            await collect_for_user_live(
-                user,
-                project_id=project_id,
-                limit=limit,
-                interval=interval,
-            )
-        else:
-            await collect_for_user(user, project_id=project_id, limit=limit)
-
-    try:
-        asyncio.run(runner())
-    except KeyboardInterrupt:
-        # graceful stop for continuous mode
-        pass
-
-
-def collect_for_all_users_sync(
-    *,
-    project_id: int | None = None,
-    limit: int = DEFAULT_COLLECT_LIMIT,
-    continuous: bool = False,
-    interval: int = 60,
-) -> None:
-    """Синхронный адаптер, запускающий сбор для всех пользователей."""
-
-    async def runner() -> None:
-        await collect_for_all_users(
-            project_id=project_id,
-            limit=limit,
-            continuous=continuous,
-            interval=interval,
-        )
-
-    try:
-        asyncio.run(runner())
-    except KeyboardInterrupt:
-        pass
-
-
-def _normalize_raw(value):
-    """Рекурсивно преобразует неподдерживаемые типы JSON (например, datetime) в строки."""
-
-    if isinstance(value, dict):
-        return {key: _normalize_raw(sub) for key, sub in value.items()}
-    if isinstance(value, list):
-        return [_normalize_raw(item) for item in value]
-    if isinstance(value, tuple):
-        return [_normalize_raw(item) for item in value]
-    if isinstance(value, datetime | date | time):
-        return value.isoformat()
-    if isinstance(value, bytes):
-        try:
-            return value.decode("utf-8")
-        except UnicodeDecodeError:
-            return value.hex()
-    return value

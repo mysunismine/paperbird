@@ -389,7 +389,7 @@ class ProjectSourceCreateViewTests(TestCase):
         self.assertEqual(created.title, "@techsource")
         mock_refresh.assert_called_once_with(created)
 
-    @patch("projects.views.enqueue_task")
+    @patch("projects.views.feed.enqueue_task")
     def test_web_source_schedules_collection(self, mock_enqueue) -> None:
         payload = json.dumps(make_preset_payload("site_feed"))
         response = self.client.post(
@@ -414,7 +414,7 @@ class ProjectSourceCreateViewTests(TestCase):
         self.assertEqual(payload_sent["project_id"], self.project.pk)
         self.assertEqual(payload_sent["source_id"], created.pk)
 
-    @patch("projects.views.enqueue_task", side_effect=RuntimeError("boom"))
+    @patch("projects.views.feed.enqueue_task", side_effect=RuntimeError("boom"))
     def test_web_source_enqueue_failure_shows_message(self, mock_enqueue) -> None:
         payload = json.dumps(make_preset_payload("site_feed"))
         response = self.client.post(
@@ -529,7 +529,7 @@ class ProjectCollectorQueueViewTests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.status, WorkerTask.Status.CANCELLED)
 
-    @patch("projects.views.enqueue_task")
+    @patch("projects.views.feed.enqueue_task")
     def test_retry_task_enqueues_new(self, mock_enqueue) -> None:
         task = self._make_task(status=WorkerTask.Status.SUCCEEDED)
         response = self.client.post(

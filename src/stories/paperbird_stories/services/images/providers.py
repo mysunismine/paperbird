@@ -1,51 +1,37 @@
-"""Сервисы для генерации и прикрепления изображений сюжета."""
+"""Providers for image generation."""
 
 from __future__ import annotations
 
 import base64
 import binascii
-import hashlib
 import json
 import os
 import socket
-import struct
 import time
 import urllib.error
 import urllib.request
-import zlib
-from dataclasses import dataclass
-from typing import Protocol
 
 from django.conf import settings
 
-from core.constants import (
-    IMAGE_DEFAULT_MODEL,
-    IMAGE_DEFAULT_QUALITY,
-    IMAGE_DEFAULT_SIZE,
-)
-
-from .exceptions import ImageGenerationFailed
-from .helpers import (
-    _looks_like_yandex_art_model,
+from core.constants import IMAGE_DEFAULT_MODEL, IMAGE_DEFAULT_QUALITY, IMAGE_DEFAULT_SIZE
+from stories.paperbird_stories.services.helpers import (
     build_yandex_model_uri,
     normalize_image_quality,
     normalize_image_size,
 )
+from stories.paperbird_stories.services.images.placeholders import (
+    GeneratedImage,
+    _placeholder_image_bytes,
+)
+
+from ..exceptions import ImageGenerationFailed
 
 
-@dataclass(slots=True)
-class GeneratedImage:
-    """Результат генерации изображения."""
-
-    data: bytes
-    mime_type: str = "image/png"
-
-
-class ImageGenerationProvider(Protocol):
+class ImageGenerationProvider:
     """Интерфейс генератора изображений."""
 
-    def generate(self, *, prompt: str) -> GeneratedImage:  # pragma: no cover - protocol
-        ...
+    def generate(self, *, prompt: str) -> GeneratedImage:  # pragma: no cover - protocol stub
+        raise NotImplementedError
 
 
 class OpenAIImageProvider:
@@ -85,7 +71,6 @@ class OpenAIImageProvider:
         quality: str | None = None,
         _allow_without_format: bool = False,
     ) -> GeneratedImage:
-        """Генерирует изображение."""
         prompt = prompt.strip()
         if not prompt:
             raise ImageGenerationFailed("Описание не может быть пустым")
@@ -310,67 +295,3 @@ class YandexArtProvider:
         width_value = int(width)
         height_value = int(height)
         return width_value / height_value
-
-
-@dataclass(slots=True)
-class StoryImageGenerator:
-    """Обёртка вокруг провайдера генерации изображений."""
-
-    provider: ImageGenerationProvider
-
-    def generate(
-        self,
-        *,
-        prompt: str,
-        model: str | None = None,
-        size: str | None = None,
-        quality: str | None = None,
-    ) -> GeneratedImage:
-        """Генерирует изображение."""
-        return self.provider.generate(
-            prompt=prompt,
-            model=model,
-            size=size,
-            quality=quality,
-        )
-
-
-def default_image_generator(*, model: str | None = None) -> StoryImageGenerator:
-    """Возвращает генератор изображений по умолчанию."""
-
-    selected_model = (model or getattr(settings, "OPENAI_IMAGE_MODEL", IMAGE_DEFAULT_MODEL)).strip()
-    if _looks_like_yandex_art_model(selected_model):
-        provider = YandexArtProvider(model=selected_model)
-    else:
-        provider = OpenAIImageProvider(model=selected_model)
-    return StoryImageGenerator(provider=provider)
-
-
-def _png_chunk(tag: bytes, data: bytes) -> bytes:
-    """Создает PNG-чанк."""
-    return (
-        struct.pack("!I", len(data))
-        + tag
-        + data
-        + struct.pack("!I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-    )
-
-
-def _placeholder_image_bytes(prompt: str) -> bytes:
-    """Генерирует байты изображения-заглушки."""
-    width = height = 320
-    digest = hashlib.sha256(prompt.encode("utf-8", "ignore")).digest()
-    color = digest[0], digest[8], digest[16]
-    pixel = bytes([color[0], color[1], color[2], 255])
-    rows = []
-    for _ in range(height):
-        rows.append(b"\x00" + pixel * width)
-    raw = b"".join(rows)
-    header = struct.pack("!2I5B", width, height, 8, 6, 0, 0, 0)
-    compressed = zlib.compress(raw, 9)
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + _png_chunk(b"IHDR", header)
-        + _png_chunk(b"IDAT", compressed)
-        + _png_chunk(b"IEND", b"")
-    )

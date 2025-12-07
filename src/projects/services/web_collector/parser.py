@@ -1,14 +1,11 @@
-"""Универсальный веб-сборщик, который собирает статьи с использованием JSON-пресетов."""
+"""Preset-driven web collector pipeline."""
 
 from __future__ import annotations
 
-import re
-import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 try:  # pragma: no cover - optional dependency guard
     from bs4 import BeautifulSoup, Tag  # type: ignore
@@ -16,21 +13,12 @@ except ModuleNotFoundError:  # pragma: no cover
     BeautifulSoup = None  # type: ignore
     Tag = Any  # type: ignore
 try:  # pragma: no cover - optional dependency guard
-    from dateutil import parser as date_parser  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover
-    date_parser = None  # type: ignore[assignment]
-from django.utils import timezone
-
-try:  # pragma: no cover - optional dependency guard
     from markdownify import markdownify as html_to_md  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover
     def html_to_md(value: str) -> str:
         return value
 
-try:  # pragma: no cover - import guard for missing dependency during setup
-    import httpx  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover
-    httpx = None  # type: ignore[assignment]
+from django.utils import timezone
 
 from core.logging import event_logger
 from projects.models import Post, Source
@@ -39,61 +27,11 @@ from projects.services.web_preset_registry import (
     WebPresetValidator,
 )
 
+from .fetcher import HttpFetcher
+from .selector import SelectorEngine
+from .utils import collapse_whitespace, normalize_url, parse_datetime, strip_tracking_params
+
 logger = event_logger("projects.web_collector")
-
-
-@dataclass(slots=True)
-class FetchResult:
-    url: str
-    final_url: str
-    status_code: int
-    content: str
-
-
-class HttpFetcher:
-    """HTTP client with simple domain-based rate limiting."""
-
-    def __init__(self) -> None:
-        self._last_request_at: dict[str, float] = {}
-
-    def fetch(self, url: str, fetch_config: dict[str, Any]) -> FetchResult:
-        if httpx is None:  # pragma: no cover - defensive
-            raise RuntimeError("httpx не установлен. Выполните `pip install -r requirements.txt`.")
-        timeout = float(fetch_config.get("timeout_sec") or 15)
-        headers = {
-            "User-Agent": "PaperbirdWebCollector/1.0 (+https://paperbird.ai)",
-            **(fetch_config.get("headers") or {}),
-        }
-        rate_limit_rps = float(fetch_config.get("rate_limit_rps") or 0)
-        if rate_limit_rps > 0:
-            self._respect_rate_limit(url, rate_limit_rps)
-        try:
-            response = httpx.get(
-                url,
-                headers=headers,
-                timeout=timeout,
-                follow_redirects=True,
-            )
-        except httpx.HTTPError as exc:
-            raise RuntimeError(f"HTTP error for {url}: {exc}") from exc
-        if response.status_code >= 400:
-            raise RuntimeError(f"HTTP {response.status_code} for {url}")
-        return FetchResult(
-            url=url,
-            final_url=str(response.url),
-            status_code=response.status_code,
-            content=response.text,
-        )
-
-    def _respect_rate_limit(self, url: str, rate_limit_rps: float) -> None:
-        domain = urlparse(url).netloc
-        min_interval = 1.0 / rate_limit_rps if rate_limit_rps else 0
-        last = self._last_request_at.get(domain)
-        if last:
-            elapsed = time.monotonic() - last
-            if elapsed < min_interval:
-                time.sleep(min_interval - elapsed)
-        self._last_request_at[domain] = time.monotonic()
 
 
 @dataclass(slots=True)
@@ -114,143 +52,6 @@ class ArticlePayload:
     published_at: datetime
     metadata: dict[str, Any] = field(default_factory=dict)
     images: list[str] = field(default_factory=list)
-
-
-class SelectorEngine:
-    """Minimal CSS selector helper with DSL parsing."""
-
-    def __init__(self, parser: str = "html.parser") -> None:
-        self.parser = parser
-
-    def parse(self, html: str) -> BeautifulSoup:
-        if BeautifulSoup is None:  # pragma: no cover - dependency guard
-            raise RuntimeError(
-                "beautifulsoup4 не установлен. Выполните `pip install -r requirements.txt`."
-            )
-        return BeautifulSoup(html, self.parser)
-
-    def select_items(self, soup: BeautifulSoup, selector: str) -> list[Tag]:
-        return list(soup.select(selector))
-
-    def extract(self, node: Tag | BeautifulSoup, expression: str) -> Any:
-        spec = self._parse_expression(expression)
-        nodes: Iterable[Tag]
-        if spec.selector:
-            nodes = node.select(spec.selector)
-        else:
-            nodes = [node]  # act on the current node
-        if spec.multiple:
-            return [self._extract_value(n, spec.attribute) for n in nodes]
-        try:
-            target = next(iter(nodes))
-        except StopIteration:
-            if spec.optional:
-                return None
-            raise LookupError(f"Selector '{expression}' returned nothing") from None
-        return self._extract_value(target, spec.attribute)
-
-    def _extract_value(self, node: Tag, attribute: str | None) -> str:
-        if attribute is None:
-            return node.decode_contents().strip()
-        if attribute == "text":
-            return node.get_text(strip=True)
-        return (node.get(attribute) or "").strip()
-
-    @dataclass(slots=True)
-    class Expression:
-        selector: str | None
-        attribute: str | None
-        multiple: bool
-        optional: bool
-
-    def _parse_expression(self, expression: str) -> SelectorEngine.Expression:
-        optional = expression.endswith("?")
-        multiple = expression.endswith("*")
-        expr = expression
-        if optional:
-            expr = expr[:-1]
-        if multiple:
-            expr = expr[:-1]
-        selector = expr
-        attribute = None
-        if "@" in expr:
-            selector, attribute = expr.split("@", 1)
-        selector = selector or None
-        attribute = attribute or None
-        return SelectorEngine.Expression(
-            selector=selector.strip() if selector else None,
-            attribute=attribute.strip() if attribute else None,
-            multiple=multiple,
-            optional=optional,
-        )
-
-
-def collapse_whitespace(value: str) -> str:
-    return " ".join(value.split())
-
-
-DATETIME_DELIMITERS = ("|", "•", "·", " / ", " — ", " – ", "—", "−", "―")
-DATETIME_PATTERN = re.compile(
-    r"\d{1,2}[\./-]\d{1,2}[\./-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?"
-)
-
-
-def _datetime_candidates(value: str | None) -> list[str]:
-    if not value:
-        return []
-    raw = value.strip()
-    normalized = collapse_whitespace(raw.replace("\xa0", " "))
-    candidates: list[str] = []
-    for candidate in (raw, normalized):
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
-    for delimiter in DATETIME_DELIMITERS:
-        if delimiter in normalized:
-            trimmed = normalized.split(delimiter, 1)[0].strip()
-            if trimmed and trimmed not in candidates:
-                candidates.append(trimmed)
-    match = DATETIME_PATTERN.search(normalized)
-    if match:
-        snippet = match.group(0).strip()
-        if snippet and snippet not in candidates:
-            candidates.append(snippet)
-    return candidates
-
-
-def parse_datetime(value: str | None) -> datetime | None:
-    for candidate in _datetime_candidates(value):
-        try:
-            if date_parser is None:
-                parsed = datetime.fromisoformat(candidate)
-            else:
-                parsed = date_parser.parse(candidate)
-        except (ValueError, TypeError):  # pragma: no cover - defensive
-            continue
-        if timezone.is_naive(parsed):
-            return timezone.make_aware(parsed, timezone=timezone.get_current_timezone())
-        return parsed
-    return None
-
-
-def normalize_url(base: str, url: str | None) -> str:
-    if not url:
-        return ""
-    return urljoin(base, url)
-
-
-def strip_tracking_params(url: str) -> str:
-    if not url:
-        return ""
-    parsed = urlparse(url)
-    if not parsed.query:
-        return url
-    pairs = [
-        (k, v)
-        for k, v in parse_qsl(parsed.query, keep_blank_values=True)
-        if not k.lower().startswith("utm_")
-    ]
-    new_query = urlencode(pairs)
-    return urlunparse(parsed._replace(query=new_query))
 
 
 class WebCollector:
