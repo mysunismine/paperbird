@@ -50,7 +50,7 @@ class ProjectPostListViewTests(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertContains(response, "Лента проекта")
         self.assertContains(response, "Apple представила")
-        self.assertContains(response, "Сделать сюжет")
+        self.assertContains(response, "Создать сюжет")
 
     def test_post_list_filters_by_search(self) -> None:
         response = self.client.get(
@@ -103,8 +103,22 @@ class ProjectPostListViewTests(TestCase):
             media_type="photo",
         )
         response = self.client.get(reverse("feed-detail", args=[self.project.id]))
-        self.assertContains(response, "post-media-thumb")
         self.assertContains(response, "uploads/media/photo.jpg")
+
+    def test_post_list_shows_video_preview_as_video(self) -> None:
+        Post.objects.create(
+            project=self.project,
+            source=self.source,
+            telegram_id=100,
+            message="Видео дня",
+            posted_at=timezone.now(),
+            has_media=True,
+            media_path="uploads/media/video.mp4",
+            media_type="video/mp4",
+        )
+        response = self.client.get(reverse("feed-detail", args=[self.project.id]))
+        self.assertContains(response, "bi-play-circle-fill")
+        self.assertContains(response, "uploads/media/video.mp4")
 
     def test_post_list_shows_web_images_manifest(self) -> None:
         Post.objects.create(

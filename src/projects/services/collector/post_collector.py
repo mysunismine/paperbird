@@ -227,6 +227,11 @@ class PostCollector:
         if not isinstance(message.media, media_photo | media_document):
             return None
 
+        file_info = getattr(message, "file", None)
+        mime_type = ""
+        if file_info is not None:
+            mime_type = (getattr(file_info, "mime_type", "") or "").strip()
+
         try:
             media_bytes = await message.download_media(file=bytes)
         except Exception as exc:  # pragma: no cover - зависит от Telethon
@@ -261,7 +266,7 @@ class PostCollector:
         absolute_path.parent.mkdir(parents=True, exist_ok=True)
         absolute_path.write_bytes(media_bytes)
 
-        media_type = type(message.media).__name__
+        media_type = mime_type or type(message.media).__name__
         return StoredMedia(
             media_type=media_type,
             path=relative_path.as_posix(),

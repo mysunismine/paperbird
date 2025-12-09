@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models, transaction
 from django.db.models import F
 from django.utils import timezone
@@ -106,6 +107,7 @@ class WorkerTask(models.Model):
         indexes = [
             models.Index(fields=("queue", "status", "available_at")),
             models.Index(fields=("queue", "priority")),
+            GinIndex(fields=("payload",)),
         ]
 
     def __str__(self) -> str:

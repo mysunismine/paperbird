@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import connection
 from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -19,6 +20,7 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
     template_name = "projects/project_queue.html"
     partial_template_name = "projects/partials/task_list.html"
     queues = [WorkerTask.Queue.COLLECTOR, WorkerTask.Queue.COLLECTOR_WEB]
+    tasks_limit = 50
 
     def get_template_names(self):
         """Возвращает частичный шаблон при AJAX-запросе."""
@@ -42,11 +44,7 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
         if not task_id or not task_id.isdigit():
             messages.error(request, "Некорректный идентификатор задачи.")
             return redirect("projects:queue", pk=self.project.pk)
-        task = WorkerTask.objects.filter(
-            pk=int(task_id),
-            queue__in=self.queues,
-            payload__project_id=self.project.id,
-        ).first()
+        task = self._project_tasks().filter(pk=int(task_id)).first()
         if not task:
             messages.error(request, "Задача не найдена или относится к другому проекту.")
             return redirect("projects:queue", pk=self.project.pk)
@@ -92,9 +90,7 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         """Формирует контекст для шаблона, включая агрегированную статистику."""
         context = super().get_context_data(**kwargs)
-        tasks_qs = WorkerTask.objects.filter(
-            queue__in=self.queues, payload__project_id=self.project.id
-        )
+        tasks_qs = self._project_tasks()
 
         # Aggregate stats for the dashboard
         stats = tasks_qs.aggregate(
@@ -114,7 +110,7 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
                 default=Value(4),
                 output_field=IntegerField(),
             )
-        ).order_by("status_order", "-available_at")
+        ).order_by("status_order", "-available_at")[: self.tasks_limit]
 
         context.update(
             {
@@ -126,3 +122,11 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
             }
         )
         return context
+
+    def _project_tasks(self):
+        lookup = (
+            {"payload__contains": {"project_id": self.project.id}}
+            if connection.vendor == "postgresql"
+            else {"payload__project_id": self.project.id}
+        )
+        return WorkerTask.objects.filter(queue__in=self.queues, **lookup)

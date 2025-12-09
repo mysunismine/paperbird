@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from collections.abc import Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -548,7 +549,11 @@ class Post(models.Model):
         def build_item(url: str, media_type: str | None) -> dict[str, str]:
             raw_type = media_type or "image"
             normalized = raw_type.lower()
-            kind = "video" if normalized.startswith("video") else "image"
+            is_video = normalized.startswith("video")
+            if not is_video:
+                suffix = Path(url).suffix.lower()
+                is_video = suffix in {".mp4", ".mov", ".mkv", ".webm"}
+            kind = "video" if is_video else "image"
             return {
                 "url": url,
                 "type": raw_type,
