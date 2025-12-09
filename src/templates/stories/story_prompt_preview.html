@@ -1,64 +1,194 @@
 {% extends "base.html" %}
 
-{% block title %}Промпт рерайта — Paperbird{% endblock %}
+{% block title %}Проверка промпта — Paperbird{% endblock %}
+
+{% block extra_head %}
+<style>
+  .prompt-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+  @media (max-width: 992px) {
+    .prompt-container {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .prompt-preview {
+    background-color: #212529;
+    color: #f8f9fa;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    font-family: var(--bs-font-monospace);
+    font-size: 0.875em;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+
+  .prompt-preview .prompt-heading {
+    color: #fd7e14; /* orange */
+    font-weight: bold;
+  }
+
+  .prompt-preview .prompt-news-item {
+    color: #20c997; /* teal */
+    font-weight: bold;
+  }
+  
+  .prompt-preview .prompt-source-link {
+    color: #6ea8fe; /* light blue */
+  }
+
+  textarea.form-control {
+      resize: vertical;
+  }
+</style>
+{% endblock %}
 
 {% block content %}
-  <div class="mb-4">
-    <a class="btn btn-link ps-0" href="{% url 'stories:detail' story.pk %}">← Назад к сюжету</a>
-  </div>
-  <div class="card shadow-sm">
+<div class="mb-4">
+  <a class="btn btn-outline-secondary" href="{% url 'stories:detail' story.pk %}">
+    <i class="bi bi-arrow-left me-1"></i>
+    Назад к сюжету
+  </a>
+</div>
+
+<div class="card shadow-sm mb-4">
     <div class="card-body">
-      <h1 class="h4 mb-3">Проверьте промпт перед отправкой</h1>
-      <p class="text-muted">Отредактируйте текст ниже, если нужно скорректировать запрос к модели.</p>
-      {% if preview_source == 'latest' %}
-        <div class="alert alert-info">Показан промпт, отправленный при последнем рерайте.</div>
-      {% endif %}
-      <dl class="row small text-muted">
-        <dt class="col-sm-3">Сюжет</dt>
-        <dd class="col-sm-9">{{ story.title|default:"Без названия" }}</dd>
-        {% if preset %}
-          <dt class="col-sm-3">Пресет</dt>
-          <dd class="col-sm-9">{{ preset.name }}</dd>
+        <h1 class="h4">Проверка промпта</h1>
+        <p class="text-muted">Просмотрите и при необходимости отредактируйте финальный промпт перед отправкой модели.</p>
+        {% if preview_source == 'latest' %}
+            <div class="alert alert-info small"><i class="bi bi-info-circle-fill me-2"></i>Показан промпт, отправленный при последнем рерайте.</div>
         {% endif %}
-        {% if editor_comment %}
-          <dt class="col-sm-3">Комментарий редактора</dt>
-          <dd class="col-sm-9">{{ editor_comment|linebreaksbr }}</dd>
-        {% endif %}
-      </dl>
-      <form method="post" action="{% url 'stories:detail' story.pk %}">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="rewrite" />
-        <input type="hidden" name="prompt_confirm" value="1" />
-        {{ prompt_form.preset }}
-        {{ prompt_form.editor_comment }}
-        {% if prompt_form.non_field_errors %}
-          <div class="alert alert-danger">{{ prompt_form.non_field_errors }}</div>
-        {% endif %}
-        <div class="mb-3">
-          <label class="form-label" for="{{ prompt_form.prompt_system.id_for_label }}">
-            {{ prompt_form.prompt_system.label }}
-          </label>
-          {{ prompt_form.prompt_system }}
-          <div class="form-text">Базовые инструкции для модели.</div>
-          {% if prompt_form.prompt_system.errors %}
-            <div class="text-danger small">{{ prompt_form.prompt_system.errors|join:', ' }}</div>
+        <dl class="row small text-muted">
+            <dt class="col-sm-3 col-md-2">Сюжет</dt>
+            <dd class="col-sm-9 col-md-10">{{ story.title|default:"Без названия" }}</dd>
+            {% if preset %}
+            <dt class="col-sm-3 col-md-2">Пресет</dt>
+            <dd class="col-sm-9 col-md-10">{{ preset.name }}</dd>
+            {% endif %}
+            {% if editor_comment %}
+            <dt class="col-sm-3 col-md-2">Комментарий</dt>
+            <dd class="col-sm-9 col-md-10">{{ editor_comment|linebreaksbr }}</dd>
+            {% endif %}
+        </dl>
+    </div>
+</div>
+
+<form method="post" action="{% url 'stories:detail' story.pk %}" id="prompt-form">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="rewrite" />
+  <input type="hidden" name="prompt_confirm" value="1" />
+  {{ prompt_form.preset }}
+  {{ prompt_form.editor_comment }}
+
+  <div class="prompt-container">
+    
+    <!-- Editing Column -->
+    <div class="prompt-editor">
+      <div class="card">
+        <div class="card-header">
+            <h2 class="h6 mb-0">Редактор</h2>
+        </div>
+        <div class="card-body">
+          {% if prompt_form.non_field_errors %}
+            <div class="alert alert-danger">{{ prompt_form.non_field_errors }}</div>
           {% endif %}
+          <div class="mb-3">
+            <label class="form-label" for="{{ prompt_form.prompt_system.id_for_label }}">
+              <strong>{{ prompt_form.prompt_system.label }}</strong>
+            </label>
+            {{ prompt_form.prompt_system }}
+            <div class="form-text">Базовые инструкции для модели.</div>
+            {% if prompt_form.prompt_system.errors %}
+              <div class="text-danger small">{{ prompt_form.prompt_system.errors|join:', ' }}</div>
+            {% endif %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="{{ prompt_form.prompt_user.id_for_label }}">
+              <strong>{{ prompt_form.prompt_user.label }}</strong>
+            </label>
+            {{ prompt_form.prompt_user }}
+            <div class="form-text">Итоговый запрос с выбранными постами и инструкциями.</div>
+            {% if prompt_form.prompt_user.errors %}
+              <div class="text-danger small">{{ prompt_form.prompt_user.errors|join:', ' }}</div>
+            {% endif %}
+          </div>
         </div>
-        <div class="mb-3">
-          <label class="form-label" for="{{ prompt_form.prompt_user.id_for_label }}">
-            {{ prompt_form.prompt_user.label }}
-          </label>
-          {{ prompt_form.prompt_user }}
-          <div class="form-text">Итоговый запрос с выбранными постами и инструкциями.</div>
-          {% if prompt_form.prompt_user.errors %}
-            <div class="text-danger small">{{ prompt_form.prompt_user.errors|join:', ' }}</div>
-          {% endif %}
+      </div>
+    </div>
+
+    <!-- Preview Column -->
+    <div class="prompt-preview-container">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="h6 mb-0">Предпросмотр</h2>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <strong class="form-label">System</strong>
+                    <div id="preview-system" class="prompt-preview"></div>
+                </div>
+                <div>
+                    <strong class="form-label">User</strong>
+                    <div id="preview-user" class="prompt-preview"></div>
+                </div>
+            </div>
         </div>
-        <div class="d-flex gap-2">
-          <button class="btn btn-primary" type="submit">Запустить рерайт</button>
-          <a class="btn btn-outline-secondary" href="{% url 'stories:detail' story.pk %}">Отмена</a>
-        </div>
-      </form>
     </div>
   </div>
+
+  <div class="d-flex gap-2 mt-4">
+    <button class="btn btn-primary" type="submit">
+      <i class="bi bi-robot me-1"></i>
+      Запустить рерайт
+    </button>
+    <a class="btn btn-outline-secondary" href="{% url 'stories:detail' story.pk %}">Отмена</a>
+  </div>
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const systemInput = document.getElementById('{{ prompt_form.prompt_system.id_for_label }}');
+    const userInput = document.getElementById('{{ prompt_form.prompt_user.id_for_label }}');
+    const systemPreview = document.getElementById('preview-system');
+    const userPreview = document.getElementById('preview-user');
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.innerText = text;
+        return div.innerHTML;
+    }
+
+    function formatAndHighlight(text) {
+        let html = escapeHtml(text);
+        // Highlight section headings like [ЗАДАНИЕ]
+        html = html.replace(/(\[.*?\])/g, '<span class="prompt-heading">$1</span>');
+        // Highlight news items like НОВОСТЬ #1:
+        html = html.replace(/(НОВОСТЬ\s*#\d+:)/g, '<span class="prompt-news-item">$1</span>');
+        // Highlight source links
+        html = html.replace(/(Ссылка на источник:\s*)(https?:\/\/\S+)/g, '$1<a href="$2" target="_blank" rel="noopener" class="prompt-source-link">$2</a>');
+        return html;
+    }
+
+    function updatePreviews() {
+        if (systemInput && systemPreview) {
+            systemPreview.innerHTML = formatAndHighlight(systemInput.value);
+        }
+        if (userInput && userPreview) {
+            userPreview.innerHTML = formatAndHighlight(userInput.value);
+        }
+    }
+
+    // Initial update
+    updatePreviews();
+
+    // Update on input
+    if(systemInput) systemInput.addEventListener('input', updatePreviews);
+    if(userInput) userInput.addEventListener('input', updatePreviews);
+});
+</script>
+
 {% endblock %}

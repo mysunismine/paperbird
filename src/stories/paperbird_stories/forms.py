@@ -289,6 +289,14 @@ class StoryImageDeleteForm(forms.Form):
     confirm = forms.BooleanField(required=True, widget=forms.HiddenInput(), initial=True)
 
 
+class StoryImageUploadForm(forms.Form):
+    """Форма для загрузки собственного изображения."""
+    image_file = forms.ImageField(
+        label="Файл изображения",
+        help_text="Выберите файл для загрузки",
+    )
+
+
 class PublicationManageForm(forms.ModelForm):
     """Форма для ручного управления публикацией."""
 

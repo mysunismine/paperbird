@@ -121,7 +121,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         if self.request.headers.get("X-Requested-With") == "XMLHttpRequest":
             return render(
                 self.request,
-                "projects/partials/post_table.html",
+                "projects/partials/post_cards.html",
                 context,
                 **response_kwargs,
             )

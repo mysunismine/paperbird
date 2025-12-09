@@ -16,7 +16,7 @@ app_name = "stories"
 
 urlpatterns = [
     path("", StoryListView.as_view(), name="list"),
-    path("create/", StoryCreateView.as_view(), name="create"),
+    path("actions/create-from-posts/", StoryCreateView.as_view(), name="create-from-posts"),
     path("<int:pk>/delete/", StoryDeleteView.as_view(), name="delete"),
     path("<int:pk>/", StoryDetailView.as_view(), name="detail"),
     path("<int:pk>/prompt/", StoryPromptSnapshotView.as_view(), name="prompt"),

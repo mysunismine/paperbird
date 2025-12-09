@@ -94,7 +94,7 @@
       </div>
       <div class="d-flex gap-2 align-items-center">
         <span id="selected-counter" class="text-muted small">Выбрано: 0</span>
-        <form id="create-story-form" action="{% url 'stories:create' %}" method="post" class="d-inline">
+        <form id="create-story-form" action="{% url 'stories:create-from-posts' %}" method="post" class="d-inline">
           {% csrf_token %}
           <input type="hidden" name="project" value="{{ project.id }}" />
         </form>
@@ -108,15 +108,7 @@
 
   {# Post Card Grid #}
   <div id="post-list-container">
-    {% if posts %}
-      <div class="card-grid">
-        {% for post in posts %}
-          {% include "projects/partials/post_card.html" %}
-        {% endfor %}
-      </div>
-    {% else %}
-      <div class="alert alert-info">В этом проекте пока нет постов. Убедитесь, что сборщик работает и источники настроены корректно.</div>
-    {% endif %}
+    {% include "projects/partials/post_cards.html" %}
   </div>
 
   <script>
@@ -177,7 +169,6 @@
       function refreshPostList() {
         // Construct the same URL to fetch the partial content
         const url = new URL(window.location.href);
-        url.searchParams.set('partial', 'true'); // Tell backend to render only the list
 
         fetch(url, {
           headers: {

@@ -1,0 +1,9 @@
+{% if posts %}
+  <div class="card-grid">
+    {% for post in posts %}
+      {% include "projects/partials/post_card.html" %}
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="alert alert-info">В этом проекте пока нет постов. Убедитесь, что сборщик работает и источники настроены корректно.</div>
+{% endif %}

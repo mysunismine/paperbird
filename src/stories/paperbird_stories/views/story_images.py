@@ -13,6 +13,7 @@ import httpx
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import DetailView
 
@@ -21,6 +22,7 @@ from stories.paperbird_stories.forms import (
     StoryImageAttachForm,
     StoryImageDeleteForm,
     StoryImageGenerateForm,
+    StoryImageUploadForm,
 )
 from stories.paperbird_stories.models import Story
 from stories.paperbird_stories.services import (
@@ -47,6 +49,7 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             generate_form=self._generate_form_initial(),
             attach_form=None,
             delete_form=self._delete_form(),
+            upload_form=StoryImageUploadForm(),
             source_media=self._source_media(),
         )
         return self.render_to_response(context)
@@ -62,69 +65,95 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             return self._handle_remove(request)
         if action == "attach_source":
             return self._handle_attach_source(request)
+        if action == "upload":
+            return self._handle_upload(request)
         messages.error(request, "Неизвестное действие")
         return redirect("stories:detail", pk=self.object.pk)
 
-    def _handle_generate(self, request):
-        form = StoryImageGenerateForm(request.POST)
-        preview: dict[str, str] | None = None
-        attach_form: StoryImageAttachForm | None = None
+    def _handle_upload(self, request):
+        form = StoryImageUploadForm(request.POST, request.FILES)
         if form.is_valid():
-            prompt = form.cleaned_data["prompt"]
-            model = form.cleaned_data["model"]
-            size = form.cleaned_data["size"]
-            safe_size = normalize_image_size(size)
-            quality = normalize_image_quality(form.cleaned_data["quality"])
-            generator = default_image_generator(model=model)
+            image_file = form.cleaned_data["image_file"]
             try:
-                result = generator.generate(
-                    prompt=prompt,
-                    model=model,
-                    size=safe_size,
-                    quality=quality,
+                self.object.attach_image(
+                    prompt="",
+                    data=image_file.read(),
+                    mime_type=image_file.content_type,
                 )
-            except ImageGenerationFailed as exc:
-                messages.error(request, f"Не удалось сгенерировать изображение: {exc}")
-            except Exception as exc:  # pragma: no cover - непредвиденные ошибки
-                messages.error(request, f"Ошибка генерации изображения: {exc}")
+            except ValueError as exc:
+                messages.error(request, f"Не удалось прикрепить изображение: {exc}")
             else:
-                encoded = base64.b64encode(result.data).decode("ascii")
-                preview = {
-                    "data": encoded,
-                    "mime": result.mime_type,
-                    "prompt": prompt,
-                    "model": model,
-                    "size": safe_size,
-                    "quality": quality,
-                }
-                if safe_size != size:
-                    messages.info(
-                        request,
-                        (
-                            "Размер изображения автоматически скорректирован до "
-                            "поддерживаемого значения, чтобы его можно было без ошибок "
-                            "загрузить в Paperbird."
-                        ),
-                    )
-                messages.success(request, "Изображение успешно сгенерировано.")
-                attach_form = StoryImageAttachForm(
-                    initial={
-                        "prompt": prompt,
-                        "image_data": encoded,
-                        "mime_type": result.mime_type,
-                        "model": model,
-                        "size": safe_size,
-                        "quality": quality,
-                    }
-                )
+                messages.success(request, "Изображение загружено и прикреплено к сюжету.")
+                return redirect("stories:image", pk=self.object.pk)
+        
         context = self.get_context_data(
-            generate_form=form,
-            preview=preview,
-            attach_form=attach_form,
+            generate_form=self._generate_form_initial(),
+            attach_form=None,
             delete_form=self._delete_form(),
+            upload_form=form,
             source_media=self._source_media(),
         )
         return self.render_to_response(context)
+
+    def _handle_generate(self, request):
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        form = StoryImageGenerateForm(request.POST)
+        
+        if not form.is_valid():
+            if is_ajax:
+                return JsonResponse({"status": "error", "errors": form.errors}, status=400)
+            # Fallback for non-AJAX
+            return self.render_to_response(self.get_context_data(generate_form=form))
+
+        prompt = form.cleaned_data["prompt"]
+        model = form.cleaned_data["model"]
+        size = form.cleaned_data["size"]
+        safe_size = normalize_image_size(size)
+        quality = normalize_image_quality(form.cleaned_data["quality"])
+        generator = default_image_generator(model=model)
+
+        try:
+            result = generator.generate(
+                prompt=prompt, model=model, size=safe_size, quality=quality
+            )
+        except ImageGenerationFailed as exc:
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": str(exc)}, status=500)
+            messages.error(request, f"Не удалось сгенерировать изображение: {exc}")
+        except Exception as exc:
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": str(exc)}, status=500)
+            messages.error(request, f"Ошибка генерации изображения: {exc}")
+        else:
+            encoded = base64.b64encode(result.data).decode("ascii")
+            preview_data = {
+                "data": encoded,
+                "mime": result.mime_type,
+                "prompt": prompt,
+                "model": model,
+                "size": safe_size,
+                "quality": quality,
+            }
+            if is_ajax:
+                return JsonResponse({"status": "success", "preview": preview_data})
+            
+            # Fallback for non-AJAX
+            if safe_size != size:
+                messages.info(request, "Размер изображения автоматически скорректирован.")
+            messages.success(request, "Изображение успешно сгенерировано.")
+            attach_form = StoryImageAttachForm(initial=preview_data)
+            context = self.get_context_data(
+                generate_form=form,
+                preview=preview_data,
+                attach_form=attach_form,
+                delete_form=self._delete_form(),
+                upload_form=StoryImageUploadForm(),
+                source_media=self._source_media(),
+            )
+            return self.render_to_response(context)
+
+        # Error fallback for non-AJAX
+        return self.render_to_response(self.get_context_data(generate_form=form))
 
     def _handle_attach(self, request):
         form = StoryImageAttachForm(request.POST)

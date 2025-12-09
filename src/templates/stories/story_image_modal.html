@@ -1,221 +1,309 @@
 {% extends "base.html" %}
 
-{% block title %}Генерация изображения — Paperbird{% endblock %}
+{% block title %}Изображение для сюжета — Paperbird{% endblock %}
+
+{% block extra_head %}
+<style>
+  .image-studio {
+    display: grid;
+    grid-template-columns: 4fr 3fr;
+    gap: 1.5rem;
+  }
+  @media (max-width: 992px) {
+    .image-studio {
+      grid-template-columns: 1fr;
+    }
+  }
+  .preview-area {
+    position: sticky;
+    top: 1rem;
+  }
+  .preview-area .card-img-top {
+    max-height: 400px;
+    object-fit: contain;
+    background-color: #f8f9fa;
+  }
+  .preview-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #adb5bd;
+      min-height: 250px;
+  }
+  .source-media-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 1rem;
+  }
+  .source-media-item {
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: border-color 0.2s ease;
+  }
+  .source-media-item:hover, .source-media-item.selected {
+      border-color: var(--bs-primary);
+  }
+  #upload-drop-zone {
+    border: 2px dashed #ced4da;
+    border-radius: 0.5rem;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+  #upload-drop-zone:hover, #upload-drop-zone.dragover {
+    background-color: #e9ecef;
+  }
+</style>
+{% endblock %}
 
 {% block content %}
-  <div class="mb-3">
-    <a href="{% url 'stories:detail' story.pk %}" class="link-secondary">← Назад к сюжету</a>
-  </div>
+<div class="mb-3">
+  <a href="{% url 'stories:detail' story.pk %}" class="link-secondary">← Назад к сюжету</a>
+</div>
 
-  <h1 class="h3 mb-3">Генерация изображения</h1>
-  <p class="text-muted">{{ story.title|default:"Сюжет без названия" }} — {{ story.project.name }}</p>
+<h1 class="h3 mb-3">Изображение для сюжета</h1>
+<p class="text-muted">{{ story.title|default:"Сюжет без названия" }} — {{ story.project.name }}</p>
 
-  {% if story.image_file %}
-    <div class="card shadow-sm mb-4">
-      <div class="card-body">
-        <h2 class="h5">Текущее изображение</h2>
-        <img
-          src="{{ story.image_file.url }}"
-          alt="{{ story.image_prompt|default:"Прикреплённое изображение" }}"
-          class="img-fluid rounded border mb-2"
-        />
-        {% if story.image_prompt %}
-          <p class="small text-muted">{{ story.image_prompt }}</p>
-        {% endif %}
-        {% if delete_form %}
-          <form method="post" class="mt-2">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="remove" />
-            {{ delete_form.confirm }}
-            <button class="btn btn-outline-danger" type="submit">Удалить изображение</button>
-          </form>
-        {% endif %}
-      </div>
-    </div>
-  {% endif %}
-
-  <div class="card shadow-sm mb-4">
-    <div class="card-body">
-      <h2 class="h5">Новое изображение</h2>
-      <form method="post" id="image-generate-form">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="generate" />
-        <div class="mb-3">
-          {{ generate_form.prompt.label_tag }}
-          {{ generate_form.prompt }}
-          <div class="form-text">{{ generate_form.prompt.help_text }}</div>
-          {% if generate_form.prompt.errors %}
-            <div class="text-danger small">{{ generate_form.prompt.errors|join:', ' }}</div>
-          {% endif %}
-        </div>
-        <div class="row g-3">
-          <div class="col-md-4">
-            <div class="mb-3 mb-md-0">
-              {{ generate_form.model.label_tag }}
-              {{ generate_form.model }}
-              {% if generate_form.model.errors %}
-                <div class="text-danger small">{{ generate_form.model.errors|join:', ' }}</div>
-              {% endif %}
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="mb-3 mb-md-0">
-              {{ generate_form.size.label_tag }}
-              {{ generate_form.size }}
-              {% if generate_form.size.errors %}
-                <div class="text-danger small">{{ generate_form.size.errors|join:', ' }}</div>
-              {% endif %}
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="mb-3 mb-md-0">
-              {{ generate_form.quality.label_tag }}
-              {{ generate_form.quality }}
-              {% if generate_form.quality.errors %}
-                <div class="text-danger small">{{ generate_form.quality.errors|join:', ' }}</div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
-        <div id="image-generate-status" class="alert alert-info d-none align-items-center" role="alert">
-          <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
-          <span>Генерация запущена <span class="fw-semibold" data-role="timer">0</span> c</span>
-        </div>
-        <button class="btn btn-primary" type="submit" id="image-generate-submit">Сгенерировать</button>
-      </form>
-    </div>
-  </div>
-
-  {% if source_media %}
-    <div class="card shadow-sm mb-4">
-      <div class="card-body">
-        <h2 class="h5 mb-3">Медиа из исходных постов</h2>
-        <p class="text-muted small mb-3">
-          Выберите изображение, собранное вместе с постом, чтобы быстро проиллюстрировать сюжет без генерации.
-        </p>
-        <div class="row g-3">
-          {% for item in source_media %}
-            <div class="col-md-6 col-lg-4">
-              <div class="border rounded p-2 h-100 d-flex flex-column">
-                <div class="ratio ratio-16x9 mb-2 bg-light d-flex align-items-center justify-content-center overflow-hidden">
-                  {% if item.url %}
-                    <img src="{{ item.url }}" alt="Медиа поста" class="img-fluid">
-                  {% else %}
-                    <div class="text-muted small">Превью недоступно</div>
-                  {% endif %}
-                </div>
-                <div class="small text-muted mb-2">
-                  Пост #{{ item.post.id }} — {{ item.post.source.title|default:item.post.source }}
-                  <br>{{ item.file_name }}
-                </div>
-                <form method="post" class="mt-auto">
-                  {% csrf_token %}
-                  <input type="hidden" name="action" value="attach_source" />
-                  <input type="hidden" name="post_id" value="{{ item.post.id }}" />
-                  <button type="submit" class="btn btn-outline-primary w-100">Прикрепить к сюжету</button>
-                </form>
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-  {% endif %}
-
-  {% if preview %}
+<div class="image-studio">
+  <!-- Left Column: Tabs -->
+  <div class="actions-area">
     <div class="card shadow-sm">
-      <div class="card-body">
-        <h2 class="h5">Предпросмотр</h2>
-        <dl class="row small text-muted">
-          <dt class="col-sm-3">Модель</dt>
-          <dd class="col-sm-9">{{ preview.model|default:"—" }}</dd>
-          <dt class="col-sm-3">Размер</dt>
-          <dd class="col-sm-9">{{ preview.size|default:"—" }}</dd>
-          <dt class="col-sm-3">Качество</dt>
-          <dd class="col-sm-9">{{ preview.quality|default:"—" }}</dd>
-        </dl>
-        <img
-          src="data:{{ preview.mime }};base64,{{ preview.data }}"
-          alt="{{ preview.prompt|default:"Сгенерированное изображение" }}"
-          class="img-fluid rounded border mb-3"
-        />
-        {% if attach_form and attach_form.non_field_errors %}
-          <div class="alert alert-danger">{{ attach_form.non_field_errors|join:' ' }}</div>
-        {% endif %}
-        <div class="d-flex flex-wrap gap-2">
-          <form method="post">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="attach" />
-            {{ attach_form.prompt }}
-            {% if attach_form.prompt.errors %}
-              <div class="text-danger small">{{ attach_form.prompt.errors|join:', ' }}</div>
-            {% endif %}
-            {{ attach_form.image_data }}
-            {% if attach_form.image_data.errors %}
-              <div class="text-danger small">{{ attach_form.image_data.errors|join:', ' }}</div>
-            {% endif %}
-            {{ attach_form.mime_type }}
-            {% if attach_form.mime_type.errors %}
-              <div class="text-danger small">{{ attach_form.mime_type.errors|join:', ' }}</div>
-            {% endif %}
-            {{ attach_form.model }}
-            {{ attach_form.size }}
-            {{ attach_form.quality }}
-            <button class="btn btn-success" type="submit">Прикрепить к сюжету</button>
-          </form>
-          <form method="post">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="generate" />
-            <input type="hidden" name="prompt" value="{{ preview.prompt }}" />
-            <input type="hidden" name="model" value="{{ preview.model }}" />
-            <input type="hidden" name="size" value="{{ preview.size }}" />
-            <input type="hidden" name="quality" value="{{ preview.quality }}" />
-            <button class="btn btn-outline-secondary" type="submit">Перегенерировать</button>
-          </form>
+        <div class="card-header">
+            <ul class="nav nav-tabs card-header-tabs" id="imageSourceTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="generate-tab" data-bs-toggle="tab" data-bs-target="#generate" type="button" role="tab" aria-controls="generate" aria-selected="true">Генерация</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="source-media-tab" data-bs-toggle="tab" data-bs-target="#source-media" type="button" role="tab" aria-controls="source-media" aria-selected="false">Медиа из постов</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload" type="button" role="tab" aria-controls="upload" aria-selected="false">Загрузить</button>
+                </li>
+            </ul>
         </div>
-      </div>
+        <div class="card-body">
+            <div class="tab-content" id="imageSourceTabsContent">
+                <!-- Generate Tab -->
+                <div class="tab-pane fade show active" id="generate" role="tabpanel">
+                    <form id="image-generate-form">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                          {{ generate_form.prompt.label_tag }}
+                          {{ generate_form.prompt }}
+                          {% if generate_form.prompt.errors %}<div class="text-danger small mt-1">{{ generate_form.prompt.errors|join:', ' }}</div>{% endif %}
+                        </div>
+                        <div class="row g-3">
+                          <div class="col-md-4">{{ generate_form.model.label_tag }}{{ generate_form.model }}</div>
+                          <div class="col-md-4">{{ generate_form.size.label_tag }}{{ generate_form.size }}</div>
+                          <div class="col-md-4">{{ generate_form.quality.label_tag }}{{ generate_form.quality }}</div>
+                        </div>
+                        <button class="btn btn-primary mt-3" type="submit"><i class="bi bi-magic me-1"></i> Сгенерировать</button>
+                    </form>
+                </div>
+                <!-- Source Media Tab -->
+                <div class="tab-pane fade" id="source-media" role="tabpanel">
+                    <p class="small text-muted">Выберите изображение из исходных постов сюжета.</p>
+                    {% if source_media %}
+                        <div class="source-media-grid">
+                            {% for item in source_media %}
+                            <div class="source-media-item rounded p-2" data-url="{{ item.url }}" data-post-id="{{ item.post.id }}" data-mime="{{ item.mime }}">
+                                <img src="{{ item.url }}" alt="Медиа поста" class="img-fluid rounded">
+                                <div class="small text-muted mt-1">Пост #{{ item.post.id }}</div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">В исходных постах сюжета нет изображений.</div>
+                    {% endif %}
+                </div>
+                <!-- Upload Tab -->
+                <div class="tab-pane fade" id="upload" role="tabpanel">
+                    <form id="image-upload-form" method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="upload">
+                        <div id="upload-drop-zone">
+                            <p class="mb-0">Перетащите файл сюда или нажмите для выбора</p>
+                            <p class="small text-muted mb-0">PNG, JPG, WEBP</p>
+                            {{ upload_form.image_file }}
+                        </div>
+                        {% if upload_form.image_file.errors %}<div class="text-danger small mt-1">{{ upload_form.image_file.errors|join:', ' }}</div>{% endif %}
+                        <button type="submit" class="btn btn-primary mt-3">Загрузить и прикрепить</button>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
-  {% endif %}
+  </div>
 
-  <script>
-    (function () {
-      const form = document.getElementById('image-generate-form');
-      if (!form) {
-        return;
-      }
-      const statusBox = document.getElementById('image-generate-status');
-      const timerEl = statusBox ? statusBox.querySelector('[data-role="timer"]') : null;
-      const submitBtn = document.getElementById('image-generate-submit');
-      let timerId = null;
+  <!-- Right Column: Preview -->
+  <div class="preview-area">
+    <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h2 class="h6 mb-0">Предпросмотр</h2>
+            {% if story.image_file %}
+            <form id="remove-form" method="post" class="mb-0">
+                {% csrf_token %}<input type="hidden" name="action" value="remove" />{{ delete_form.confirm }}
+                <button type="submit" class="btn btn-sm btn-outline-danger">Удалить</button>
+            </form>
+            {% endif %}
+        </div>
+        <div class="preview-placeholder">
+            {% if story.image_file %}
+                <img src="{{ story.image_file.url }}" id="preview-image" class="card-img-top" alt="Текущее изображение">
+            {% else %}
+                <i class="bi bi-image h1"></i>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            <p id="preview-prompt" class="small text-muted">{% if story.image_prompt %}{{ story.image_prompt }}{% else %}Здесь будет показан промпт или имя файла.{% endif %}</p>
+        </div>
+        <div class="card-footer bg-light">
+             <form id="attach-form" method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="attach">
+                <div id="attach-form-fields"></div>
+                <button id="attach-button" type="submit" class="btn btn-success w-100" disabled>
+                    <i class="bi bi-paperclip me-1"></i>
+                    Прикрепить к сюжету
+                </button>
+            </form>
+        </div>
+    </div>
+  </div>
+</div>
 
-      function stopTimer() {
-        if (timerId !== null) {
-          clearInterval(timerId);
-          timerId = null;
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const previewPlaceholder = document.querySelector('.preview-placeholder');
+    const previewImage = document.getElementById('preview-image');
+    const previewPrompt = document.getElementById('preview-prompt');
+    const attachButton = document.getElementById('attach-button');
+    const attachFormFields = document.getElementById('attach-form-fields');
+    
+    // --- Generate Form ---
+    const generateForm = document.getElementById('image-generate-form');
+    generateForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        formData.append('action', 'generate');
+
+        showLoading('Генерация изображения...');
+
+        fetch(window.location.href, {
+            method: 'POST',
+            body: new URLSearchParams(formData),
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': formData.get('csrfmiddlewaretoken') }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                updatePreview(data.preview.data, data.preview.mime, data.preview.prompt);
+                prepareAttachForm(data.preview);
+                hideLoading();
+            } else {
+                showError(data.message || 'Ошибка генерации.');
+            }
+        })
+        .catch(() => showError('Сетевая ошибка.'));
+    });
+
+    // --- Source Media ---
+    const sourceMediaItems = document.querySelectorAll('.source-media-item');
+    sourceMediaItems.forEach(item => {
+        item.addEventListener('click', function() {
+            sourceMediaItems.forEach(i => i.classList.remove('selected'));
+            this.classList.add('selected');
+            const url = this.dataset.url;
+            const postId = this.dataset.postId;
+            // This is a simplified approach. Attaching from source still uses a form submission
+            // to handle potential downloads on the backend.
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.innerHTML = `{% csrf_token %}<input type="hidden" name="action" value="attach_source"><input type="hidden"name="post_id" value="${postId}">`;
+            document.body.appendChild(form);
+            form.submit();
+        });
+    });
+
+    // --- Upload Form ---
+    const uploadForm = document.getElementById('image-upload-form');
+    const uploadDropZone = document.getElementById('upload-drop-zone');
+    const uploadInput = document.getElementById('id_image_file');
+    uploadInput.style.display = 'none';
+    uploadDropZone.addEventListener('click', () => uploadInput.click());
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        uploadDropZone.addEventListener(eventName, preventDefaults, false);
+    });
+    ['dragenter', 'dragover'].forEach(eventName => {
+        uploadDropZone.addEventListener(eventName, () => uploadDropZone.classList.add('dragover'), false);
+    });
+    ['dragleave', 'drop'].forEach(eventName => {
+        uploadDropZone.addEventListener(eventName, () => uploadDropZone.classList.remove('dragover'), false);
+    });
+    uploadDropZone.addEventListener('drop', (e) => {
+        uploadInput.files = e.dataTransfer.files;
+        uploadForm.submit(); // Automatically submit on drop
+    }, false);
+    uploadInput.addEventListener('change', () => uploadForm.submit());
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+
+    // --- Helper Functions ---
+    function updatePreview(base64Data, mimeType, promptText) {
+        const imgSrc = `data:${mimeType};base64,${base64Data}`;
+        if (previewImage) {
+            previewImage.src = imgSrc;
+        } else {
+            const newImg = document.createElement('img');
+            newImg.src = imgSrc;
+            newImg.id = 'preview-image';
+            newImg.className = 'card-img-top';
+            previewPlaceholder.innerHTML = '';
+            previewPlaceholder.appendChild(newImg);
         }
-      }
+        previewPrompt.textContent = promptText;
+    }
 
-      form.addEventListener('submit', () => {
-        if (!statusBox || !timerEl) {
-          return;
+    function prepareAttachForm(previewData) {
+        let fieldsHtml = '';
+        for (const [key, value] of Object.entries(previewData)) {
+            if (key !== 'data' && key !== 'mime') { // data and mime are handled separately
+                 fieldsHtml += `<input type="hidden" name="${key}" value="${escapeHtml(value)}">`;
+            }
         }
-        let seconds = 0;
-        statusBox.classList.remove('d-none');
-        timerEl.textContent = '0';
-        submitBtn?.setAttribute('disabled', 'disabled');
-        timerId = window.setInterval(() => {
-          seconds += 1;
-          timerEl.textContent = String(seconds);
-        }, 1000);
-      });
+        fieldsHtml += `<input type="hidden" name="image_data" value="${previewData.data}">`;
+        fieldsHtml += `<input type="hidden" name="mime_type" value="${previewData.mime}">`;
+        
+        attachFormFields.innerHTML = fieldsHtml;
+        attachButton.disabled = false;
+    }
 
-      window.addEventListener('pageshow', () => {
-        stopTimer();
-        statusBox?.classList.add('d-none');
-        submitBtn?.removeAttribute('disabled');
-      });
+    function showLoading(message) {
+        previewPlaceholder.innerHTML = `<div class="spinner-border text-primary" role="status"></div><p class="mt-2">${message}</p>`;
+        attachButton.disabled = true;
+    }
 
-      window.addEventListener('beforeunload', stopTimer);
-    })();
-  </script>
+    function showError(message) {
+        previewPlaceholder.innerHTML = `<div class="text-danger"><i class="bi bi-exclamation-triangle-fill h3"></i><p>${message}</p></div>`;
+    }
+    
+    function hideLoading() {
+        if (!previewImage) { // If there was no image before
+            previewPlaceholder.innerHTML = '<i class="bi bi-image h1"></i>';
+        }
+    }
+    
+    function escapeHtml(text) {
+        if(typeof text !== 'string') return '';
+        const div = document.createElement('div');
+        div.innerText = text;
+        return div.innerHTML;
+    }
+});
+</script>
 {% endblock %}
