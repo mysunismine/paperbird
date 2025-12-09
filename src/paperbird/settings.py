@@ -227,6 +227,13 @@ YANDEX_TIMEOUT = float(os.getenv("YANDEX_TIMEOUT", os.getenv("OPENAI_TIMEOUT", "
 YANDEX_IMAGE_TIMEOUT = float(os.getenv("YANDEX_IMAGE_TIMEOUT", "90"))
 
 
+# --- Интеграция Gemini ------------------------------------------------------
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "30"))
+
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

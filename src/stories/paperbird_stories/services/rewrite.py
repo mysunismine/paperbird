@@ -17,6 +17,7 @@ from stories.paperbird_stories.models import RewritePreset, RewriteResult, Rewri
 
 from .exceptions import RewriteFailed
 from .helpers import (
+    _looks_like_gemini_model,
     _looks_like_yandex_text_model,
     _openai_temperature_for_model,
     _strip_code_fence,
@@ -311,6 +312,62 @@ class YandexGPTProvider:
         return ProviderResponse(result=parsed, raw=data, response_id=response_id)
 
 
+class GeminiChatProvider:
+    """Провайдер для моделей Google Gemini."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        timeout: int | float | None = None,
+    ) -> None:
+        self.api_key = (api_key or getattr(settings, "GEMINI_API_KEY", "")).strip()
+        self.model_name = (model or getattr(settings, "GEMINI_MODEL", "gemini-1.5-flash")).strip()
+        self.timeout = timeout or getattr(settings, "GEMINI_TIMEOUT", 30)
+        if not self.api_key:
+            raise RewriteFailed("GEMINI_API_KEY не задан")
+
+    def run(self, *, messages: Sequence[dict[str, str]]) -> ProviderResponse:
+        """Выполняет запрос к Gemini API."""
+        import google.generativeai as genai
+        from google.api_core import exceptions as google_exceptions
+
+        genai.configure(api_key=self.api_key)
+
+        generation_config = genai.GenerationConfig(
+            # temperature=OPENAI_DEFAULT_TEMPERATURE,
+            response_mime_type="application/json",
+        )
+        model = genai.GenerativeModel(self.model_name, generation_config=generation_config)
+
+        # Gemini Pro требует, чтобы история начиналась с user, а не system.
+        # Если первый промпт системный - делаем его user.
+        gemini_messages = []
+        for i, message in enumerate(messages):
+            role = message.get("role")
+            if i == 0 and role == "system":
+                role = "user"
+            content = message.get("content") or ""
+            gemini_messages.append({"role": role, "parts": [content]})
+
+        try:
+            response = model.generate_content(
+                gemini_messages,
+                request_options={"timeout": self.timeout},
+            )
+            parsed = json.loads(response.text)
+            return ProviderResponse(
+                result=parsed,
+                raw=json.loads(response.text),
+                response_id=None,
+            )
+        except (google_exceptions.GoogleAPICallError, ValueError) as exc:
+            raise RewriteFailed(f"Gemini API error: {exc}") from exc
+        except Exception as exc:  # pragma: no cover
+            raise RewriteFailed(str(exc)) from exc
+
+
 def default_rewriter(*, project: Project | None = None) -> StoryRewriter:
     """Фабрика стандартного рерайтера с OpenAI или Yandex провайдером для проекта."""
 
@@ -322,6 +379,8 @@ def default_rewriter(*, project: Project | None = None) -> StoryRewriter:
     model_name = provider_kwargs.get("model") or ""
     if model_name and _looks_like_yandex_text_model(model_name):
         provider = YandexGPTProvider(**provider_kwargs)
+    elif model_name and _looks_like_gemini_model(model_name):
+        provider = GeminiChatProvider(**provider_kwargs)
     else:
         provider = OpenAIChatProvider(**provider_kwargs)
     return StoryRewriter(provider=provider)

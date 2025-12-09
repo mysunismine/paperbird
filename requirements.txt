@@ -7,3 +7,4 @@ markdownify==0.12.1
 psycopg[binary]==3.2.10
 python-dateutil==2.9.0.post0
 ruff==0.7.4
+google-generativeai

@@ -82,6 +82,12 @@ def _looks_like_yandex_text_model(model: str) -> bool:
     return any(lowered.startswith(prefix) for prefix in prefixes)
 
 
+def _looks_like_gemini_model(model: str) -> bool:
+    """Проверяет, похожа ли модель на модель Gemini."""
+    lowered = (model or "").lower()
+    return lowered.startswith("gemini")
+
+
 def _looks_like_yandex_art_model(model: str) -> bool:
     """Проверяет, похожа ли модель на модель YandexART."""
     lowered = (model or "").lower()
