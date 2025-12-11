@@ -1,3 +1,4 @@
+
 {% extends "base.html" %}
 
 {% block title %}{% if source %}Редактирование источника{% else %}Добавить источник{% endif %} — Paperbird{% endblock %}
@@ -15,12 +16,6 @@
   .type-selector .card.selected {
     border-color: var(--bs-primary);
     background-color: var(--bs-primary-bg-subtle);
-  }
-  .form-section {
-    display: none;
-  }
-  .form-section.active {
-    display: block;
   }
 </style>
 {% endblock %}
@@ -56,7 +51,7 @@
       <div id="type-selector-section" class="type-selector">
         <div class="row">
           <div class="col-md-6 mb-3">
-            <div class="card h-100 text-center" data-type="TELEGRAM">
+            <div class="card h-100 text-center" data-type="telegram">
               <div class="card-body">
                 <i class="bi bi-telegram h1 text-primary"></i>
                 <h5 class="card-title mt-2">Telegram</h5>
@@ -65,7 +60,7 @@
             </div>
           </div>
           <div class="col-md-6 mb-3">
-            <div class="card h-100 text-center" data-type="WEB">
+            <div class="card h-100 text-center" data-type="web">
               <div class="card-body">
                 <i class="bi bi-globe2 h1 text-success"></i>
                 <h5 class="card-title mt-2">Веб-сайт</h5>
@@ -76,126 +71,35 @@
         </div>
       </div>
       
-      <div id="form-fields-section" class="form-section">
+      <div id="form-fields-section" style="display: none;">
         <div class="card shadow-sm">
           <div class="card-body p-4">
 
-            <!-- Telegram Fields -->
-            <div id="telegram-fields" class="form-section">
-              <div class="mb-3">
-                <label for="{{ form.username.id_for_label }}" class="form-label">{{ form.username.label }}</label>
-                {{ form.username }}
-                {% if form.username.help_text %}<div class="form-text">{{ form.username.help_text }}</div>{% endif %}
-                {% for error in form.username.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-              </div>
-              <div class="mb-3">
-                <label for="{{ form.invite_link.id_for_label }}" class="form-label">{{ form.invite_link.label }}</label>
-                {{ form.invite_link }}
-                {% if form.invite_link.help_text %}<div class="form-text">{{ form.invite_link.help_text }}</div>{% endif %}
-                {% for error in form.invite_link.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-              </div>
-              <div class="mb-3">
-                <label for="{{ form.telegram_id.id_for_label }}" class="form-label">{{ form.telegram_id.label }}</label>
-                {{ form.telegram_id }}
-                {% if form.telegram_id.help_text %}<div class="form-text">{{ form.telegram_id.help_text }}</div>{% endif %}
-                {% for error in form.telegram_id.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-              </div>
-            </div>
-
-            <!-- Web Fields -->
-            <div id="web-fields" class="form-section">
-              <ul class="nav nav-tabs" id="webPresetTabs" role="tablist">
-                <li class="nav-item" role="presentation">
-                  <button class="nav-link active" id="select-preset-tab" data-bs-toggle="tab" data-bs-target="#select-preset" type="button" role="tab" aria-selected="true">Выбрать</button>
-                </li>
-                <li class="nav-item" role="presentation">
-                  <button class="nav-link" id="paste-json-tab" data-bs-toggle="tab" data-bs-target="#paste-json" type="button" role="tab" aria-selected="false">Вставить JSON</button>
-                </li>
-                <li class="nav-item" role="presentation">
-                  <button class="nav-link" id="upload-json-tab" data-bs-toggle="tab" data-bs-target="#upload-json" type="button" role="tab" aria-selected="false">Загрузить</button>
-                </li>
-              </ul>
-              <div class="tab-content pt-3">
-                <div class="tab-pane active" id="select-preset" role="tabpanel">
-                  <label for="{{ form.web_preset.id_for_label }}" class="form-label">{{ form.web_preset.label }}</label>
-                  {{ form.web_preset }}
-                  {% for error in form.web_preset.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-                </div>
-                <div class="tab-pane" id="paste-json" role="tabpanel">
-                    <label for="{{ form.preset_payload.id_for_label }}" class="form-label">{{ form.preset_payload.label }}</label>
-                    {{ form.preset_payload }}
-                    {% for error in form.preset_payload.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-                </div>
-                <div class="tab-pane" id="upload-json" role="tabpanel">
-                    <label for="{{ form.preset_file.id_for_label }}" class="form-label">{{ form.preset_file.label }}</label>
-                    {{ form.preset_file }}
-                    {% for error in form.preset_file.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-                </div>
-              </div>
-            </div>
-
-            <hr>
-
-            <div class="mb-3">
-              <label for="{{ form.title.id_for_label }}" class="form-label">{{ form.title.label }}</label>
-              {{ form.title }}
-              {% if form.title.help_text %}<div class="form-text">{{ form.title.help_text }}</div>{% endif %}
-              {% for error in form.title.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-            </div>
-
-            <div class="row">
-              <div class="col-md-6">
-                <div class="form-check mb-3">
-                    {{ form.deduplicate_text }}
-                    <label class="form-check-label" for="{{ form.deduplicate_text.id_for_label }}">{{ form.deduplicate_text.label }}</label>
-                    {% for error in form.deduplicate_text.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-                </div>
-              </div>
-              <div class="col-md-6">
-                <div class="form-check mb-3">
-                    {{ form.deduplicate_media }}
-                    <label class="form-check-label" for="{{ form.deduplicate_media.id_for_label }}">{{ form.deduplicate_media.label }}</label>
-                    {% for error in form.deduplicate_media.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-                </div>
-              </div>
-            </div>
-            
-            <hr>
-
-            <div class="row">
-                <div class="col-md-6 mb-3">
-                    <label for="{{ form.retention_days.id_for_label }}" class="form-label">{{ form.retention_days.label }}</label>
-                    {{ form.retention_days }}
-                    {% if form.retention_days.help_text %}<div class="form-text">{{ form.retention_days.help_text }}</div>{% endif %}
-                    {% for error in form.retention_days.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-                </div>
-            </div>
-
-            <div id="web-retry-fields" class="form-section">
-                <hr>
-                <p class="text-muted">Настройки повторных попыток для веб-источников</p>
-                <div class="row">
-                    <div class="col-md-4 mb-3">
-                        <label for="{{ form.web_retry_max_attempts.id_for_label }}" class="form-label">{{ form.web_retry_max_attempts.label }}</label>
-                        {{ form.web_retry_max_attempts }}
-                        {% for error in form.web_retry_max_attempts.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+            {% for field in form %}
+              {% if field.name != 'type' %}
+                <div class="mb-3">
+                  {% if field.field.widget.input_type == 'checkbox' %}
+                    <div class="form-check">
+                      {{ field }}
+                      <label for="{{ field.id_for_label }}" class="form-check-label">{{ field.label }}</label>
                     </div>
-                    <div class="col-md-4 mb-3">
-                        <label for="{{ form.web_retry_base_delay.id_for_label }}" class="form-label">{{ form.web_retry_base_delay.label }}</label>
-                        {{ form.web_retry_base_delay }}
-                        {% for error in form.web_retry_base_delay.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-                    </div>
-                    <div class="col-md-4 mb-3">
-                        <label for="{{ form.web_retry_max_delay.id_for_label }}" class="form-label">{{ form.web_retry_max_delay.label }}</label>
-                        {{ form.web_retry_max_delay }}
-                        {% for error in form.web_retry_max_delay.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-                    </div>
+                  {% else %}
+                    <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                    {{ field }}
+                  {% endif %}
+                  {% if field.help_text %}
+                    <div class="form-text">{{ field.help_text }}</div>
+                  {% endif %}
+                  {% for error in field.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
                 </div>
-            </div>
+              {% endif %}
+            {% endfor %}
 
           </div>
           <div class="card-footer bg-light text-end d-flex justify-content-between">
-            <button type="button" class="btn btn-outline-secondary" id="back-button" style="display: none;">
+            <button type="button" class="btn btn-outline-secondary" id="back-button">
                 <i class="bi bi-arrow-left me-1"></i> Назад
             </button>
             <div>
@@ -217,31 +121,36 @@
     const typeSelectInput = document.getElementById('id_type');
     const typeSelectorSection = document.getElementById('type-selector-section');
     const formFieldsSection = document.getElementById('form-fields-section');
-    const telegramFields = document.getElementById('telegram-fields');
-    const webFields = document.getElementById('web-fields');
-    const webRetryFields = document.getElementById('web-retry-fields');
     const typeCards = document.querySelectorAll('.type-selector .card');
     const backButton = document.getElementById('back-button');
 
+    function toggleFieldsVisibility(sourceType) {
+      const allFields = formFieldsSection.querySelectorAll('.mb-3');
+      allFields.forEach(fieldContainer => {
+        const field = fieldContainer.querySelector('[name]');
+        if (!field) return;
+
+        const isTelegramField = field.classList.contains('source-telegram-field');
+        const isWebField = field.classList.contains('source-web-field');
+        
+        if (isTelegramField) {
+          fieldContainer.style.display = sourceType === 'telegram' ? '' : 'none';
+        } else if (isWebField) {
+          fieldContainer.style.display = sourceType === 'web' ? '' : 'none';
+        }
+      });
+    }
+
     function showFormFields(type) {
       typeSelectorSection.style.display = 'none';
-      formFieldsSection.classList.add('active');
+      formFieldsSection.style.display = 'block';
       backButton.style.display = 'inline-block';
-
-      if (type === 'TELEGRAM') {
-        telegramFields.classList.add('active');
-        webFields.classList.remove('active');
-        webRetryFields.classList.remove('active');
-      } else if (type === 'WEB') {
-        telegramFields.classList.remove('active');
-        webFields.classList.add('active');
-        webRetryFields.classList.add('active');
-      }
+      toggleFieldsVisibility(type);
     }
 
     function showTypeSelector() {
       typeSelectorSection.style.display = 'block';
-      formFieldsSection.classList.remove('active');
+      formFieldsSection.style.display = 'none';
       backButton.style.display = 'none';
       typeSelectInput.value = '';
       typeCards.forEach(card => card.classList.remove('selected'));
@@ -260,9 +169,11 @@
     backButton.addEventListener('click', showTypeSelector);
 
     // Hide the real select input
-    typeSelectInput.style.display = 'none';
+    if (typeSelectInput) {
+        typeSelectInput.style.display = 'none';
+    }
     
-    // On page load, if a type is already selected (e.g., form error), show the correct fields
+    // On page load, if a type is already selected (e.g., form error or editing), show the correct fields
     if (typeSelectInput.value) {
       const selectedCard = document.querySelector(`.type-selector .card[data-type="${typeSelectInput.value}"]`);
       if (selectedCard) {

@@ -7,6 +7,7 @@ from pathlib import Path
 from collections.abc import Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -545,6 +546,7 @@ class Post(models.Model):
         """Возвращает список медиаэлементов для отображения в интерфейсе."""
 
         items: list[dict[str, str]] = []
+        seen: set[str] = set()
 
         def build_item(url: str, media_type: str | None) -> dict[str, str]:
             raw_type = media_type or "image"
@@ -562,7 +564,10 @@ class Post(models.Model):
             }
 
         if self.media_url:
-            items.append(build_item(self.media_url, self.media_type))
+            normalized = urlparse(self.media_url).path or self.media_url
+            if normalized not in seen:
+                seen.add(normalized)
+                items.append(build_item(self.media_url, self.media_type))
         manifest = self.images_manifest or []
         for entry in manifest:
             url = ""
@@ -574,6 +579,10 @@ class Post(models.Model):
                 entry_type = entry.get("type") or entry.get("media_type")
             if not url:
                 continue
+            normalized = urlparse(url).path or url
+            if normalized in seen:
+                continue
+            seen.add(normalized)
             items.append(build_item(url, entry_type or "image"))
         return items
 

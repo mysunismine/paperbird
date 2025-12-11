@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import mimetypes
 import uuid
 from pathlib import Path
@@ -264,11 +265,25 @@ class StoryImageView(LoginRequiredMixin, DetailView):
 
     def _source_media(self) -> list[dict[str, Any]]:
         media: list[dict[str, Any]] = []
+        seen_paths: set[str] = set()
+        seen_hashes: set[str] = set()
         posts = self.object.ordered_posts().select_related("source")
         for post in posts:
             candidate = self._find_post_media(post)
-            if candidate:
-                media.append(candidate)
+            if not candidate:
+                continue
+            path_key = str(candidate["path"].resolve())
+            if path_key in seen_paths:
+                continue
+            try:
+                file_hash = hashlib.sha256(candidate["path"].read_bytes()).hexdigest()
+            except OSError:
+                continue
+            if file_hash in seen_hashes:
+                continue
+            seen_paths.add(path_key)
+            seen_hashes.add(file_hash)
+            media.append(candidate)
         return media
 
     def _find_post_media(self, post: Post, *, allow_download: bool = False):
@@ -298,11 +313,23 @@ class StoryImageView(LoginRequiredMixin, DetailView):
         if mime and not mime.startswith("image/"):
             return None
 
+        media_prefix = (settings.MEDIA_URL or "").rstrip("/")
+        relative_path = None
+        try:
+            relative_path = resolved.relative_to(root).as_posix()
+        except ValueError:
+            pass
+        url = None
+        if media_prefix and relative_path:
+            url = f"{media_prefix.rstrip('/')}/{relative_path.lstrip('/')}"
+        if not url:
+            url = resolved.as_posix()
+
         return {
             "post": post,
             "path": resolved,
             "mime": mime or "image/jpeg",
-            "url": post.media_url,
+            "url": url,
             "file_name": resolved.name,
         }
 

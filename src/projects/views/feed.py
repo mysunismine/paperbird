@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import Any
 
 from django.contrib import messages
@@ -13,8 +12,8 @@ from django.utils.dateparse import parse_datetime
 from django.views.generic import TemplateView
 
 from core.models import WorkerTask
-from core.services.worker import enqueue_task
 from projects.models import Post, Project, Source, WebPreset
+from projects.services.collector_scheduler import ensure_collector_tasks
 from projects.services.post_filters import (
     PostFilterOptions,
     apply_post_filters,
@@ -218,37 +217,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
 
     def _ensure_collector_task(self, *, delay: int) -> None:
         """Гарантирует, что задача сборщика поставлена в очередь."""
-        if self._has_telegram_sources():
-            self._schedule_queue(
-                WorkerTask.Queue.COLLECTOR,
-                delay=delay,
-                interval=self.project.collector_telegram_interval,
-            )
-        if self._has_web_sources():
-            self._schedule_queue(
-                WorkerTask.Queue.COLLECTOR_WEB,
-                delay=delay,
-                interval=self.project.collector_web_interval,
-            )
-
-    def _schedule_queue(self, queue: str, *, delay: int, interval: int) -> None:
-        """Планирует задачу для указанной очереди."""
-        exists = WorkerTask.objects.filter(
-            queue=queue,
-            payload__project_id=self.project.id,
-            status__in=[WorkerTask.Status.QUEUED, WorkerTask.Status.RUNNING],
-        ).exists()
-        if exists:
-            return
-        scheduled_for = timezone.now() + timedelta(seconds=max(delay, 0))
-        enqueue_task(
-            queue,
-            payload={
-                "project_id": self.project.id,
-                "interval": interval,
-            },
-            scheduled_for=scheduled_for,
-        )
+        ensure_collector_tasks(self.project, delay=delay)
 
     def _has_telegram_sources(self) -> bool:
         """Проверяет наличие активных Telegram-источников в проекте."""

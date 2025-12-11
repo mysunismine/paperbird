@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import mimetypes
 import uuid
 from collections.abc import Sequence
@@ -117,6 +118,7 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         for story_post in story_posts:
             story_post.can_attach = self._can_attach_media(story_post.post)
         context["story_posts"] = story_posts
+        context["source_media"] = self._collect_source_media(story_posts)
         context["can_edit_content"] = self.object.status in {
             Story.Status.READY,
             Story.Status.PUBLISHED,
@@ -395,9 +397,23 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         if mime and not mime.startswith("image/"):
             return None
 
+        media_prefix = (settings.MEDIA_URL or "").rstrip("/")
+        relative_path = None
+        try:
+            relative_path = resolved.relative_to(root).as_posix()
+        except ValueError:
+            pass
+        url = None
+        if media_prefix and relative_path:
+            url = f"{media_prefix.rstrip('/')}/{relative_path.lstrip('/')}"
+        if not url:
+            url = resolved.as_posix()
         return {
             "path": resolved,
             "mime": mime or "image/jpeg",
+            "url": url,
+            "file_name": resolved.name,
+            "relative_path": relative_path,
         }
 
     def _candidate_media_path(self, post) -> str | None:
@@ -566,3 +582,45 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         if not step:
             return base
         return f"{base}?step={step}"
+
+    def _collect_source_media(self, story_posts: Sequence) -> list[dict[str, Any]]:
+        """Подготавливает список медиа из исходных постов без дублей."""
+
+        media: list[dict[str, Any]] = []
+        seen_paths: set[str] = set()
+        seen_hashes: set[str] = set()
+        for story_post in story_posts:
+            info = self._find_post_media(story_post.post, allow_download=True)
+            if not info:
+                continue
+
+            path_key = str(info["path"].resolve())
+            if path_key in seen_paths:
+                continue
+
+            try:
+                file_hash = hashlib.sha256(info["path"].read_bytes()).hexdigest()
+            except OSError:
+                continue
+
+            if file_hash in seen_hashes:
+                continue
+
+            seen_paths.add(path_key)
+            seen_hashes.add(file_hash)
+
+            source_label = (
+                story_post.post.source.title
+                or story_post.post.source.username
+                or f"Пост #{story_post.post.id}"
+            )
+            media.append(
+                {
+                    "post": story_post.post,
+                    "url": info.get("url") or story_post.post.media_url,
+                    "mime": info["mime"],
+                    "file_name": info.get("file_name") or info["path"].name,
+                    "label": source_label,
+                }
+            )
+        return media

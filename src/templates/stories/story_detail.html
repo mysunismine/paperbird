@@ -164,25 +164,38 @@
           </form>
           <hr class="my-4" />
           <h3 class="h6">Медиафайлы из источников</h3>
-          <p class="small text-muted">
-            Здесь показаны все медиа из исходных новостей. Вы можете сгенерировать новое изображение для сюжета или прикрепить существующее.
-            Управление позицией изображения (до или после текста) происходит на следующем шаге.
+          <p class="small text-muted mb-3">
+            Выберите изображение из собранных постов, чтобы сделать его основным для сюжета.
+            Если подходящей картинки нет, воспользуйтесь генерацией или загрузкой на вкладке «Изображение».
           </p>
-          {# TODO: Here should be a form to attach one of the source images as a story.image_file #}
-          <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
-            {% for story_post in story_posts %}
-              {% for item in story_post.post.media_items %}
+          {% if source_media %}
+            <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
+              {% for item in source_media %}
                 <div class="col">
                   <div class="card h-100 shadow-sm">
-                    <img src="{{ item.url }}" class="card-img-top" alt="Media item" style="aspect-ratio: 4/3; object-fit: cover;">
+                    <img src="{{ item.url }}" class="card-img-top" alt="Медиа поста" style="aspect-ratio: 4/3; object-fit: cover;">
                     <div class="card-body p-2 text-center">
-                       <button class="btn btn-sm btn-outline-primary" disabled>Сделать основным</button>
+                      <form method="post" class="d-flex flex-column gap-1">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="attach_media">
+                        <input type="hidden" name="media_post_id" value="{{ item.post.id }}">
+                        <button class="btn btn-sm btn-outline-primary" type="submit">
+                          <i class="bi bi-star me-1"></i>
+                          Сделать основным
+                        </button>
+                        <span class="small text-muted">{{ item.label }}</span>
+                      </form>
                     </div>
                   </div>
                 </div>
               {% endfor %}
-            {% endfor %}
-          </div>
+            </div>
+          {% else %}
+            <div class="alert alert-info mb-0">
+              В исходных постах этого сюжета нет доступных изображений. Попробуйте сгенерировать
+              картинку или загрузить свою на вкладке «Изображение».
+            </div>
+          {% endif %}
         </div>
       </div>
     </div>

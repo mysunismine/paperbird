@@ -105,12 +105,6 @@ DEFAULT_PROMPT_SECTIONS: dict[str, str] = {
 }
 
 
-SOURCE_LINK_REQUIREMENT = (
-    "- Встрой органично одну HTML-ссылку на первоисточник из списка источников, например: "
-    "«в статье <a href=\"URL\">Известий</a> говорится…». Если ссылки нет — пропусти этот шаг."
-)
-
-
 @dataclass(slots=True)
 class RenderedPrompt:
     """Результат рендеринга фрагментов промта."""
@@ -172,8 +166,6 @@ def render_prompt(
     sections: list[tuple[str, str]] = []
     for field, heading in PROMPT_SECTION_ORDER:
         raw = getattr(config, field)
-        if field == "style_requirements":
-            raw = f"{(raw or '').rstrip()}\n{SOURCE_LINK_REQUIREMENT}"
         text = heading + "\n" + _apply_replacements(raw, replacements)
         sections.append((field, text.strip()))
     sections.append(("current_datetime", _render_current_datetime_section(datetime_context)))

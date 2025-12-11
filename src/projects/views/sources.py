@@ -12,6 +12,7 @@ from django.views.generic import DetailView, FormView, TemplateView, UpdateView
 
 from core.models import WorkerTask
 from projects.models import Project, Source
+from projects.services.collector_scheduler import ensure_collector_tasks
 
 from ..forms import SourceCreateForm, SourceUpdateForm
 
@@ -43,6 +44,7 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
 
         source = get_object_or_404(Source, pk=int(source_id), project=self.project)
         source.delete()
+        ensure_collector_tasks(self.project)
         messages.success(request, "Источник удалён.")
         return redirect("projects:sources", pk=self.project.pk)
 
@@ -123,6 +125,7 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
         """Возвращает аргументы для формы, включая проект."""
         kwargs = super().get_form_kwargs()
         kwargs["project"] = self.project
+        kwargs["is_create"] = True
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -139,6 +142,7 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
             self._schedule_web_source_collection(source)
         else:
             messages.success(self.request, "Источник добавлен к проекту.")
+        ensure_collector_tasks(source.project)
         return redirect("projects:source-detail", project_pk=source.project_id, pk=source.pk)
 
     def form_invalid(self, form):
@@ -171,6 +175,30 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
                 self.request,
                 "Источник добавлен. Запускаем парсер — посты скоро появятся в ленте.",
             )
+            self._ensure_web_collector_schedule(source)
+
+    def _ensure_web_collector_schedule(self, source: Source) -> None:
+        """Гарантирует, что для проекта запланирована регулярная веб-задача."""
+
+        project = source.project
+        if not project.collector_enabled:
+            return
+        already_scheduled = WorkerTask.objects.filter(
+            queue=WorkerTask.Queue.COLLECTOR_WEB,
+            status__in=[WorkerTask.Status.QUEUED, WorkerTask.Status.RUNNING],
+            payload__project_id=project.pk,
+            payload__source_id__isnull=True,
+        ).exists()
+        if already_scheduled:
+            return
+        feed.enqueue_task(
+            WorkerTask.Queue.COLLECTOR_WEB,
+            payload={
+                "project_id": project.pk,
+                "interval": max(project.collector_web_interval, 60),
+            },
+            scheduled_for=timezone.now(),
+        )
 
 
 class ProjectSourceUpdateView(LoginRequiredMixin, UpdateView):
@@ -208,6 +236,7 @@ class ProjectSourceUpdateView(LoginRequiredMixin, UpdateView):
         """Обрабатывает валидную форму, сохраняет источник и выводит сообщение."""
         form.save()
         messages.success(self.request, "Источник обновлён.")
+        ensure_collector_tasks(self.object.project)
         return redirect(self.get_success_url())
 
 
@@ -217,5 +246,6 @@ def delete_source(request, project_pk: int, pk: int):
     project = get_object_or_404(Project, pk=project_pk, owner=request.user)
     source = get_object_or_404(Source, pk=pk, project=project)
     source.delete()
+    ensure_collector_tasks(project)
     messages.success(request, "Источник удалён.")
     return redirect("projects:sources", pk=project_pk)

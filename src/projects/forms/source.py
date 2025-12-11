@@ -102,21 +102,56 @@ class SourceBaseForm(forms.ModelForm):
             "web_retry_base_delay": "Базовая задержка ретрая (сек.)",
             "web_retry_max_delay": "Максимальная задержка ретрая (сек.)",
         }
+        help_texts = {
+            "type": "Выберите тип источника. От этого зависит, какие поля нужно будет заполнить.",
+        }
 
     def __init__(self, *args, project: Project, **kwargs):
+        is_create = kwargs.pop("is_create", False)
+
         self.project = project
         self._preset_registry: WebPresetRegistry | None = None
         super().__init__(*args, **kwargs)
+
+        # On create, add an empty choice to force user selection.
+        if is_create:
+            self.fields["type"].choices = [("", "---------")] + self.fields["type"].choices
+            self.fields["type"].initial = ""
+
+        # Fields metadata
         self.fields["title"].required = False
         self.fields["username"].required = False
         self.fields["invite_link"].required = False
         self.fields["telegram_id"].required = False
         self.fields["web_preset"].required = False
+
+        # CSS classes and data attributes for JS
         self.fields["type"].widget.attrs["data-role"] = "source-type"
         self.fields["preset_file"].widget.attrs["data-role"] = "preset-file-input"
+
+        # --- Telegram fields
+        self.fields["telegram_id"].widget.attrs["class"] += " source-telegram-field"
+        self.fields["username"].widget.attrs["class"] += " source-telegram-field"
+        self.fields["invite_link"].widget.attrs["class"] += " source-telegram-field"
+
+        # --- Web fields
+        self.fields["web_preset"].widget.attrs["class"] += " source-web-field"
+        self.fields["preset_payload"].widget.attrs["class"] += " source-web-field"
+        self.fields["preset_file"].widget.attrs["class"] += " source-web-field"
+        self.fields["web_retry_max_attempts"].widget.attrs["class"] += " source-web-field"
+        self.fields["web_retry_base_delay"].widget.attrs["class"] += " source-web-field"
+        self.fields["web_retry_max_delay"].widget.attrs["class"] += " source-web-field"
+
+        # Initial values and querysets
         self.fields["web_preset"].queryset = WebPreset.objects.order_by("name", "version")
         if not self.initial.get("retention_days"):
             self.fields["retention_days"].initial = project.retention_days
+        if not self.initial.get("web_retry_max_attempts"):
+            self.fields["web_retry_max_attempts"].initial = 5
+        if not self.initial.get("web_retry_base_delay"):
+            self.fields["web_retry_base_delay"].initial = 30
+        if not self.initial.get("web_retry_max_delay"):
+            self.fields["web_retry_max_delay"].initial = 900
 
     def clean_telegram_id(self):
         value = self.cleaned_data.get("telegram_id")
@@ -159,6 +194,14 @@ class SourceBaseForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+        source_type = cleaned.get("type")
+
+        # Ensure a source type is always selected.
+        if not source_type:
+            raise forms.ValidationError(
+                "Необходимо выбрать тип источника. Вернитесь назад и выберите один из вариантов."
+            )
+
         username = cleaned.get("username")
         invite = (cleaned.get("invite_link") or "").strip()
         telegram_id = cleaned.get("telegram_id")
@@ -182,7 +225,6 @@ class SourceBaseForm(forms.ModelForm):
                 raise forms.ValidationError("Не удалось прочитать JSON из файла пресета.") from exc
             cleaned["preset_payload"] = payload_text
 
-        source_type = cleaned.get("type") or Source.Type.TELEGRAM
         if source_type == Source.Type.WEB:
             preset = cleaned.get("web_preset")
             payload = self.cleaned_data.get("preset_payload")
@@ -198,9 +240,16 @@ class SourceBaseForm(forms.ModelForm):
             cleaned["username"] = ""
             cleaned["invite_link"] = ""
             cleaned["telegram_id"] = None
-        else:
+        else:  # Telegram
             if not username and not invite and telegram_id is None:
                 raise forms.ValidationError("Укажите @username, ссылку на канал или инвайт-ссылку.")
+            cleaned["web_preset"] = None
+            cleaned["preset_payload"] = ""
+            cleaned["preset_file"] = None
+            cleaned["web_retry_max_attempts"] = None
+            cleaned["web_retry_base_delay"] = None
+            cleaned["web_retry_max_delay"] = None
+
         return cleaned
 
     def save(self, commit: bool = True) -> Source:
