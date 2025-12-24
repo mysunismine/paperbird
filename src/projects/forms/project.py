@@ -55,6 +55,12 @@ class ProjectCreateForm(forms.ModelForm):
             "модели."
         ),
     )
+    image_prompt_model = forms.ChoiceField(
+        label="Модель для идеи изображения",
+        choices=REWRITE_MODEL_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        help_text="Модель для генерации рекомендованного промпта для изображения.",
+    )
     time_zone = forms.CharField(
         label="Часовой пояс",
         widget=forms.Select(attrs={"class": "form-select"}, choices=TIMEZONE_CHOICES),
@@ -69,12 +75,16 @@ class ProjectCreateForm(forms.ModelForm):
             "name",
             "description",
             "publish_target",
+            "public_enabled",
+            "public_noindex",
+            "public_title",
             "locale",
             "time_zone",
             "rewrite_model",
             "image_model",
             "image_size",
             "image_quality",
+            "image_prompt_model",
             "retention_days",
             "collector_telegram_interval",
             "collector_web_interval",
@@ -103,6 +113,13 @@ class ProjectCreateForm(forms.ModelForm):
                     "maxlength": Project._meta.get_field("publish_target").max_length,
                 }
             ),
+            "public_title": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "Публичное название проекта",
+                    "maxlength": Project._meta.get_field("public_title").max_length,
+                }
+            ),
             "locale": forms.TextInput(
                 attrs={
                     "class": "form-control",
@@ -124,12 +141,16 @@ class ProjectCreateForm(forms.ModelForm):
             "name": "Название",
             "description": "Описание",
             "publish_target": "Целевой канал",
+            "public_enabled": "Публичная витрина",
+            "public_noindex": "Не индексировать",
+            "public_title": "Публичное название",
             "locale": "Локаль",
             "time_zone": "Часовой пояс",
             "rewrite_model": "Модель рерайта",
             "image_model": "Модель генерации изображений",
             "image_size": "Размер изображения",
             "image_quality": "Качество",
+            "image_prompt_model": "Модель для идеи изображения",
             "retention_days": "Срок хранения (дней)",
             "collector_telegram_interval": "Интервал Telegram (сек)",
             "collector_web_interval": "Интервал веб-парсера (сек)",
@@ -138,9 +159,13 @@ class ProjectCreateForm(forms.ModelForm):
             "name": "Название должно быть уникальным в рамках вашей команды",
             "description": "Необязательно, но помогает запомнить контекст и критерии сбора",
             "publish_target": "Используется по умолчанию при публикации сюжетов",
+            "public_enabled": "Разрешает доступ к публичным страницам проекта.",
+            "public_noindex": "Рекомендуется для частных проектов и тестовых витрин.",
+            "public_title": "Если пусто, будет использовано основное название проекта.",
             "locale": "Определяет язык формата даты для подсказок (например, ru_RU).",
             "time_zone": "Используется для расчёта текущей даты/времени в промтах.",
             "rewrite_model": "Меняйте модель, если требуется более точный или быстрый рерайт.",
+            "image_prompt_model": "Рекомендуется использовать быструю и дешёвую модель.",
             "retention_days": "Посты старше этого значения будут автоматически удаляться",
             "collector_telegram_interval": "Минимум 30 секунд, чтобы не получить лимиты Telegram.",
             "collector_web_interval": "Минимум 60 секунд, чтобы не нагружать сайт-источник.",
@@ -155,10 +180,18 @@ class ProjectCreateForm(forms.ModelForm):
             if field_name in self.fields:
                 self.fields[field_name].required = False
         if not self.instance.pk:
-            for field_name in ("collector_telegram_interval", "collector_web_interval"):
+            for field_name in (
+                "collector_telegram_interval",
+                "collector_web_interval",
+                "public_enabled",
+                "public_noindex",
+            ):
                 if field_name in self.fields and not self.fields[field_name].initial:
                     model_field = Project._meta.get_field(field_name)
                     self.fields[field_name].initial = model_field.default
+        for field_name in ("public_enabled", "public_noindex"):
+            if field_name in self.fields:
+                self.fields[field_name].widget.attrs.setdefault("class", "form-check-input")
 
     def clean_name(self) -> str:
         name = self.cleaned_data["name"].strip()

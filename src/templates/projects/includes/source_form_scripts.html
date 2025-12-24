@@ -7,7 +7,7 @@
     const sections = document.querySelectorAll("[data-source-section]");
     const importButton = document.querySelector('[data-role="preset-file-button"]');
     const fileInput = document.querySelector('[data-role="preset-file-input"]') || document.querySelector('#id_preset_file');
-    const resultLabel = document.querySelector('[data-role="preset-import-result"]');
+    const feedbackContainer = document.getElementById("preset-import-feedback");
     const payloadField = document.getElementById("id_preset_payload");
 
     function toggleSections() {
@@ -22,7 +22,7 @@
     typeSelect.addEventListener("change", toggleSections);
     toggleSections();
 
-    if (importButton && fileInput && payloadField) {
+    if (importButton && fileInput && payloadField && feedbackContainer) {
       fileInput.setAttribute("data-role", "preset-file-input");
       importButton.addEventListener("click", () => {
         fileInput.click();
@@ -30,23 +30,26 @@
       fileInput.addEventListener("change", () => {
         const [file] = fileInput.files || [];
         if (!file) {
-          if (resultLabel) {
-            resultLabel.textContent = "";
-          }
+          feedbackContainer.innerHTML = "";
           return;
         }
         const reader = new FileReader();
         reader.onload = () => {
           payloadField.value = reader.result || "";
-          if (resultLabel) {
-            resultLabel.textContent = `Импортирован файл «${file.name}»`;
-          }
+          feedbackContainer.innerHTML = `
+            <div class="alert alert-success alert-dismissible fade show small p-2" role="alert">
+              Импортирован файл «${file.name}»
+              <button type="button" class="btn-close p-2" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          `;
         };
         reader.onerror = () => {
-          if (resultLabel) {
-            resultLabel.textContent = "Не удалось прочитать файл. Попробуйте другой JSON.";
-            resultLabel.classList.add("text-danger");
-          }
+          feedbackContainer.innerHTML = `
+            <div class="alert alert-danger alert-dismissible fade show small p-2" role="alert">
+              Не удалось прочитать файл. Попробуйте другой JSON.
+              <button type="button" class="btn-close p-2" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          `;
         };
         reader.readAsText(file);
       });

@@ -22,6 +22,7 @@ class RewriteHelperTests(SimpleTestCase):
 
     def test_openai_temperature_for_gpt5(self) -> None:
         self.assertEqual(_openai_temperature_for_model("gpt-5"), 1.0)
+        self.assertEqual(_openai_temperature_for_model("gpt-5o"), 1.0)
         self.assertEqual(_openai_temperature_for_model("gpt-4o-mini"), OPENAI_DEFAULT_TEMPERATURE)
 
 

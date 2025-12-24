@@ -14,6 +14,7 @@ import httpx
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
@@ -319,35 +320,70 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
 
     def _handle_attach_media(self, request):
         """Прикрепляет медиа поста к сюжету для публикации."""
-        selected_ids = request.POST.getlist("media_post_id")
-        if not selected_ids:
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        post_id = request.POST.get("media_post_id")
+        if not post_id or not post_id.isdigit():
+            if is_ajax:
+                return JsonResponse(
+                    {
+                        "status": "error",
+                        "message": "Выберите медиа для прикрепления.",
+                    },
+                    status=400,
+                )
             messages.error(request, "Выберите медиа, чтобы прикрепить его к сюжету.")
             return redirect(self._build_success_url(step="rewrite"))
 
-        posts_qs = self.object.ordered_posts().select_related("source")
-        posts = posts_qs.filter(id__in=[int(value) for value in selected_ids if value.isdigit()])
-        for post in posts:
-            media_info = self._find_post_media(post, allow_download=True)
-            if not media_info:
-                continue
-            try:
-                data = media_info["path"].read_bytes()
-            except OSError:
-                continue
-            try:
-                self.object.attach_image(
-                    prompt="",
-                    data=data,
-                    mime_type=media_info["mime"],
-                    source_kind=StoryImage.SourceKind.SOURCE,
-                )
-            except Exception as exc:
-                messages.error(request, f"Не удалось прикрепить изображение: {exc}")
-                return redirect(self._build_success_url(step="rewrite"))
-            messages.success(request, "Медиа прикреплено: будет отправлено после текста.")
+        post = get_object_or_404(
+            self.object.ordered_posts().select_related("source"),
+            pk=int(post_id),
+        )
+        media_info = self._find_post_media(post, allow_download=True)
+        if not media_info:
+            message = "Не удалось найти локальный файл для выбранного медиа."
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": message}, status=404)
+            messages.error(request, message)
             return redirect(self._build_success_url(step="rewrite"))
 
-        messages.error(request, "Не удалось найти локальный файл среди выбранных медиа.")
+        try:
+            data = media_info["path"].read_bytes()
+        except OSError as exc:
+            message = f"Не удалось прочитать файл медиа: {exc}"
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": message}, status=500)
+            messages.error(request, message)
+            return redirect(self._build_success_url(step="rewrite"))
+
+        try:
+            image = self.object.attach_image(
+                prompt="",
+                data=data,
+                mime_type=media_info["mime"],
+                source_kind=StoryImage.SourceKind.SOURCE,
+            )
+        except Exception as exc:
+            message = f"Не удалось прикрепить изображение: {exc}"
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": message}, status=500)
+            messages.error(request, message)
+            return redirect(self._build_success_url(step="rewrite"))
+
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "message": "Медиа успешно прикреплено.",
+                    "image": {
+                        "id": image.id,
+                        "url": image.image_file.url,
+                        "is_main": image.is_main,
+                        "is_selected": image.is_selected,
+                    },
+                }
+            )
+
+        messages.success(request, "Медиа прикреплено: будет отправлено после текста.")
         return redirect(self._build_success_url(step="rewrite"))
 
     def _handle_set_main_image(self, request):

@@ -42,6 +42,7 @@
     justify-content: center;
     gap: 0.75rem;
     color: #6c757d;
+    text-align: center;
   }
   .source-media-grid {
       display: grid;
@@ -113,24 +114,37 @@
                               </button>
                             </div>
                             <p class="small text-muted mb-2" id="recommended-prompt-text">
-                              Нажмите «Сгенерировать», чтобы получить рекомендацию.
+                              Загрузка рекомендации...
                             </p>
                             <button type="button" class="btn btn-sm btn-outline-primary" id="refresh-recommended-prompt">
-                              Сгенерировать
+                              <i class="bi bi-arrow-clockwise"></i>
+                              Обновить
                             </button>
                           </div>
                         </div>
                         <div class="row g-3">
                           <div class="col-md-4">{{ generate_form.model.label_tag }}{{ generate_form.model }}</div>
-                          <div class="col-md-4">{{ generate_form.size.label_tag }}{{ generate_form.size }}</div>
-                          <div class="col-md-4">{{ generate_form.quality.label_tag }}{{ generate_form.quality }}</div>
+                          <div class="col-md-4" id="size-field">
+                            {{ generate_form.size.label_tag }}{{ generate_form.size }}
+                          </div>
+                          <div class="col-md-4" id="quality-field">
+                            {{ generate_form.quality.label_tag }}{{ generate_form.quality }}
+                          </div>
+                          <div class="col-md-4 d-none" id="aspect-ratio-field">
+                            {{ generate_form.aspect_ratio.label_tag }}
+                            {{ generate_form.aspect_ratio }}
+                          </div>
+                          <div class="col-md-4 d-none" id="image-size-field">
+                            {{ generate_form.image_size.label_tag }}
+                            {{ generate_form.image_size }}
+                          </div>
                         </div>
                         <button class="btn btn-primary mt-3" type="submit"><i class="bi bi-magic me-1"></i> Сгенерировать</button>
                     </form>
                 </div>
                 <!-- Source Media Tab -->
                 <div class="tab-pane fade" id="source-media" role="tabpanel">
-                    <p class="small text-muted">Выберите изображение из исходных постов сюжета.</p>
+                    <p class="small text-muted">Выберите изображение из исходных постов сюжета, чтобы поместить его в предпросмотр.</p>
                     {% if source_media %}
                         <div class="source-media-grid">
                             {% for item in source_media %}
@@ -146,16 +160,14 @@
                 </div>
                 <!-- Upload Tab -->
                 <div class="tab-pane fade" id="upload" role="tabpanel">
-                    <form id="image-upload-form" method="post" enctype="multipart/form-data">
+                    <form id="image-upload-form">
                         {% csrf_token %}
-                        <input type="hidden" name="action" value="upload">
                         <div id="upload-drop-zone">
                             <p class="mb-0">Перетащите файл сюда или нажмите для выбора</p>
                             <p class="small text-muted mb-0">PNG, JPG, WEBP</p>
-                            {{ upload_form.image_file }}
+                            <input type="file" name="image_file" id="id_image_file" class="d-none" accept="image/png,image/jpeg,image/webp">
                         </div>
                         {% if upload_form.image_file.errors %}<div class="text-danger small mt-1">{{ upload_form.image_file.errors|join:', ' }}</div>{% endif %}
-                        <button type="submit" class="btn btn-primary mt-3">Загрузить и прикрепить</button>
                     </form>
                 </div>
             </div>
@@ -223,129 +235,250 @@ document.addEventListener('DOMContentLoaded', function () {
     const recommendedText = document.getElementById('recommended-prompt-text');
     const recommendedUseButton = document.getElementById('use-recommended-prompt');
     const recommendedRefreshButton = document.getElementById('refresh-recommended-prompt');
-    const promptInput = document.getElementById('{{ generate_form.prompt.id_for_label }}');
+    const promptInput = document.getElementById('id_prompt');
     const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]');
     let recommendedValue = '';
-    const storyId = {{ story.pk }};
-    const recommendationKey = `paperbird:story:${storyId}:image_recommendation`;
+
+    const imageProviderSettings = JSON.parse('{{ image_provider_settings|escapejs }}');
+    const modelSelect = document.getElementById('id_model');
+    const sizeSelect = document.getElementById('id_size');
+    const qualitySelect = document.getElementById('id_quality');
+    const aspectRatioSelect = document.getElementById('id_aspect_ratio');
+    const imageSizeSelect = document.getElementById('id_image_size');
+    const sizeField = document.getElementById('size-field');
+    const qualityField = document.getElementById('quality-field');
+    const aspectRatioField = document.getElementById('aspect-ratio-field');
+    const imageSizeField = document.getElementById('image-size-field');
+
+    function updateSelect(select, options, defaultValue, emptyLabel) {
+        if (!select) return;
+        select.innerHTML = '';
+        if (emptyLabel !== null) {
+            select.add(new Option(emptyLabel, ''));
+        }
+        options.forEach(optionValue => {
+            const option = new Option(optionValue, optionValue);
+            select.add(option);
+        });
+        if (defaultValue !== undefined && defaultValue !== null && defaultValue !== '') {
+            select.value = defaultValue;
+        }
+    }
+
+    function updateGenerationOptions() {
+        const selectedModel = modelSelect.value || 'default';
+        const settings = imageProviderSettings[selectedModel] || imageProviderSettings['default'];
+        const isGemini = settings.kind === 'gemini';
+
+        // Update sizes
+        updateSelect(sizeSelect, settings.sizes || [], settings.default_size, null);
+
+        // Update qualities
+        updateSelect(qualitySelect, settings.qualities || [], settings.default_quality, null);
+
+        // Update Gemini options
+        const aspectRatios = settings.aspect_ratios || [];
+        const imageSizes = settings.image_sizes || [];
+
+        updateSelect(
+            aspectRatioSelect,
+            aspectRatios,
+            settings.default_aspect_ratio,
+            'По умолчанию'
+        );
+        updateSelect(
+            imageSizeSelect,
+            imageSizes,
+            settings.default_image_size,
+            'По умолчанию'
+        );
+
+        if (sizeField) sizeField.classList.toggle('d-none', isGemini);
+        if (qualityField) qualityField.classList.toggle('d-none', isGemini);
+        const hasAspectRatios = aspectRatios.length > 0;
+        const hasImageSizes = imageSizes.length > 0;
+
+        if (aspectRatioField) {
+            aspectRatioField.classList.toggle('d-none', !isGemini || !hasAspectRatios);
+        }
+        if (imageSizeField) {
+            imageSizeField.classList.toggle('d-none', !isGemini || !hasImageSizes);
+        }
+
+        if (sizeSelect) sizeSelect.disabled = isGemini;
+        if (qualitySelect) qualitySelect.disabled = isGemini;
+        if (aspectRatioSelect) aspectRatioSelect.disabled = !isGemini || !hasAspectRatios;
+        if (imageSizeSelect) imageSizeSelect.disabled = !isGemini || !hasImageSizes;
+    }
+
+    if (modelSelect && sizeSelect && qualitySelect && imageProviderSettings) {
+        modelSelect.addEventListener('change', updateGenerationOptions);
+        // Initial population
+        updateGenerationOptions();
+    }
     
+    // --- Generic Fetch Handler ---
+    function performAction(formData) {
+        const action = formData.get('action');
+        let body;
+        let headers = { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrfToken.value };
+
+        if (formData.has('image_file')) {
+            body = formData;
+            // Let the browser set the Content-Type for multipart/form-data
+        } else {
+            body = new URLSearchParams(formData);
+        }
+
+        let loadingMessage = 'Выполняется...';
+        if (action === 'generate') loadingMessage = 'Генерация изображения...';
+        if (action === 'upload') loadingMessage = 'Загрузка файла...';
+
+        showLoading(loadingMessage);
+
+        return fetch(window.location.href, { method: 'POST', body: body, headers: headers })
+            .then(async (response) => {
+                const data = await response.json().catch(() => null);
+                if (!response.ok || !data) {
+                    const message = data && data.message ? data.message : `Ошибка выполнения действия: ${action}.`;
+                    throw new Error(message);
+                }
+                return data;
+            })
+            .then(data => {
+                if (data.status === 'success' && data.preview) {
+                    updatePreview(data.preview.data, data.preview.mime, data.preview.prompt);
+                    prepareAttachForm(data.preview);
+                    hideLoading();
+                } else {
+                    showError(data.message || `Ошибка выполнения: ${action}.`);
+                }
+            })
+            .catch((err) => showError(err.message || 'Сетевая ошибка.'));
+    }
+
     // --- Generate Form ---
     const generateForm = document.getElementById('image-generate-form');
     generateForm.addEventListener('submit', function (e) {
         e.preventDefault();
-        
         const formData = new FormData(this);
         formData.append('action', 'generate');
-
-        showLoading('Генерация изображения...');
-
-        fetch(window.location.href, {
-            method: 'POST',
-            body: new URLSearchParams(formData),
-            headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': formData.get('csrfmiddlewaretoken') }
-        })
-        .then(async (response) => {
-            const data = await response.json().catch(() => null);
-            if (!response.ok || !data) {
-                const message = data && data.message ? data.message : 'Ошибка генерации.';
-                throw new Error(message);
-            }
-            return data;
-        })
-        .then(data => {
-            if (data.status === 'success') {
-                updatePreview(data.preview.data, data.preview.mime, data.preview.prompt);
-                prepareAttachForm(data.preview);
-                hideLoading();
-            } else {
-                showError(data.message || 'Ошибка генерации.');
-            }
-        })
-        .catch((err) => showError(err.message || 'Сетевая ошибка.'));
+        performAction(formData);
     });
 
     // --- Recommended Prompt ---
-    function applyRecommendation(value) {
+    function applyRecommendation(value, errorMessage) {
         if (!recommendedText) return;
         recommendedValue = value || '';
         if (recommendedValue) {
             recommendedText.textContent = recommendedValue;
-            if (recommendedUseButton) {
-                recommendedUseButton.disabled = false;
-            }
+            recommendedUseButton.disabled = false;
+        } else {
+            recommendedText.textContent = errorMessage || 'Не удалось получить рекомендацию.';
+            recommendedUseButton.disabled = true;
         }
     }
 
     function fetchRecommendedPrompt() {
         if (!recommendedText || !csrfToken) return;
-        recommendedText.textContent = 'Генерация рекомендованного промпта...';
-        if (recommendedUseButton) {
-            recommendedUseButton.disabled = true;
-        }
+        recommendedText.textContent = 'Генерация...';
+        recommendedUseButton.disabled = true;
+
         const formData = new FormData();
         formData.append('action', 'suggest_prompt');
         formData.append('csrfmiddlewaretoken', csrfToken.value);
+
         fetch(window.location.href, {
             method: 'POST',
             body: new URLSearchParams(formData),
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrfToken.value }
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(errData => {
+                    throw new Error(errData.message || 'Ошибка сети');
+                });
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.status === 'success' && data.prompt) {
                 applyRecommendation(data.prompt);
-                localStorage.setItem(recommendationKey, data.prompt);
             } else {
-                recommendedText.textContent = data.message || 'Не удалось получить рекомендованный промпт. Попробуйте ещё раз.';
+                applyRecommendation(null, data.message || 'Не удалось получить рекомендацию.');
             }
         })
-        .catch(() => {
-            recommendedText.textContent = 'Не удалось получить рекомендованный промпт. Попробуйте ещё раз.';
-        });
+        .catch((err) => applyRecommendation(null, err.message));
     }
 
-    if (recommendedRefreshButton) {
-        recommendedRefreshButton.addEventListener('click', fetchRecommendedPrompt);
-    }
-
-    if (recommendedUseButton) {
-        recommendedUseButton.addEventListener('click', () => {
-            if (!promptInput || !recommendedValue) return;
+    recommendedRefreshButton.addEventListener('click', fetchRecommendedPrompt);
+    recommendedUseButton.addEventListener('click', () => {
+        if (promptInput && recommendedValue) {
             promptInput.value = recommendedValue;
-        });
-    }
+        }
+    });
 
-    const storedRecommendation = localStorage.getItem(recommendationKey);
-    if (storedRecommendation) {
-        applyRecommendation(storedRecommendation);
-    }
+    // Auto-fetch on load
+    fetchRecommendedPrompt();
 
-    // --- Source Media ---
-    const sourceMediaItems = document.querySelectorAll('.source-media-item');
-    sourceMediaItems.forEach(item => {
+    // --- Source Media Tab ---
+    document.querySelectorAll('.source-media-item').forEach(item => {
         item.addEventListener('click', function() {
-            sourceMediaItems.forEach(i => i.classList.remove('selected'));
-            this.classList.add('selected');
             const url = this.dataset.url;
+            const mime = this.dataset.mime;
             const postId = this.dataset.postId;
-            // This is a simplified approach. Attaching from source still uses a form submission
-            // to handle potential downloads on the backend.
-            const form = document.createElement('form');
-            form.method = 'post';
-            form.innerHTML = `{% csrf_token %}<input type="hidden" name="action" value="attach_source"><input type="hidden"name="post_id" value="${postId}">`;
-            document.body.appendChild(form);
-            form.submit();
+            
+            document.querySelectorAll('.source-media-item').forEach(i => i.classList.remove('selected'));
+            this.classList.add('selected');
+            showLoading(`Загрузка медиа из поста #${postId}...`);
+
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error('Не удалось загрузить изображение.');
+                    return response.blob();
+                })
+                .then(blob => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const base64data = reader.result.split(',')[1];
+                        const previewData = {
+                            data: base64data,
+                            mime: mime || blob.type,
+                            prompt: `Изображение из поста #${postId}`,
+                        };
+                        updatePreview(previewData.data, previewData.mime, previewData.prompt);
+                        prepareAttachForm(previewData);
+                        hideLoading();
+                    };
+                    reader.readAsDataURL(blob);
+                })
+                .catch(err => showError(err.message));
         });
     });
 
-    // --- Upload Form ---
-    const uploadForm = document.getElementById('image-upload-form');
+    // --- Upload Tab ---
     const uploadDropZone = document.getElementById('upload-drop-zone');
     const uploadInput = document.getElementById('id_image_file');
-    uploadInput.style.display = 'none';
+    
     uploadDropZone.addEventListener('click', () => uploadInput.click());
+    
+    function handleFiles(files) {
+        const file = files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('action', 'upload');
+        formData.append('csrfmiddlewaretoken', csrfToken.value);
+        formData.append('image_file', file);
+        performAction(formData);
+    }
+
+    uploadInput.addEventListener('change', () => handleFiles(uploadInput.files));
+    
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        uploadDropZone.addEventListener(eventName, preventDefaults, false);
+        uploadDropZone.addEventListener(eventName, e => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, false);
     });
     ['dragenter', 'dragover'].forEach(eventName => {
         uploadDropZone.addEventListener(eventName, () => uploadDropZone.classList.add('dragover'), false);
@@ -354,14 +487,8 @@ document.addEventListener('DOMContentLoaded', function () {
         uploadDropZone.addEventListener(eventName, () => uploadDropZone.classList.remove('dragover'), false);
     });
     uploadDropZone.addEventListener('drop', (e) => {
-        uploadInput.files = e.dataTransfer.files;
-        uploadForm.submit(); // Automatically submit on drop
+        handleFiles(e.dataTransfer.files);
     }, false);
-    uploadInput.addEventListener('change', () => uploadForm.submit());
-    function preventDefaults(e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
 
 
     // --- Helper Functions ---
@@ -372,13 +499,11 @@ document.addEventListener('DOMContentLoaded', function () {
             imageNode = document.createElement('img');
             imageNode.id = 'preview-image';
             imageNode.className = 'card-img-top preview-clickable';
-        }
-        imageNode.src = imgSrc;
-        imageNode.setAttribute('data-full-src', imgSrc);
-        if (previewPlaceholder && !previewPlaceholder.contains(imageNode)) {
             previewPlaceholder.innerHTML = '';
             previewPlaceholder.appendChild(imageNode);
         }
+        imageNode.src = imgSrc;
+        imageNode.setAttribute('data-full-src', imgSrc);
         if (previewPrompt) {
             previewPrompt.textContent = promptText;
         }
@@ -386,19 +511,21 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function prepareAttachForm(previewData) {
         let fieldsHtml = '';
-        const promptValue = (promptInput && promptInput.value) ? promptInput.value : previewData.prompt;
-        previewData.prompt = promptValue;
-        for (const [key, value] of Object.entries(previewData)) {
-            if (key !== 'data' && key !== 'mime') { // data and mime are handled separately
-                 fieldsHtml += `<input type="hidden" name="${key}" value="${escapeHtml(value)}">`;
+        const promptValue = previewData.prompt || (promptInput && promptInput.value) || '';
+        
+        const dataToAttach = { ...previewData, prompt: promptValue };
+
+        for (const [key, value] of Object.entries(dataToAttach)) {
+            if (key !== 'data' && key !== 'mime') {
+                fieldsHtml += `<input type="hidden" name="${key}" value="${escapeHtml(value)}">`;
             }
         }
-        if (previewData.preview_token) {
-            fieldsHtml += `<input type="hidden" name="preview_token" value="${escapeHtml(previewData.preview_token)}">`;
+        if (dataToAttach.preview_token) {
+            fieldsHtml += `<input type="hidden" name="preview_token" value="${escapeHtml(dataToAttach.preview_token)}">`;
         } else {
-            fieldsHtml += `<input type="hidden" name="image_data" value="${previewData.data}">`;
+            fieldsHtml += `<input type="hidden" name="image_data" value="${dataToAttach.data}">`;
         }
-        fieldsHtml += `<input type="hidden" name="mime_type" value="${previewData.mime}">`;
+        fieldsHtml += `<input type="hidden" name="mime_type" value="${dataToAttach.mime}">`;
         
         attachFormFields.innerHTML = fieldsHtml;
         attachButton.disabled = false;
@@ -427,6 +554,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return div.innerHTML;
     }
 
+    // --- Modal Logic ---
     const previewModal = document.getElementById('previewImageModal');
     const previewModalImage = document.getElementById('preview-modal-image');
     previewPlaceholder.addEventListener('click', (event) => {

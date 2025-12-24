@@ -15,7 +15,6 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.constants import IMAGE_DEFAULT_QUALITY
 from projects.models import Post, Project, Source
 from stories.paperbird_stories.forms import StoryImageGenerateForm
 from stories.paperbird_stories.models import Story
@@ -50,7 +49,7 @@ class StoryImageViewTests(TestCase):
         self.project.save(update_fields=["image_quality"])
         response = self.client.get(reverse("stories:image", kwargs={"pk": self.story.pk}))
         form_quality = response.context["generate_form"].initial["quality"]
-        self.assertEqual(form_quality, IMAGE_DEFAULT_QUALITY)
+        self.assertEqual(form_quality, "standard")
 
     @patch("stories.paperbird_stories.views.story_images.default_image_generator")
     def test_generate_action_displays_preview(self, mock_generator) -> None:

@@ -31,7 +31,7 @@
    ```bash
    cp infra/.env.example infra/.env
    ```
-   Обратите внимание на `DJANGO_SECRET_KEY`, `POSTGRES_*`, а также `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` и `OPENAI_API_KEY`. Telethon ключи и строковую сессию можно получить в [кабинете разработчика Telegram](https://my.telegram.org/), а ключ OpenAI — в [личном кабинете OpenAI](https://platform.openai.com/).
+   Обратите внимание на `DJANGO_SECRET_KEY`, `POSTGRES_*`, а также `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `OPENAI_API_KEY`, `YANDEX_API_KEY`, `GEMINI_API_KEY` и `GEMINI_IMAGE_MODEL`. Telethon ключи и строковую сессию можно получить в [кабинете разработчика Telegram](https://my.telegram.org/), а ключи OpenAI/Gemini/Yandex — в кабинетах соответствующих провайдеров.
 
 ## Запуск проекта
 
@@ -42,6 +42,7 @@ python manage.py migrate
 python manage.py runserver
 ```
 Переменные окружения автоматически подгружаются из `infra/.env`. После запуска приложение будет доступно на http://127.0.0.1:8000/.
+Песочница для проверки моделей доступна в админке: http://127.0.0.1:8000/admin/models/.
 
 Для фоновых процессов и сборщиков используйте management-команды, как и прежде:
 ```bash

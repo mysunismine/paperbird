@@ -52,11 +52,24 @@ This checklist ensures all necessary steps are completed when deploying the Pape
   - [ ] `OPENAI_API_KEY`
   - [ ] `OPENAI_MODEL`
   - [ ] `OPENAI_TIMEOUT`
+  - [ ] `OPENAI_IMAGE_URL`
+  - [ ] `OPENAI_IMAGE_MODEL`
+  - [ ] `OPENAI_IMAGE_SIZE`
+  - [ ] `OPENAI_IMAGE_QUALITY`
+  - [ ] `OPENAI_IMAGE_RESPONSE_FORMAT`
   - [ ] `OPENAI_IMAGE_TIMEOUT`
   - [ ] `YANDEX_API_KEY`
   - [ ] `YANDEX_FOLDER_ID`
   - [ ] `YANDEX_TIMEOUT`
+  - [ ] `YANDEX_IMAGE_MODEL`
+  - [ ] `YANDEX_IMAGE_SIZE`
+  - [ ] `YANDEX_IMAGE_QUALITY`
+  - [ ] `YANDEX_IMAGE_POLL_INTERVAL`
+  - [ ] `YANDEX_IMAGE_POLL_TIMEOUT`
   - [ ] `YANDEX_IMAGE_TIMEOUT`
+  - [ ] `GEMINI_API_KEY`
+  - [ ] `GEMINI_MODEL`
+  - [ ] `GEMINI_TIMEOUT`
 - [ ] Verify all environment variables are correctly set
 - [ ] Ensure sensitive variables are properly secured
 - [ ] Document any environment-specific configurations

@@ -28,6 +28,9 @@
 - **image_model** (String): Модель для генерации изображений.
 - **image_size** (String): Размер генерируемых изображений.
 - **image_quality** (String): Качество генерируемых изображений.
+- **public_enabled** (Boolean): Включена ли публичная витрина проекта.
+- **public_noindex** (Boolean): Запрещает индексацию публичных страниц.
+- **public_title** (String): Публичное название проекта (опционально).
 - **retention_days** (Integer): Срок хранения постов в днях.
 - **collector_enabled** (Boolean): Включен ли сборщик постов.
 - **collector_telegram_interval** (Integer): Интервал опроса Telegram-источников в секундах.

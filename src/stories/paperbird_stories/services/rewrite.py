@@ -330,8 +330,14 @@ class GeminiChatProvider:
 
     def run(self, *, messages: Sequence[dict[str, str]]) -> ProviderResponse:
         """Выполняет запрос к Gemini API."""
-        import google.generativeai as genai
-        from google.api_core import exceptions as google_exceptions
+        try:
+            import google.generativeai as genai
+            from google.api_core import exceptions as google_exceptions
+        except ImportError as exc:
+            raise RewriteFailed(
+                "The 'google-generativeai' package is not installed. "
+                "Please run 'pip install google-generativeai'."
+            ) from exc
 
         genai.configure(api_key=self.api_key)
 

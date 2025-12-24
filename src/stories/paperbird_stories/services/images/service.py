@@ -7,9 +7,13 @@ from dataclasses import dataclass
 from django.conf import settings
 
 from core.constants import IMAGE_DEFAULT_MODEL
-from stories.paperbird_stories.services.helpers import _looks_like_yandex_art_model
+from stories.paperbird_stories.services.helpers import (
+    _looks_like_gemini_model,
+    _looks_like_yandex_art_model,
+)
 
 from .providers import (
+    GeminiImageProvider,
     GeneratedImage,
     ImageGenerationProvider,
     OpenAIImageProvider,
@@ -19,7 +23,7 @@ from .providers import (
 
 @dataclass(slots=True)
 class StoryImageGenerator:
-    """Обёртка вокруг провайдера генерации изображений."""
+    """Обёртка вокруг провайдера изображений."""
 
     provider: ImageGenerationProvider
 
@@ -30,6 +34,8 @@ class StoryImageGenerator:
         model: str | None = None,
         size: str | None = None,
         quality: str | None = None,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
     ) -> GeneratedImage:
         """Генерирует изображение."""
         return self.provider.generate(
@@ -37,6 +43,8 @@ class StoryImageGenerator:
             model=model,
             size=size,
             quality=quality,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
         )
 
 
@@ -46,6 +54,8 @@ def default_image_generator(*, model: str | None = None) -> StoryImageGenerator:
     selected_model = (model or getattr(settings, "OPENAI_IMAGE_MODEL", IMAGE_DEFAULT_MODEL)).strip()
     if _looks_like_yandex_art_model(selected_model):
         provider = YandexArtProvider(model=selected_model)
+    elif _looks_like_gemini_model(selected_model):
+        provider = GeminiImageProvider(model=selected_model)
     else:
         provider = OpenAIImageProvider(model=selected_model)
     return StoryImageGenerator(provider=provider)

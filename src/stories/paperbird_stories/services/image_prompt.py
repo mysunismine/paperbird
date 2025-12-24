@@ -6,7 +6,16 @@ from typing import Any
 
 from projects.services.prompt_config import DEFAULT_IMAGE_PROMPT_TEMPLATE, ensure_prompt_config
 from stories.paperbird_stories.models import Story
-from stories.paperbird_stories.services import RewriteFailed, default_rewriter
+from stories.paperbird_stories.services.exceptions import RewriteFailed
+from stories.paperbird_stories.services.helpers import (
+    _looks_like_gemini_model,
+    _looks_like_yandex_text_model,
+)
+from stories.paperbird_stories.services.rewrite import (
+    GeminiChatProvider,
+    OpenAIChatProvider,
+    YandexGPTProvider,
+)
 
 
 class ImagePromptSuggestionFailed(RuntimeError):
@@ -19,10 +28,20 @@ def suggest_image_prompt(story: Story) -> str:
     template = (config.image_prompt_template or "").strip() or DEFAULT_IMAGE_PROMPT_TEMPLATE
     prompt_text = _apply_replacements(template, _build_replacements(story))
     messages = [{"role": "system", "content": prompt_text}]
+
+    model_name = story.project.image_prompt_model or "gemini-1.5-flash"
+    provider_kwargs = {"model": model_name}
+
     try:
-        provider = default_rewriter(project=story.project).provider
+        if _looks_like_yandex_text_model(model_name):
+            provider = YandexGPTProvider(**provider_kwargs)
+        elif _looks_like_gemini_model(model_name):
+            provider = GeminiChatProvider(**provider_kwargs)
+        else:
+            provider = OpenAIChatProvider(**provider_kwargs)
     except RewriteFailed as exc:
         raise ImagePromptSuggestionFailed(str(exc)) from exc
+
     try:
         response = provider.run(messages=messages)
     except RewriteFailed as exc:

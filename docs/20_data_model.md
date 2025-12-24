@@ -46,6 +46,9 @@
 | image_model                   | str            | да    | Модель для генерации изображений                                  |
 | image_size                    | str            | да    | Размер генерируемых изображений                                   |
 | image_quality                 | str            | да    | Качество генерируемых изображений                                 |
+| public_enabled                | bool           | да    | Включена ли публичная витрина проекта                             |
+| public_noindex                | bool           | да    | Запрет индексации публичных страниц                               |
+| public_title                  | str            | нет   | Публичное название проекта                                        |
 | retention_days                | int            | да    | Срок хранения постов в днях                                       |
 | collector_enabled             | bool           | да    | Включен ли сборщик постов                                         |
 | collector_telegram_interval   | int            | да    | Интервал опроса Telegram-источников в секундах                    |

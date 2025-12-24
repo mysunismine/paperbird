@@ -198,7 +198,7 @@ class Story(models.Model):
             return image
         return None
 
-    def selected_images(self) -> models.QuerySet["StoryImage"]:
+    def selected_images(self) -> models.QuerySet[StoryImage]:
         self.ensure_legacy_image()
         return self.images.filter(is_selected=True).order_by("-is_main", "created_at")
 
@@ -224,7 +224,7 @@ class Story(models.Model):
         data: bytes,
         mime_type: str,
         source_kind: str = "generated",
-    ) -> "StoryImage":
+    ) -> StoryImage:
         """Добавляет изображение сюжета и делает его главным."""
         return self.add_image(
             prompt=prompt,
@@ -244,7 +244,7 @@ class Story(models.Model):
         source_kind: str,
         set_main: bool,
         is_selected: bool,
-    ) -> "StoryImage":
+    ) -> StoryImage:
         if not data:
             raise ValueError("Пустые данные изображения")
 
@@ -264,7 +264,7 @@ class Story(models.Model):
             self.set_main_image(image)
         return image
 
-    def set_main_image(self, image: "StoryImage") -> None:
+    def set_main_image(self, image: StoryImage) -> None:
         self.images.filter(is_main=True).exclude(pk=image.pk).update(is_main=False)
         if not image.is_main:
             image.is_main = True

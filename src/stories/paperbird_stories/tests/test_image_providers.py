@@ -149,5 +149,5 @@ class OpenAIImageProviderTests(SimpleTestCase):
             provider.generate(prompt="Demo", quality="low")
             provider.generate(prompt="Demo", quality="high")
 
-        self.assertEqual(payloads[0]["quality"], "standard")
-        self.assertEqual(payloads[1]["quality"], "hd")
+        self.assertEqual(payloads[0]["quality"], "low")
+        self.assertEqual(payloads[1]["quality"], "high")

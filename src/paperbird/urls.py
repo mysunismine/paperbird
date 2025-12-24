@@ -25,6 +25,7 @@ urlpatterns = [
     path("accounts/", include("accounts.urls")),
     path("projects/", include("projects.urls")),
     path("stories/", include("stories.paperbird_stories.urls")),
+    path("public/", include("stories.paperbird_stories.public_urls")),
     path("", include("core.urls")),
 ]
 

@@ -196,7 +196,7 @@
                       <div class="card h-100 shadow-sm">
                         <img src="{{ item.url }}" class="card-img-top" alt="Медиа поста" style="aspect-ratio: 4/3; object-fit: cover;">
                         <div class="card-body p-2 text-center">
-                          <form method="post" class="d-flex flex-column gap-1">
+                          <form method="post" class="d-flex flex-column gap-1" data-action="attach-media">
                             {% csrf_token %}
                             <input type="hidden" name="action" value="attach_media">
                             <input type="hidden" name="media_post_id" value="{{ item.post.id }}">
@@ -218,38 +218,40 @@
                 </div>
               {% endif %}
 
-              {% if source_images %}
-                <h4 class="h6 mt-4">Выбранные из источников</h4>
-                <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
-                  {% for image in source_images %}
-                    <div class="col">
-                      <div class="card h-100 shadow-sm">
-                        <img src="{{ image.image_file.url }}" class="card-img-top" alt="Изображение сюжета" style="aspect-ratio: 4/3; object-fit: cover;">
-                        <div class="card-body p-2 d-flex flex-column gap-1">
-                          {% if image.is_main %}
-                            <span class="badge text-bg-primary align-self-start">Основное</span>
-                          {% endif %}
-                          <form method="post">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="toggle_image">
-                            <input type="hidden" name="image_id" value="{{ image.id }}">
-                            <input type="hidden" name="selected" value="{% if image.is_selected %}0{% else %}1{% endif %}">
-                            <button class="btn btn-sm {% if image.is_selected %}btn-outline-secondary{% else %}btn-outline-primary{% endif %} w-100" type="submit">
-                              {% if image.is_selected %}Убрать из публикации{% else %}В публикацию{% endif %}
-                            </button>
-                          </form>
-                          <form method="post">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="set_main_image">
-                            <input type="hidden" name="image_id" value="{{ image.id }}">
-                            <button class="btn btn-sm btn-outline-primary w-100" type="submit">Сделать главным</button>
-                          </form>
+              <div id="source-images-container">
+                {% if source_images %}
+                  <h4 class="h6 mt-4">Выбранные из источников</h4>
+                  <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3" id="source-images-grid">
+                    {% for image in source_images %}
+                      <div class="col">
+                        <div class="card h-100 shadow-sm">
+                          <img src="{{ image.image_file.url }}" class="card-img-top" alt="Изображение сюжета" style="aspect-ratio: 4/3; object-fit: cover;">
+                          <div class="card-body p-2 d-flex flex-column gap-1">
+                            {% if image.is_main %}
+                              <span class="badge text-bg-primary align-self-start">Основное</span>
+                            {% endif %}
+                            <form method="post">
+                              {% csrf_token %}
+                              <input type="hidden" name="action" value="toggle_image">
+                              <input type="hidden" name="image_id" value="{{ image.id }}">
+                              <input type="hidden" name="selected" value="{% if image.is_selected %}0{% else %}1{% endif %}">
+                              <button class="btn btn-sm {% if image.is_selected %}btn-outline-secondary{% else %}btn-outline-primary{% endif %} w-100" type="submit">
+                                {% if image.is_selected %}Убрать из публикации{% else %}В публикацию{% endif %}
+                              </button>
+                            </form>
+                            <form method="post">
+                              {% csrf_token %}
+                              <input type="hidden" name="action" value="set_main_image">
+                              <input type="hidden" name="image_id" value="{{ image.id }}">
+                              <button class="btn btn-sm btn-outline-primary w-100" type="submit">Сделать главным</button>
+                            </form>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  {% endfor %}
-                </div>
-              {% endif %}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
             </div>
 
             <div class="tab-pane fade" id="media-generated" role="tabpanel" aria-labelledby="media-generated-tab">
@@ -430,6 +432,84 @@
             });
         }
       }
+
+      // --- AJAX Media Attach ---
+      document.querySelectorAll('form[data-action="attach-media"]').forEach(form => {
+        form.addEventListener('submit', function(e) {
+          e.preventDefault();
+          const submitButton = form.querySelector('button[type="submit"]');
+          const originalButtonHtml = submitButton.innerHTML;
+          submitButton.disabled = true;
+          submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
+          const formData = new FormData(form);
+          
+          fetch(window.location.href, {
+            method: 'POST',
+            body: new URLSearchParams(formData),
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest',
+              'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+            }
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.status === 'success') {
+              // Add the new image to the list
+              const container = document.getElementById('source-images-container');
+              let grid = document.getElementById('source-images-grid');
+              if (!grid) {
+                  container.innerHTML = `
+                    <h4 class="h6 mt-4">Выбранные из источников</h4>
+                    <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3" id="source-images-grid"></div>
+                  `;
+                  grid = document.getElementById('source-images-grid');
+              }
+              
+              const newImageCard = `
+                <div class="col">
+                  <div class="card h-100 shadow-sm">
+                    <img src="${data.image.url}" class="card-img-top" alt="Изображение сюжета" style="aspect-ratio: 4/3; object-fit: cover;">
+                    <div class="card-body p-2 d-flex flex-column gap-1">
+                      ${data.image.is_main ? '<span class="badge text-bg-primary align-self-start">Основное</span>' : ''}
+                      <form method="post">
+                        <input type="hidden" name="csrfmiddlewaretoken" value="${formData.get('csrfmiddlewaretoken')}">
+                        <input type="hidden" name="action" value="toggle_image">
+                        <input type="hidden" name="image_id" value="${data.image.id}">
+                        <input type="hidden" name="selected" value="0">
+                        <button class="btn btn-sm btn-outline-secondary w-100" type="submit">Убрать из публикации</button>
+                      </form>
+                      <form method="post">
+                        <input type="hidden" name="csrfmiddlewaretoken" value="${formData.get('csrfmiddlewaretoken')}">
+                        <input type="hidden" name="action" value="set_main_image">
+                        <input type="hidden" name="image_id" value="${data.image.id}">
+                        <button class="btn btn-sm btn-outline-primary w-100" type="submit">Сделать главным</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              `;
+              grid.insertAdjacentHTML('beforeend', newImageCard);
+
+              // Disable the original 'Add' button's form
+              form.closest('.col').remove();
+
+            } else {
+              // Very basic error handling
+              alert('Ошибка: ' + data.message);
+              submitButton.disabled = false;
+              submitButton.innerHTML = originalButtonHtml;
+            }
+          })
+          .catch(error => {
+            console.error('Attach media error:', error);
+            alert('Произошла сетевая ошибка.');
+            submitButton.disabled = false;
+            submitButton.innerHTML = originalButtonHtml;
+          });
+        });
+      });
+
     })();
   </script>
 {% endblock %}

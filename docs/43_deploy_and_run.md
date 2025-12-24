@@ -55,12 +55,26 @@ TELEGRAM_SESSION=<string_session>
 OPENAI_API_KEY=<openai_key>
 OPENAI_MODEL=gpt-4o-mini
 OPENAI_TIMEOUT=30
+OPENAI_IMAGE_URL=https://api.openai.com/v1/images/generations
+OPENAI_IMAGE_MODEL=gpt-image-1
+OPENAI_IMAGE_SIZE=1024x1024
+OPENAI_IMAGE_QUALITY=medium
+OPENAI_IMAGE_RESPONSE_FORMAT=b64_json
 OPENAI_IMAGE_TIMEOUT=60
 
 YANDEX_API_KEY=<yandex_api_key>
 YANDEX_FOLDER_ID=<catalog_id>
 YANDEX_TIMEOUT=60
+YANDEX_IMAGE_MODEL=yandex-art
+YANDEX_IMAGE_SIZE=1024x1024
+YANDEX_IMAGE_QUALITY=medium
+YANDEX_IMAGE_POLL_INTERVAL=3
+YANDEX_IMAGE_POLL_TIMEOUT=90
 YANDEX_IMAGE_TIMEOUT=90
+
+GEMINI_API_KEY=<gemini_api_key>
+GEMINI_MODEL=gemini-1.5-flash
+GEMINI_TIMEOUT=30
 
 REDIS_URL=redis://localhost:6379/0
 
@@ -76,8 +90,9 @@ EMAIL_USE_TLS=True
 - `DJANGO_ALLOWED_HOSTS` — список разрешённых хостов через запятую.  
 - `POSTGRES_*` — параметры подключения к PostgreSQL.  
 - `TELEGRAM_*` — данные Telethon для сбора и публикации.  
-- `OPENAI_*` — ключ и настройки модели для рерайта.  
+- `OPENAI_*` — ключ и настройки моделей OpenAI (рерайт и изображения).  
 - `YANDEX_*` — ключ и каталог облака для моделей YandexGPT/YandexART (используются только если проект выбирает эти модели в настройках).  
+- `GEMINI_*` — ключ и модель Gemini (используются только если проект выбирает эти модели в настройках).  
 - `REDIS_URL` — адрес Redis-сервера.  
 - Переменные SMTP — если отправка почты настроена.  
 

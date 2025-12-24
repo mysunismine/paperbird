@@ -191,6 +191,8 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
         ).exists()
         if already_scheduled:
             return
+        from projects.views import feed
+
         feed.enqueue_task(
             WorkerTask.Queue.COLLECTOR_WEB,
             payload={

@@ -3,9 +3,10 @@ Telethon==1.41.2
 beautifulsoup4==4.12.3
 httpx==0.27.2
 jsonschema==4.23.0
-markdownify==0.12.1
+Markdown
 psycopg[binary]==3.2.10
 python-dateutil==2.9.0.post0
 PyYAML==6.0.2
 ruff==0.7.4
 google-generativeai
+google-genai

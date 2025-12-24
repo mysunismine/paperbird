@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 from collections.abc import Iterable
 from datetime import timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -49,6 +49,22 @@ class Project(models.Model):
         blank=True,
         help_text="Например, @my_channel или ссылка на чат",
     )
+    public_enabled = models.BooleanField(
+        "Публичные страницы",
+        default=False,
+        help_text="Показывать публичную витрину опубликованных материалов.",
+    )
+    public_noindex = models.BooleanField(
+        "Закрыть от индексации",
+        default=True,
+        help_text="Добавлять noindex для публичных страниц проекта.",
+    )
+    public_title = models.CharField(
+        "Публичное название",
+        max_length=200,
+        blank=True,
+        help_text="Отображается на публичной витрине вместо названия проекта.",
+    )
     locale = models.CharField(
         "Локаль",
         max_length=20,
@@ -85,6 +101,13 @@ class Project(models.Model):
         max_length=20,
         choices=IMAGE_QUALITY_CHOICES,
         default=IMAGE_DEFAULT_QUALITY,
+    )
+    image_prompt_model = models.CharField(
+        "Модель для идеи изображения",
+        max_length=100,
+        choices=REWRITE_MODEL_CHOICES,
+        default="gemini-1.5-flash",
+        help_text="Модель для генерации рекомендованного промпта для изображения.",
     )
     retention_days = models.PositiveIntegerField(
         "Срок хранения постов (дней)",

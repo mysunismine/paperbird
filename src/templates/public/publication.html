@@ -1,0 +1,55 @@
+{% extends "public/base_public.html" %}
+{% load markup_extras %}
+
+{% block title %}{{ title }} — {{ public_title }}{% endblock %}
+
+{% block meta_extra %}
+  <link rel="canonical" href="{{ request.build_absolute_uri }}" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="{{ title }}" />
+  <meta property="og:description" content="{{ og_description|default:'' }}" />
+  {% if og_image_url %}
+    <meta property="og:image" content="{{ og_image_url }}" />
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  <header class="page-header reveal">
+    <div>
+      <div class="eyebrow">Published story</div>
+      <h1 class="title">{{ title }}</h1>
+      <p class="subtitle">{{ public_title }}</p>
+    </div>
+    {% if publication.published_at %}
+      <div class="badge">
+        {{ publication.published_at|date:"d.m.Y H:i" }}
+      </div>
+    {% endif %}
+  </header>
+
+  {% if images %}
+    <section class="grid">
+      {% for image in images %}
+        <div class="media reveal">
+          <img src="{{ image.image_file.url }}" alt="Иллюстрация сюжета" loading="lazy" />
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <article class="card reveal" style="margin-top: 32px;">
+    <div class="content">
+      {% if text %}
+        {{ text|markdown }}
+      {% else %}
+        <p>Текст публикации недоступен.</p>
+      {% endif %}
+    </div>
+    <div class="actions">
+      <a class="btn btn-outline" href="{% url 'public:project' project.id %}">Назад к ленте</a>
+      {% if message_url %}
+        <a class="btn btn-primary" href="{{ message_url }}" target="_blank" rel="noopener">Открыть в Telegram</a>
+      {% endif %}
+    </div>
+  </article>
+{% endblock %}

@@ -34,15 +34,7 @@ def _json_safe(value):
 
 def normalize_image_size(value: str | None) -> str:
     """Возвращает безопасный размер изображения."""
-
-    if not value:
-        return IMAGE_DEFAULT_SIZE
-    cleaned = str(value).strip().lower()
-    legacy_map = {
-        "512x512": "1024x1024",
-        "256x256": "1024x1024",
-    }
-    cleaned = legacy_map.get(cleaned, cleaned)
+    cleaned = (value or "").strip().lower()
     if cleaned in ALLOWED_IMAGE_SIZES:
         return cleaned
     return IMAGE_DEFAULT_SIZE
@@ -50,15 +42,7 @@ def normalize_image_size(value: str | None) -> str:
 
 def normalize_image_quality(value: str | None) -> str:
     """Возвращает допустимое качество изображения."""
-
-    if not value:
-        return IMAGE_DEFAULT_QUALITY
-    cleaned = str(value).strip().lower()
-    legacy_map = {
-        "standard": "medium",
-        "hd": "high",
-    }
-    cleaned = legacy_map.get(cleaned, cleaned)
+    cleaned = (value or "").strip().lower()
     if cleaned in ALLOWED_IMAGE_QUALITIES:
         return cleaned
     return IMAGE_DEFAULT_QUALITY

@@ -93,6 +93,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.humanize",
+    # Local apps
     "maintenance",
     "accounts",
     "projects",
@@ -221,16 +222,34 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "").strip()
 OPENAI_TIMEOUT = float(os.getenv("OPENAI_TIMEOUT", "30"))
 OPENAI_IMAGE_TIMEOUT = float(os.getenv("OPENAI_IMAGE_TIMEOUT", "60"))
+OPENAI_IMAGE_URL = os.getenv(
+    "OPENAI_IMAGE_URL",
+    "https://api.openai.com/v1/images/generations",
+).strip()
+OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1").strip()
+OPENAI_IMAGE_SIZE = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024").strip()
+OPENAI_IMAGE_QUALITY = os.getenv("OPENAI_IMAGE_QUALITY", "medium").strip()
+OPENAI_IMAGE_RESPONSE_FORMAT = os.getenv("OPENAI_IMAGE_RESPONSE_FORMAT", "b64_json").strip()
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
 YANDEX_TIMEOUT = float(os.getenv("YANDEX_TIMEOUT", os.getenv("OPENAI_TIMEOUT", "30")))
 YANDEX_IMAGE_TIMEOUT = float(os.getenv("YANDEX_IMAGE_TIMEOUT", "90"))
+YANDEX_IMAGE_MODEL = os.getenv("YANDEX_IMAGE_MODEL", "yandex-art").strip()
+YANDEX_IMAGE_SIZE = os.getenv("YANDEX_IMAGE_SIZE", "1024x1024").strip()
+YANDEX_IMAGE_QUALITY = os.getenv("YANDEX_IMAGE_QUALITY", "medium").strip()
+YANDEX_IMAGE_POLL_INTERVAL = float(os.getenv("YANDEX_IMAGE_POLL_INTERVAL", "3"))
+YANDEX_IMAGE_POLL_TIMEOUT = float(
+    os.getenv("YANDEX_IMAGE_POLL_TIMEOUT", str(YANDEX_IMAGE_TIMEOUT))
+)
 
 
 # --- Интеграция Gemini ------------------------------------------------------
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
+GEMINI_IMAGE_ASPECT_RATIO = os.getenv("GEMINI_IMAGE_ASPECT_RATIO", "").strip()
+GEMINI_IMAGE_SIZE = os.getenv("GEMINI_IMAGE_SIZE", "").strip()
 GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "30"))
 
 

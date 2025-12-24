@@ -11,6 +11,8 @@ from django.db import models
 from django.utils import timezone
 
 from core.constants import (
+    GEMINI_IMAGE_ASPECT_RATIOS,
+    GEMINI_IMAGE_SIZES,
     IMAGE_MODEL_CHOICES,
     IMAGE_QUALITY_CHOICES,
     IMAGE_SIZE_CHOICES,
@@ -220,15 +222,32 @@ class StoryImageGenerateForm(forms.Form):
         label="Размер",
         choices=IMAGE_SIZE_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
+        required=False,
         help_text=(
-            "Выберите один из поддерживаемых размеров 1024px или auto для "
-            "автоматического выбора."
+            "Используется для моделей OpenAI/Yandex. "
+            "Для Gemini применяются соотношение сторон "
+            "и разрешение."
         ),
     )
     quality = forms.ChoiceField(
         label="Качество",
         choices=IMAGE_QUALITY_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
+        required=False,
+    )
+    aspect_ratio = forms.ChoiceField(
+        label="Соотношение сторон (Gemini)",
+        choices=(("", "По умолчанию"),)
+        + tuple((ratio, ratio) for ratio in GEMINI_IMAGE_ASPECT_RATIOS),
+        widget=forms.Select(attrs={"class": "form-select"}),
+        required=False,
+    )
+    image_size = forms.ChoiceField(
+        label="Разрешение (Gemini)",
+        choices=(("", "По умолчанию"),)
+        + tuple((size, size) for size in GEMINI_IMAGE_SIZES),
+        widget=forms.Select(attrs={"class": "form-select"}),
+        required=False,
     )
 
     def clean_prompt(self):
@@ -257,6 +276,18 @@ class StoryImageAttachForm(forms.Form):
     )
     quality = forms.ChoiceField(
         choices=IMAGE_QUALITY_CHOICES,
+        widget=forms.HiddenInput(),
+        required=False,
+    )
+    aspect_ratio = forms.ChoiceField(
+        choices=(("", "По умолчанию"),)
+        + tuple((ratio, ratio) for ratio in GEMINI_IMAGE_ASPECT_RATIOS),
+        widget=forms.HiddenInput(),
+        required=False,
+    )
+    image_size = forms.ChoiceField(
+        choices=(("", "По умолчанию"),)
+        + tuple((size, size) for size in GEMINI_IMAGE_SIZES),
         widget=forms.HiddenInput(),
         required=False,
     )

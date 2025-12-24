@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 import mimetypes
 import uuid
 from pathlib import Path
@@ -19,6 +20,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import DetailView
 
+from core.constants import IMAGE_PROVIDER_SETTINGS
 from projects.models import Post
 from stories.paperbird_stories.forms import (
     StoryImageAttachForm,
@@ -33,6 +35,7 @@ from stories.paperbird_stories.services import (
     normalize_image_quality,
     normalize_image_size,
 )
+from stories.paperbird_stories.services.helpers import _looks_like_gemini_model
 from stories.paperbird_stories.services.image_prompt import (
     ImagePromptSuggestionFailed,
     suggest_image_prompt,
@@ -48,6 +51,21 @@ class StoryImageView(LoginRequiredMixin, DetailView):
 
     def get_queryset(self):
         return Story.objects.filter(project__owner=self.request.user).select_related("project")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        provider_settings = json.loads(json.dumps(IMAGE_PROVIDER_SETTINGS))
+        gemini_aspect_ratio = getattr(settings, "GEMINI_IMAGE_ASPECT_RATIO", "").strip()
+        gemini_image_size = getattr(settings, "GEMINI_IMAGE_SIZE", "").strip()
+        for model_key in ("gemini-2.5-flash-image", "gemini-3-pro-image-preview"):
+            if model_key not in provider_settings:
+                continue
+            if gemini_aspect_ratio:
+                provider_settings[model_key]["default_aspect_ratio"] = gemini_aspect_ratio
+            if gemini_image_size and model_key == "gemini-3-pro-image-preview":
+                provider_settings[model_key]["default_image_size"] = gemini_image_size
+        context["image_provider_settings"] = json.dumps(provider_settings)
+        return context
 
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
@@ -79,30 +97,56 @@ class StoryImageView(LoginRequiredMixin, DetailView):
         return redirect("stories:detail", pk=self.object.pk)
 
     def _handle_upload(self, request):
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
         form = StoryImageUploadForm(request.POST, request.FILES)
-        if form.is_valid():
-            image_file = form.cleaned_data["image_file"]
-            try:
-                self.object.attach_image(
-                    prompt="",
-                    data=image_file.read(),
-                    mime_type=image_file.content_type,
-                    source_kind=StoryImage.SourceKind.UPLOAD,
+
+        if not form.is_valid():
+            if is_ajax:
+                return JsonResponse({"status": "error", "errors": form.errors}, status=400)
+            return self.render_to_response(self.get_context_data(upload_form=form))
+
+        image_file = form.cleaned_data["image_file"]
+        prompt = Path(image_file.name).stem
+        mime_type = image_file.content_type
+
+        try:
+            image_data = image_file.read()
+        except Exception as exc:
+            if is_ajax:
+                return JsonResponse(
+                    {
+                        "status": "error",
+                        "message": f"Не удалось прочитать файл: {exc}",
+                    },
+                    status=500,
                 )
-            except ValueError as exc:
-                messages.error(request, f"Не удалось прикрепить изображение: {exc}")
-            else:
-                messages.success(request, "Изображение загружено и прикреплено к сюжету.")
-                return redirect("stories:image", pk=self.object.pk)
-        
-        context = self.get_context_data(
-            generate_form=self._generate_form_initial(),
-            attach_form=None,
-            delete_form=self._delete_form(),
-            upload_form=form,
-            source_media=self._source_media(),
-        )
-        return self.render_to_response(context)
+            messages.error(request, f"Не удалось прочитать файл: {exc}")
+            return self.render_to_response(self.get_context_data(upload_form=form))
+
+        if is_ajax:
+            encoded = base64.b64encode(image_data).decode("ascii")
+            preview_data = {
+                "data": encoded,
+                "mime": mime_type,
+                "prompt": prompt,
+            }
+            preview_token = self._store_preview(request, preview_data)
+            preview_data["preview_token"] = preview_token
+            return JsonResponse({"status": "success", "preview": preview_data})
+
+        # Fallback for non-AJAX
+        try:
+            self.object.attach_image(
+                prompt=prompt,
+                data=image_data,
+                mime_type=mime_type,
+                source_kind=StoryImage.SourceKind.UPLOAD,
+            )
+        except ValueError as exc:
+            messages.error(request, f"Не удалось прикрепить изображение: {exc}")
+        else:
+            messages.success(request, "Изображение загружено и прикреплено к сюжету.")
+        return redirect("stories:image", pk=self.object.pk)
 
     def _handle_suggest_prompt(self, request):
         if request.headers.get("X-Requested-With") != "XMLHttpRequest":
@@ -130,13 +174,25 @@ class StoryImageView(LoginRequiredMixin, DetailView):
         prompt = form.cleaned_data["prompt"]
         model = form.cleaned_data["model"]
         size = form.cleaned_data["size"]
-        safe_size = normalize_image_size(size)
         quality = normalize_image_quality(form.cleaned_data["quality"])
+        aspect_ratio = (form.cleaned_data.get("aspect_ratio") or "").strip()
+        image_size = (form.cleaned_data.get("image_size") or "").strip()
         generator = default_image_generator(model=model)
+        use_gemini = _looks_like_gemini_model(model)
+        if use_gemini:
+            safe_size = ""
+            quality = ""
+        else:
+            safe_size = normalize_image_size(size)
 
         try:
             result = generator.generate(
-                prompt=prompt, model=model, size=safe_size, quality=quality
+                prompt=prompt,
+                model=model,
+                size=safe_size,
+                quality=quality,
+                aspect_ratio=aspect_ratio if use_gemini else None,
+                image_size=image_size if use_gemini else None,
             )
         except ImageGenerationFailed as exc:
             if is_ajax:
@@ -155,6 +211,8 @@ class StoryImageView(LoginRequiredMixin, DetailView):
                 "model": model,
                 "size": safe_size,
                 "quality": quality,
+                "aspect_ratio": aspect_ratio,
+                "image_size": image_size,
             }
             preview_token = self._store_preview(request, preview_data)
             preview_data["preview_token"] = preview_token
@@ -162,7 +220,7 @@ class StoryImageView(LoginRequiredMixin, DetailView):
                 return JsonResponse({"status": "success", "preview": preview_data})
             
             # Fallback for non-AJAX
-            if safe_size != size:
+            if not use_gemini and safe_size != size:
                 messages.info(request, "Размер изображения автоматически скорректирован.")
             messages.success(request, "Изображение успешно сгенерировано.")
             attach_initial = {
@@ -171,6 +229,8 @@ class StoryImageView(LoginRequiredMixin, DetailView):
                 "model": preview_data["model"],
                 "size": preview_data["size"],
                 "quality": preview_data["quality"],
+                "aspect_ratio": preview_data["aspect_ratio"],
+                "image_size": preview_data["image_size"],
                 "preview_token": preview_token,
             }
             attach_form = StoryImageAttachForm(initial=attach_initial)
@@ -197,7 +257,10 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             if not data and token:
                 preview = self._load_preview(request, token)
                 if not preview:
-                    messages.error(request, "Предпросмотр устарел. Сгенерируйте изображение заново.")
+                    messages.error(
+                        request,
+                        "Предпросмотр устарел. Сгенерируйте изображение заново.",
+                    )
                     return redirect("stories:image", pk=self.object.pk)
                 data = preview["data"]
                 mime_type = preview["mime"]
@@ -230,6 +293,8 @@ class StoryImageView(LoginRequiredMixin, DetailView):
                 "model": request.POST.get("model", ""),
                 "size": safe_size,
                 "quality": safe_quality,
+                "aspect_ratio": request.POST.get("aspect_ratio", ""),
+                "image_size": request.POST.get("image_size", ""),
             }
         else:
             token = (request.POST.get("preview_token") or "").strip()
@@ -349,6 +414,8 @@ class StoryImageView(LoginRequiredMixin, DetailView):
         model: str | None = None,
         size: str | None = None,
         quality: str | None = None,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
     ) -> StoryImageGenerateForm:
         project = self.object.project
         initial_prompt = (
@@ -358,11 +425,17 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             or self.object.title
             or ""
         )
+        selected_model = (model or project.image_model or "").strip()
+        default_image_size = ""
+        if selected_model == "gemini-3-pro-image-preview":
+            default_image_size = getattr(settings, "GEMINI_IMAGE_SIZE", "")
         initial = {
             "prompt": initial_prompt,
             "model": model or project.image_model,
             "size": normalize_image_size(size or project.image_size),
             "quality": normalize_image_quality(quality or project.image_quality),
+            "aspect_ratio": aspect_ratio or getattr(settings, "GEMINI_IMAGE_ASPECT_RATIO", ""),
+            "image_size": image_size or default_image_size,
         }
         return StoryImageGenerateForm(initial=initial)
 

@@ -13,7 +13,6 @@ import urllib.request
 
 from django.conf import settings
 
-from core.constants import IMAGE_DEFAULT_MODEL, IMAGE_DEFAULT_QUALITY, IMAGE_DEFAULT_SIZE
 from stories.paperbird_stories.services.helpers import (
     build_yandex_model_uri,
     normalize_image_quality,
@@ -30,7 +29,13 @@ from ..exceptions import ImageGenerationFailed
 class ImageGenerationProvider:
     """Интерфейс генератора изображений."""
 
-    def generate(self, *, prompt: str) -> GeneratedImage:  # pragma: no cover - protocol stub
+    def generate(
+        self,
+        *,
+        prompt: str,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+    ) -> GeneratedImage:  # pragma: no cover - protocol stub
         raise NotImplementedError
 
 
@@ -42,24 +47,14 @@ class OpenAIImageProvider:
         *,
         api_url: str | None = None,
         model: str | None = None,
-        size: str | None = None,
-        quality: str | None = None,
-        response_format: str | None = None,
         timeout: int | float | None = None,
     ) -> None:
-        self.api_url = api_url or os.getenv(
-            "OPENAI_IMAGE_URL", "https://api.openai.com/v1/images/generations"
+        self.api_url = api_url or getattr(
+            settings,
+            "OPENAI_IMAGE_URL",
+            "https://api.openai.com/v1/images/generations",
         )
-        self.model = model or os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
-        self.size = normalize_image_size(
-            size or os.getenv("OPENAI_IMAGE_SIZE", IMAGE_DEFAULT_SIZE)
-        )
-        self.quality = normalize_image_quality(
-            quality or os.getenv("OPENAI_IMAGE_QUALITY", IMAGE_DEFAULT_QUALITY)
-        )
-        if response_format is None:
-            response_format = os.getenv("OPENAI_IMAGE_RESPONSE_FORMAT", "b64_json")
-        self.response_format = (response_format or "").strip()
+        self.model = model or settings.OPENAI_IMAGE_MODEL or "dall-e-3"
         self.request_timeout = timeout or getattr(settings, "OPENAI_IMAGE_TIMEOUT", 60)
 
     def generate(
@@ -69,7 +64,8 @@ class OpenAIImageProvider:
         model: str | None = None,
         size: str | None = None,
         quality: str | None = None,
-        _allow_without_format: bool = False,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
     ) -> GeneratedImage:
         prompt = prompt.strip()
         if not prompt:
@@ -81,16 +77,13 @@ class OpenAIImageProvider:
             return GeneratedImage(data=data, mime_type="image/png")
 
         use_model = model or self.model
-        use_size = _openai_size_for_model(use_model, size or self.size)
-        use_quality = _openai_quality_for_model(use_model, quality or self.quality)
+        use_quality = self._normalize_quality(quality)
         payload = {
             "model": use_model,
             "prompt": prompt,
-            "size": use_size,
+            "size": normalize_image_size(size),
             "quality": use_quality,
         }
-        if self.response_format and not _allow_without_format:
-            payload["response_format"] = self.response_format
         body = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(self.api_url, data=body, method="POST")
         request.add_header("Content-Type", "application/json")
@@ -101,19 +94,6 @@ class OpenAIImageProvider:
                 raw_body = response.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as exc:  # pragma: no cover - требует живого API
             message = exc.read().decode("utf-8", "replace")
-            if (
-                not _allow_without_format
-                and self.response_format
-                and exc.code == 400
-                and "response_format" in message.lower()
-            ):
-                return self.generate(
-                    prompt=prompt,
-                    model=model,
-                    size=size,
-                    quality=quality,
-                    _allow_without_format=True,
-                )
             raise ImageGenerationFailed(f"OpenAI HTTP {exc.code}: {message}") from exc
         except TimeoutError as exc:  # pragma: no cover - сетевой таймаут
             raise ImageGenerationFailed(
@@ -143,39 +123,24 @@ class OpenAIImageProvider:
         mime_type = content.get("mime_type") or content.get("mimeType") or "image/png"
         return GeneratedImage(data=decoded, mime_type=mime_type)
 
-
-def _openai_quality_for_model(model: str | None, quality: str | None) -> str:
-    normalized = normalize_image_quality(quality)
-    if normalized == "auto":
-        normalized = "medium"
-    if _openai_standard_quality_model(model):
-        return "hd" if normalized == "high" else "standard"
-    return normalized
-
-
-def _openai_size_for_model(model: str | None, size: str | None) -> str:
-    normalized = normalize_image_size(size)
-    if normalized == "auto":
-        normalized = "1024x1024"
-    if _openai_standard_quality_model(model):
-        size_map = {
-            "1024x1536": "1024x1792",
-            "1536x1024": "1792x1024",
+    @staticmethod
+    def _normalize_quality(value: str | None) -> str:
+        normalized = normalize_image_quality(value)
+        mapping = {
+            "standard": "medium",
+            "hd": "high",
         }
-        normalized = size_map.get(normalized, normalized)
-        if normalized not in {"1024x1024", "1024x1792", "1792x1024"}:
-            normalized = "1024x1024"
-    return normalized
-
-
-def _openai_standard_quality_model(model: str | None) -> bool:
-    return (model or "").strip().startswith("dall-e-3")
+        if normalized in mapping:
+            return mapping[normalized]
+        if normalized in {"low", "medium", "high", "auto"}:
+            return normalized
+        return "auto"
 
 
 class YandexArtProvider:
     """Генерирует изображения через YandexART."""
 
-    api_url = "https://llm.api.cloud.yandex.net/foundationModels/v2/imageGenerationAsync"
+    api_url = "https://llm.api.cloud.yandex.net/foundationModels/v1/imageGenerationAsync"
     status_url = "https://llm.api.cloud.yandex.net:443/operations/"
 
     def __init__(
@@ -184,24 +149,18 @@ class YandexArtProvider:
         api_key: str | None = None,
         folder_id: str | None = None,
         model: str | None = None,
-        size: str | None = None,
-        quality: str | None = None,
-        poll_interval: int = 3,
-        poll_timeout: int = 60,
+        poll_interval: int | None = None,
+        poll_timeout: int | float | None = None,
     ) -> None:
         self.api_key = api_key or getattr(settings, "YANDEX_API_KEY", "")
         self.folder_id = folder_id or getattr(settings, "YANDEX_FOLDER_ID", "")
-        self.model = (
-            model or getattr(settings, "OPENAI_IMAGE_MODEL", IMAGE_DEFAULT_MODEL)
-        ).strip()
-        self.size = normalize_image_size(
-            size or getattr(settings, "OPENAI_IMAGE_SIZE", IMAGE_DEFAULT_SIZE)
+        self.model = (model or getattr(settings, "YANDEX_IMAGE_MODEL", "yandex-art")).strip()
+        self.poll_interval = poll_interval or int(
+            getattr(settings, "YANDEX_IMAGE_POLL_INTERVAL", 3)
         )
-        self.quality = normalize_image_quality(
-            quality or getattr(settings, "OPENAI_IMAGE_QUALITY", IMAGE_DEFAULT_QUALITY)
+        self.poll_timeout = poll_timeout or float(
+            getattr(settings, "YANDEX_IMAGE_POLL_TIMEOUT", 90)
         )
-        self.poll_interval = poll_interval
-        self.poll_timeout = poll_timeout
         if not self.api_key:
             raise ImageGenerationFailed("YANDEX_API_KEY не задан")
         if not self.folder_id:
@@ -219,15 +178,15 @@ class YandexArtProvider:
         model: str | None = None,
         size: str | None = None,
         quality: str | None = None,
-        _allow_without_format: bool = False,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
     ) -> GeneratedImage:
         prompt = prompt.strip()
         if not prompt:
             raise ImageGenerationFailed("Описание не может быть пустым")
 
         use_model = model or self.model
-        use_size = normalize_image_size(size or self.size)
-        use_quality = normalize_image_quality(quality or self.quality)
+        use_size = normalize_image_size(size)
 
         request_body = {
             "modelUri": build_yandex_model_uri(
@@ -242,7 +201,6 @@ class YandexArtProvider:
             "generationOptions": {
                 "mimeType": "image/png",
                 "size": use_size,
-                "quality": use_quality,
             },
         }
         body = json.dumps(request_body).encode("utf-8")
@@ -287,39 +245,154 @@ class YandexArtProvider:
                 raise ImageGenerationFailed(str(exc)) from exc
 
             if status_data.get("done"):
-                results = (
-                    status_data.get("response", {})
-                    .get("image")
-                    .get("images")
-                    or []
-                )
-                if not results:
+                response_data = status_data.get("response")
+                if not response_data:
+                    error_details = status_data.get("error")
+                    message = (
+                        error_details.get("message")
+                        if error_details
+                        else "Неизвестная ошибка"
+                    )
+                    raise ImageGenerationFailed(f"YandexART: {message}")
+
+                image_b64 = response_data.get("image")
+                if not image_b64:
                     raise ImageGenerationFailed("YandexART не вернул изображение")
-                image_info = results[0].get("image") or results[0]
-                encoded = (
-                    image_info.get("imageBase64")
-                    or image_info.get("base64")
-                    or image_info.get("data")
-                )
-                if not encoded:
-                    raise ImageGenerationFailed("Некорректный ответ YandexART")
-                mime_type = image_info.get("mimeType", "image/png") or "image/png"
+
                 try:
-                    image_bytes = base64.b64decode(encoded, validate=True)
+                    image_bytes = base64.b64decode(image_b64, validate=True)
                 except (binascii.Error, ValueError) as exc:
                     raise ImageGenerationFailed(
                         "Некорректные данные изображения от YandexART"
                     ) from exc
                 if not image_bytes:
                     raise ImageGenerationFailed("Пустой ответ от YandexART")
-                return GeneratedImage(data=image_bytes, mime_type=mime_type)
+                return GeneratedImage(data=image_bytes, mime_type="image/png")
             time.sleep(self.poll_interval)
 
         raise ImageGenerationFailed("YandexART не успел завершить генерацию")
 
-    @staticmethod
-    def _aspect_ratio(size: str) -> float:
-        width, height = size.split("x")
-        width_value = int(width)
-        height_value = int(height)
-        return width_value / height_value
+
+class GeminiImageProvider:
+    """Генерирует изображения через Gemini."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        timeout: int | float | None = None,
+    ) -> None:
+        self.api_key = (api_key or getattr(settings, "GEMINI_API_KEY", "")).strip()
+        self.model = (
+            model
+            or getattr(settings, "GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
+        ).strip()
+        self.timeout = timeout or getattr(settings, "GEMINI_TIMEOUT", 30)
+        if not self.api_key:
+            raise ImageGenerationFailed("GEMINI_API_KEY не задан")
+
+    def generate(
+        self,
+        *,
+        prompt: str,
+        model: str | None = None,
+        size: str | None = None,
+        quality: str | None = None,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+    ) -> GeneratedImage:
+        prompt = prompt.strip()
+        if not prompt:
+            raise ImageGenerationFailed("Описание не может быть пустым")
+
+        use_model = (model or self.model).strip()
+        use_aspect_ratio = (
+            (aspect_ratio or getattr(settings, "GEMINI_IMAGE_ASPECT_RATIO", ""))
+            .strip()
+            .lower()
+        )
+        use_image_size = (
+            (image_size or getattr(settings, "GEMINI_IMAGE_SIZE", ""))
+            .strip()
+            .upper()
+        )
+
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise ImageGenerationFailed(
+                "The 'google-genai' package is not installed. "
+                "Please run 'pip install google-genai'."
+            ) from exc
+
+        client = genai.Client(api_key=self.api_key)
+        try:
+            image_config = {}
+            if use_aspect_ratio:
+                image_config["aspect_ratio"] = use_aspect_ratio
+            if use_image_size:
+                image_config["image_size"] = use_image_size
+
+            image_config_cls = getattr(types, "ImageConfig", None)
+            if image_config and image_config_cls is not None:
+                image_config_obj = image_config_cls(**image_config)
+                config = types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                    image_config=image_config_obj,
+                )
+            else:
+                config = types.GenerateContentConfig(response_modalities=["IMAGE"])
+            response = client.models.generate_content(
+                model=use_model,
+                contents=[prompt],
+                config=config,
+            )
+        except Exception as exc:  # pragma: no cover
+            raise ImageGenerationFailed(str(exc)) from exc
+
+        parts = []
+        response_parts = getattr(response, "parts", None)
+        if response_parts:
+            parts.extend(response_parts)
+        for candidate in getattr(response, "candidates", []) or []:
+            content = getattr(candidate, "content", None)
+            if content and getattr(content, "parts", None):
+                parts.extend(content.parts)
+
+        def _extract_inline(part: object) -> tuple[object | None, str | None]:
+            inline = None
+            if isinstance(part, dict):
+                inline = part.get("inline_data") or part.get("inlineData")
+            else:
+                inline = getattr(part, "inline_data", None) or getattr(part, "inlineData", None)
+            if not inline:
+                return None, None
+            if isinstance(inline, dict):
+                data = inline.get("data")
+                mime = inline.get("mime_type") or inline.get("mimeType")
+                return data, mime
+            data = getattr(inline, "data", None)
+            mime = getattr(inline, "mime_type", None) or getattr(inline, "mimeType", None)
+            return data, mime
+
+        for part in parts:
+            data, mime_type = _extract_inline(part)
+            if data is None:
+                continue
+            if isinstance(data, str):
+                try:
+                    image_bytes = base64.b64decode(data, validate=True)
+                except binascii.Error as exc:
+                    raise ImageGenerationFailed(
+                        "Некорректные данные изображения"
+                    ) from exc
+            else:
+                image_bytes = bytes(data)
+            if not image_bytes:
+                continue
+            mime_type = mime_type or "image/png"
+            return GeneratedImage(data=image_bytes, mime_type=mime_type)
+
+        raise ImageGenerationFailed("Gemini не вернул изображение")

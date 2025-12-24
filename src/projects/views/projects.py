@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, ListView
 
+from core.constants import IMAGE_PROVIDER_SETTINGS
 from projects.models import Project
 
 from ..forms import ProjectCreateForm
@@ -44,6 +47,11 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.request.user
         return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["image_provider_settings"] = json.dumps(IMAGE_PROVIDER_SETTINGS)
+        return context
 
     def form_valid(self, form):  # type: ignore[override]
         """Обрабатывает валидную форму, сохраняет проект и выводит сообщение."""

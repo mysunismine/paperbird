@@ -2,6 +2,14 @@
 
 {% block title %}Новый проект — Paperbird{% endblock %}
 
+{% block extra_head %}
+<style>
+  .tab-content {
+    min-height: 275px;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-lg-10 col-xl-8">
@@ -29,6 +37,9 @@
           <ul class="nav nav-tabs" id="projectFormTabs" role="tablist">
             <li class="nav-item" role="presentation">
               <button class="nav-link active" id="basic-tab" data-bs-toggle="tab" data-bs-target="#basic" type="button" role="tab" aria-controls="basic" aria-selected="true">Основные</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="public-tab" data-bs-toggle="tab" data-bs-target="#public" type="button" role="tab" aria-controls="public" aria-selected="false">Публичные</button>
             </li>
             <li class="nav-item" role="presentation">
               <button class="nav-link" id="content-gen-tab" data-bs-toggle="tab" data-bs-target="#content-gen" type="button" role="tab" aria-controls="content-gen" aria-selected="false">Генерация контента</button>
@@ -77,6 +88,35 @@
               </div>
             </div>
 
+            <div class="tab-pane" id="public" role="tabpanel" aria-labelledby="public-tab">
+              <div class="mb-3">
+                <div class="form-check">
+                  {{ form.public_enabled }}
+                  <label class="form-check-label" for="{{ form.public_enabled.id_for_label }}">
+                    {{ form.public_enabled.label }}
+                  </label>
+                </div>
+                {% if form.public_enabled.help_text %}<div class="form-text">{{ form.public_enabled.help_text }}</div>{% endif %}
+                {% for error in form.public_enabled.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+              </div>
+              <div class="mb-3">
+                <div class="form-check">
+                  {{ form.public_noindex }}
+                  <label class="form-check-label" for="{{ form.public_noindex.id_for_label }}">
+                    {{ form.public_noindex.label }}
+                  </label>
+                </div>
+                {% if form.public_noindex.help_text %}<div class="form-text">{{ form.public_noindex.help_text }}</div>{% endif %}
+                {% for error in form.public_noindex.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+              </div>
+              <div class="mb-3">
+                <label for="{{ form.public_title.id_for_label }}" class="form-label">{{ form.public_title.label }}</label>
+                {{ form.public_title }}
+                {% if form.public_title.help_text %}<div class="form-text">{{ form.public_title.help_text }}</div>{% endif %}
+                {% for error in form.public_title.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+              </div>
+            </div>
+
             <div class="tab-pane" id="content-gen" role="tabpanel" aria-labelledby="content-gen-tab">
               <div class="row">
                 <div class="col-md-6 mb-3">
@@ -86,6 +126,15 @@
                   {% for error in form.rewrite_model.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
                 </div>
                 <div class="col-md-6 mb-3">
+                  <label for="{{ form.image_prompt_model.id_for_label }}" class="form-label">{{ form.image_prompt_model.label }}</label>
+                  {{ form.image_prompt_model }}
+                  {% if form.image_prompt_model.help_text %}<div class="form-text">{{ form.image_prompt_model.help_text }}</div>{% endif %}
+                  {% for error in form.image_prompt_model.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+              </div>
+              <hr class="my-3">
+              <div class="row">
+                <div class="col-md-6 mb-3">
                   <label for="{{ form.image_model.id_for_label }}" class="form-label">{{ form.image_model.label }}</label>
                   {{ form.image_model }}
                   {% if form.image_model.help_text %}<div class="form-text">{{ form.image_model.help_text }}</div>{% endif %}
@@ -93,13 +142,13 @@
                 </div>
               </div>
               <div class="row">
-                <div class="col-md-6 mb-3">
+                <div class="col-md-6 mb-3" id="project-image-size-field">
                   <label for="{{ form.image_size.id_for_label }}" class="form-label">{{ form.image_size.label }}</label>
                   {{ form.image_size }}
                   {% if form.image_size.help_text %}<div class="form-text">{{ form.image_size.help_text }}</div>{% endif %}
                   {% for error in form.image_size.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
                 </div>
-                <div class="col-md-6 mb-3">
+                <div class="col-md-6 mb-3" id="project-image-quality-field">
                   <label for="{{ form.image_quality.id_for_label }}" class="form-label">{{ form.image_quality.label }}</label>
                   {{ form.image_quality }}
                   {% if form.image_quality.help_text %}<div class="form-text">{{ form.image_quality.help_text }}</div>{% endif %}
@@ -140,4 +189,45 @@
     </form>
   </div>
 </div>
+<script>
+  const projectImageProviderSettings = JSON.parse('{{ image_provider_settings|escapejs }}');
+  const projectModelSelect = document.getElementById('id_image_model');
+  const projectSizeSelect = document.getElementById('id_image_size');
+  const projectQualitySelect = document.getElementById('id_image_quality');
+  const projectSizeField = document.getElementById('project-image-size-field');
+  const projectQualityField = document.getElementById('project-image-quality-field');
+
+  function updateProjectSelect(select, options, defaultValue) {
+    if (!select) return;
+    select.innerHTML = '';
+    options.forEach((optionValue) => {
+      const option = new Option(optionValue, optionValue);
+      select.add(option);
+    });
+    if (defaultValue) {
+      select.value = defaultValue;
+    }
+  }
+
+  function updateProjectImageFields() {
+    if (!projectModelSelect) return;
+    const selectedModel = projectModelSelect.value || 'default';
+    const settings = projectImageProviderSettings[selectedModel]
+      || projectImageProviderSettings['default'];
+    const isGemini = settings.kind === 'gemini';
+
+    updateProjectSelect(projectSizeSelect, settings.sizes || [], settings.default_size);
+    updateProjectSelect(projectQualitySelect, settings.qualities || [], settings.default_quality);
+
+    if (projectSizeField) projectSizeField.classList.toggle('d-none', isGemini);
+    if (projectQualityField) projectQualityField.classList.toggle('d-none', isGemini);
+    if (projectSizeSelect) projectSizeSelect.disabled = isGemini;
+    if (projectQualitySelect) projectQualitySelect.disabled = isGemini;
+  }
+
+  if (projectModelSelect) {
+    projectModelSelect.addEventListener('change', updateProjectImageFields);
+    updateProjectImageFields();
+  }
+</script>
 {% endblock %}

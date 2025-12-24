@@ -77,17 +77,46 @@
                   {% include form_field_template with field=form.rewrite_model %}
                 </div>
                 <div class="col-md-6">
-                  {% include form_field_template with field=form.image_model %}
+                  {% include form_field_template with field=form.image_prompt_model %}
                 </div>
               </div>
               <div class="row">
                 <div class="col-md-6">
+                  {% include form_field_template with field=form.image_model %}
+                </div>
+              </div>
+              <div class="row">
+                <div class="col-md-6" id="project-image-size-field">
                   {% include form_field_template with field=form.image_size %}
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-6" id="project-image-quality-field">
                   {% include form_field_template with field=form.image_quality %}
                 </div>
               </div>
+
+              <h4 class="h5 mt-4">Публичная витрина</h4>
+              <hr class="mt-2 mb-4" />
+              <div class="mb-3">
+                <div class="form-check">
+                  {{ form.public_enabled }}
+                  <label class="form-check-label" for="{{ form.public_enabled.id_for_label }}">
+                    {{ form.public_enabled.label }}
+                  </label>
+                </div>
+                {% if form.public_enabled.help_text %}<div class="form-text text-muted">{{ form.public_enabled.help_text }}</div>{% endif %}
+                {% for error in form.public_enabled.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+              </div>
+              <div class="mb-3">
+                <div class="form-check">
+                  {{ form.public_noindex }}
+                  <label class="form-check-label" for="{{ form.public_noindex.id_for_label }}">
+                    {{ form.public_noindex.label }}
+                  </label>
+                </div>
+                {% if form.public_noindex.help_text %}<div class="form-text text-muted">{{ form.public_noindex.help_text }}</div>{% endif %}
+                {% for error in form.public_noindex.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+              </div>
+              {% include form_field_template with field=form.public_title %}
 
               <h4 class="h5 mt-4">Сбор данных и хранение</h4>
               <hr class="mt-2 mb-4" />
@@ -169,5 +198,46 @@
         </div>
       </div>
     </div>
+    <script>
+      const projectImageProviderSettings = JSON.parse('{{ image_provider_settings|escapejs }}');
+      const projectModelSelect = document.getElementById('id_image_model');
+      const projectSizeSelect = document.getElementById('id_image_size');
+      const projectQualitySelect = document.getElementById('id_image_quality');
+      const projectSizeField = document.getElementById('project-image-size-field');
+      const projectQualityField = document.getElementById('project-image-quality-field');
+
+      function updateProjectSelect(select, options, defaultValue) {
+        if (!select) return;
+        select.innerHTML = '';
+        options.forEach((optionValue) => {
+          const option = new Option(optionValue, optionValue);
+          select.add(option);
+        });
+        if (defaultValue) {
+          select.value = defaultValue;
+        }
+      }
+
+      function updateProjectImageFields() {
+        if (!projectModelSelect) return;
+        const selectedModel = projectModelSelect.value || 'default';
+        const settings = projectImageProviderSettings[selectedModel]
+          || projectImageProviderSettings['default'];
+        const isGemini = settings.kind === 'gemini';
+
+        updateProjectSelect(projectSizeSelect, settings.sizes || [], settings.default_size);
+        updateProjectSelect(projectQualitySelect, settings.qualities || [], settings.default_quality);
+
+        if (projectSizeField) projectSizeField.classList.toggle('d-none', isGemini);
+        if (projectQualityField) projectQualityField.classList.toggle('d-none', isGemini);
+        if (projectSizeSelect) projectSizeSelect.disabled = isGemini;
+        if (projectQualitySelect) projectQualitySelect.disabled = isGemini;
+      }
+
+      if (projectModelSelect) {
+        projectModelSelect.addEventListener('change', updateProjectImageFields);
+        updateProjectImageFields();
+      }
+    </script>
   {% endwith %}
 {% endblock %}

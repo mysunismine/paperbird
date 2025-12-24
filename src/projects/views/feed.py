@@ -12,6 +12,7 @@ from django.utils.dateparse import parse_datetime
 from django.views.generic import TemplateView
 
 from core.models import WorkerTask
+from core.services import enqueue_task  # noqa: F401
 from projects.models import Post, Project, Source, WebPreset
 from projects.services.collector_scheduler import ensure_collector_tasks
 from projects.services.post_filters import (
