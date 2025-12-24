@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
+from asgiref.sync import sync_to_async
 from django.db import transaction
 from django.utils import timezone
 
@@ -185,39 +186,55 @@ class TelethonPublisherBackend:
             message_ids: list[int] = []
             published_at = timezone.now()
 
-            # Если медиа должно быть первым — отправляем файл до текста.
-            if send_media_first and story.image_file:
-                image_path = Path(story.image_file.path)
-                if not image_path.exists():
-                    raise PublicationFailed("Файл изображения сюжета не найден на диске")
-                image_caption = (story.image_prompt or "").strip()
-                image_message = await client.send_file(
-                    target,
-                    image_path.as_posix(),
-                    caption=image_caption or None,
-                    parse_mode="html",
-                )
-                mid, published_at = _append_message(image_message)
-                message_ids.append(mid)
+            images = await sync_to_async(lambda: list(story.selected_images()))()
+            legacy_image_path = None
+            if not images and story.image_file:
+                legacy_image_path = Path(story.image_file.path)
+
+            def _image_path(entry):
+                if not entry.image_file:
+                    return None
+                path = Path(entry.image_file.path)
+                if not path.exists():
+                    return None
+                return path
+
+            async def _send_images() -> None:
+                nonlocal published_at
+                if legacy_image_path and legacy_image_path.exists():
+                    image_message = await client.send_file(
+                        target,
+                        legacy_image_path.as_posix(),
+                        caption=None,
+                    )
+                    mid, published_at_value = _append_message(image_message)
+                    message_ids.append(mid)
+                    published_at = published_at_value
+                    return
+                for image in images:
+                    image_path = _image_path(image)
+                    if not image_path:
+                        continue
+                    image_message = await client.send_file(
+                        target,
+                        image_path.as_posix(),
+                        caption=None,
+                    )
+                    mid, published_at_value = _append_message(image_message)
+                    message_ids.append(mid)
+                    published_at = published_at_value
+
+            # Если медиа должно быть первым — отправляем файлы до текста.
+            if send_media_first and (images or legacy_image_path):
+                await _send_images()
 
             text_message = await client.send_message(target, text, parse_mode="html")
             mid, published_at = _append_message(text_message)
             message_ids.append(mid)
 
-            # Если медиа идёт после текста — отправляем файл вторым.
-            if not send_media_first and story.image_file:
-                image_path = Path(story.image_file.path)
-                if not image_path.exists():
-                    raise PublicationFailed("Файл изображения сюжета не найден на диске")
-                image_caption = (story.image_prompt or "").strip()
-                image_message = await client.send_file(
-                    target,
-                    image_path.as_posix(),
-                    caption=image_caption or None,
-                    parse_mode="html",
-                )
-                mid, _ = _append_message(image_message)
-                message_ids.append(mid)
+            # Если медиа идёт после текста — отправляем файлы вторыми.
+            if not send_media_first and (images or legacy_image_path):
+                await _send_images()
 
             raw = {"messages": messages_raw} if messages_raw else None
             return PublishResult(message_ids=message_ids, published_at=published_at, raw=raw)

@@ -145,6 +145,19 @@
         updateCounter();
       }
 
+      function clearSelection(removeStorage = false) {
+        selected.clear();
+        if (removeStorage) {
+          localStorage.removeItem(storageKey);
+        } else {
+          persist();
+        }
+        updateCounter();
+        listContainer.querySelectorAll('.post-select').forEach((checkbox) => {
+          checkbox.checked = false;
+        });
+      }
+
       function attachCheckboxHandlers() {
         const checkboxes = listContainer.querySelectorAll('.post-select');
         const available = new Set();
@@ -200,12 +213,17 @@
           input.value = id;
           createForm.appendChild(input);
         });
+        clearSelection(true);
         createForm.submit();
       }
 
       if (createBtn) {
         createBtn.addEventListener('click', submitStory);
       }
+
+      window.addEventListener('pagehide', () => {
+        localStorage.removeItem(storageKey);
+      });
       
       attachCheckboxHandlers();
       updateCounter();

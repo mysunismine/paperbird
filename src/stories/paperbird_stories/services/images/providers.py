@@ -81,8 +81,8 @@ class OpenAIImageProvider:
             return GeneratedImage(data=data, mime_type="image/png")
 
         use_model = model or self.model
-        use_size = normalize_image_size(size or self.size)
-        use_quality = normalize_image_quality(quality or self.quality)
+        use_size = _openai_size_for_model(use_model, size or self.size)
+        use_quality = _openai_quality_for_model(use_model, quality or self.quality)
         payload = {
             "model": use_model,
             "prompt": prompt,
@@ -142,6 +142,34 @@ class OpenAIImageProvider:
 
         mime_type = content.get("mime_type") or content.get("mimeType") or "image/png"
         return GeneratedImage(data=decoded, mime_type=mime_type)
+
+
+def _openai_quality_for_model(model: str | None, quality: str | None) -> str:
+    normalized = normalize_image_quality(quality)
+    if normalized == "auto":
+        normalized = "medium"
+    if _openai_standard_quality_model(model):
+        return "hd" if normalized == "high" else "standard"
+    return normalized
+
+
+def _openai_size_for_model(model: str | None, size: str | None) -> str:
+    normalized = normalize_image_size(size)
+    if normalized == "auto":
+        normalized = "1024x1024"
+    if _openai_standard_quality_model(model):
+        size_map = {
+            "1024x1536": "1024x1792",
+            "1536x1024": "1792x1024",
+        }
+        normalized = size_map.get(normalized, normalized)
+        if normalized not in {"1024x1024", "1024x1792", "1792x1024"}:
+            normalized = "1024x1024"
+    return normalized
+
+
+def _openai_standard_quality_model(model: str | None) -> bool:
+    return (model or "").strip().startswith("dall-e-3")
 
 
 class YandexArtProvider:

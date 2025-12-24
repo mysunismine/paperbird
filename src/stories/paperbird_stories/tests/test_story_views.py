@@ -112,26 +112,6 @@ class StoryViewTests(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
         self.assertTrue(Story.objects.filter(pk=self.story.pk).exists())
 
-    def test_prompt_snapshot_requires_existing(self) -> None:
-        url = reverse("stories:prompt", kwargs={"pk": self.story.pk})
-        response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertContains(response, "У сюжета ещё нет сохранённого промпта.")
-
-    def test_prompt_snapshot_displays_last_prompt(self) -> None:
-        self.story.prompt_snapshot = [
-            {"role": "system", "content": "System snapshot"},
-            {"role": "user", "content": "User snapshot"},
-        ]
-        self.story.editor_comment = "Комментарий"
-        self.story.save(update_fields=["prompt_snapshot", "editor_comment", "updated_at"])
-        url = reverse("stories:prompt", kwargs={"pk": self.story.pk})
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        html = response.content.decode("utf-8")
-        self.assertIn("System snapshot", html)
-        self.assertIn("User snapshot", html)
-
     @patch("stories.paperbird_stories.views.story_detail.default_rewriter")
     def test_rewrite_preview_shows_prompt(self, mock_rewriter) -> None:
         mock_instance = MagicMock()

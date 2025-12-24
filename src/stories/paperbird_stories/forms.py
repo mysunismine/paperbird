@@ -242,8 +242,9 @@ class StoryImageGenerateForm(forms.Form):
 class StoryImageAttachForm(forms.Form):
     """Форма для прикрепления сгенерированного изображения."""
     prompt = forms.CharField(widget=forms.HiddenInput())
-    image_data = forms.CharField(widget=forms.HiddenInput())
+    image_data = forms.CharField(widget=forms.HiddenInput(), required=False)
     mime_type = forms.CharField(widget=forms.HiddenInput())
+    preview_token = forms.CharField(widget=forms.HiddenInput(), required=False)
     model = forms.ChoiceField(
         choices=IMAGE_MODEL_CHOICES,
         widget=forms.HiddenInput(),
@@ -269,7 +270,7 @@ class StoryImageAttachForm(forms.Form):
     def clean_image_data(self):
         raw = self.cleaned_data["image_data"].strip()
         if not raw:
-            raise forms.ValidationError("Отсутствуют данные изображения")
+            return b""
         try:
             data = base64.b64decode(raw, validate=True)
         except (binascii.Error, ValueError) as exc:
@@ -283,6 +284,14 @@ class StoryImageAttachForm(forms.Form):
         if not mime_type.startswith("image/"):
             raise forms.ValidationError("Неподдерживаемый тип файла")
         return mime_type
+
+    def clean(self):
+        cleaned = super().clean()
+        data = cleaned.get("image_data")
+        token = (cleaned.get("preview_token") or "").strip()
+        if not data and not token:
+            raise forms.ValidationError("Отсутствуют данные изображения")
+        return cleaned
 
 
 class StoryImageDeleteForm(forms.Form):

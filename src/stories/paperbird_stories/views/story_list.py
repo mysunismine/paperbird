@@ -50,6 +50,14 @@ class StoryCreateView(LoginRequiredMixin, View):
         if len(posts) == 0:
             messages.error(request, "Не удалось найти выбранные посты")
             return self._redirect_back(project.pk)
+        found_ids = {post.pk for post in posts}
+        missing_ids = {pk for pk in selected_ids if pk not in found_ids}
+        if missing_ids:
+            messages.error(
+                request,
+                "Некоторые выбранные посты больше недоступны. Обновите ленту и выберите заново.",
+            )
+            return self._redirect_back(project.pk)
         order_map = {pk: index for index, pk in enumerate(selected_ids)}
         posts.sort(key=lambda post: order_map.get(post.pk, 0))
         try:

@@ -18,6 +18,11 @@ PROMPT_SECTION_ORDER: list[tuple[str, str]] = [
     ("editor_comment_note", "7. [КОММЕНТАРИЙ РЕДАКТОРА]"),
 ]
 
+IMAGE_PROMPT_SECTION: tuple[str, str] = (
+    "image_prompt_template",
+    "8. [ПРОМПТ ДЛЯ ИДЕИ ИЗОБРАЖЕНИЯ]",
+)
+
 PROMPT_SECTION_HINTS: dict[str, str] = {
     "system_role": (
         "Опишите роль модели. Используйте {{PROJECT_NAME}} для подпстановки названия."
@@ -33,6 +38,10 @@ PROMPT_SECTION_HINTS: dict[str, str] = {
     "editor_comment_note": (
         "Используйте {{EDITOR_COMMENT}} для подстановки комментария редактора."
     ),
+    "image_prompt_template": (
+        "Опишите, какой промпт нужно получить для генерации иллюстрации. "
+        "Рекомендуемый формат ответа: JSON с полем prompt."
+    ),
 }
 
 PROMPT_TEMPLATE_TOKENS: dict[str, str] = {
@@ -40,12 +49,34 @@ PROMPT_TEMPLATE_TOKENS: dict[str, str] = {
     "{{PROJECT_DESCRIPTION}}": "Описание проекта",
     "{{POSTS}}": "Список новостей вида «НОВОСТЬ #1: ...»",
     "{{TITLE}}": "Заголовок сюжета",
+    "{{STORY_TITLE}}": "Заголовок сюжета (для промпта изображения)",
+    "{{STORY_SUMMARY}}": "Краткое описание сюжета (для промпта изображения)",
+    "{{STORY_BODY}}": "Текст сюжета (для промпта изображения)",
     "{{EDITOR_COMMENT}}": "Комментарий редактора (или заглушка, если он пустой)",
     "{{CURRENT_DATETIME}}": "Текущая дата и время проекта в локальной зоне",
     "{{CURRENT_UTC_OFFSET}}": "Смещение относительно UTC (например, UTC+03:00)",
     "{{CURRENT_TIMEZONE}}": "Название выбранного часового пояса",
     "{{CURRENT_ISO_DATETIME}}": "Дата и время в ISO 8601 (UTC с учётом смещения)",
 }
+
+DEFAULT_IMAGE_PROMPT_TEMPLATE = (
+    "Ты помогаешь редактору подобрать промпт для генерации иллюстрации к сюжету.\n"
+    "Используй контекст ниже и предложи короткий визуальный промпт для генерации "
+    "изображения (1-2 предложения).\n"
+    "Требования:\n"
+    "- Без указаний по размерам, форматам, разрешению или стилям рендера.\n"
+    "- Сфокусируйся на ключевом визуальном образе.\n"
+    "- Избегай упоминания конкретных брендов, персональных данных и логотипов.\n"
+    "- Ответ строго в JSON: {\"prompt\": \"...\"}\n"
+    "\n"
+    "Проект: {{PROJECT_NAME}}\n"
+    "Описание проекта: {{PROJECT_DESCRIPTION}}\n"
+    "Заголовок сюжета: {{STORY_TITLE}}\n"
+    "Краткое описание: {{STORY_SUMMARY}}\n"
+    "Текст сюжета: {{STORY_BODY}}\n"
+    "Источники:\n"
+    "{{POSTS}}\n"
+)
 
 DEFAULT_PROMPT_SECTIONS: dict[str, str] = {
     "system_role": "Ты — редактор новостного Telegram-канала на тему: {{PROJECT_NAME}}.",
@@ -102,6 +133,7 @@ DEFAULT_PROMPT_SECTIONS: dict[str, str] = {
         "{{EDITOR_COMMENT}}\n"
         "Если редактор ничего не указал — продолжай без дополнительных замечаний."
     ),
+    "image_prompt_template": DEFAULT_IMAGE_PROMPT_TEMPLATE,
 }
 
 

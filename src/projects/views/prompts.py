@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
@@ -10,6 +12,7 @@ from django.views.generic import FormView, View
 
 from projects.models import Project
 from projects.services.prompt_config import (
+    IMAGE_PROMPT_SECTION,
     PROMPT_SECTION_HINTS,
     PROMPT_SECTION_ORDER,
     ensure_prompt_config,
@@ -82,6 +85,14 @@ class ProjectPromptsView(LoginRequiredMixin, FormView):
                     "hint": PROMPT_SECTION_HINTS.get(field_name, ""),
                 }
             )
+        image_field, image_heading = IMAGE_PROMPT_SECTION
+        sections.append(
+            {
+                "heading": image_heading,
+                "field": form[image_field],
+                "hint": PROMPT_SECTION_HINTS.get(image_field, ""),
+            }
+        )
         return sections
 
 
@@ -112,3 +123,59 @@ class ProjectPromptExportView(LoginRequiredMixin, View):
             editor_comment="",
         )
         return rendered.full_text
+
+
+class ProjectPromptImportView(LoginRequiredMixin, View):
+    """Импортирует конфигурацию промптов проекта из JSON/YAML."""
+
+    def post(self, request, *args, **kwargs):
+        project = get_object_or_404(
+            Project,
+            pk=kwargs["pk"],
+            owner=request.user,
+        )
+        file = request.FILES.get("prompt_file")
+        payload = (request.POST.get("prompt_payload") or "").strip()
+        if file:
+            payload = file.read().decode("utf-8", "replace").strip()
+        if not payload:
+            messages.error(request, "Загрузите файл или вставьте JSON/YAML промпта.")
+            return redirect("projects:prompts", pk=project.pk)
+
+        data = self._parse_payload(payload)
+        if not isinstance(data, dict):
+            messages.error(request, "Некорректный формат промпта.")
+            return redirect("projects:prompts", pk=project.pk)
+
+        prompt_data = data.get("prompt_config", data)
+        if not isinstance(prompt_data, dict):
+            messages.error(request, "Некорректный формат промпта.")
+            return redirect("projects:prompts", pk=project.pk)
+
+        config = ensure_prompt_config(project)
+        updated_fields = []
+        for field in ProjectPromptConfigForm.Meta.fields:
+            if field in prompt_data:
+                setattr(config, field, prompt_data.get(field) or "")
+                updated_fields.append(field)
+        if not updated_fields:
+            messages.error(request, "Не нашли подходящих полей промпта для импорта.")
+            return redirect("projects:prompts", pk=project.pk)
+        config.save(update_fields=updated_fields + ["updated_at"])
+        messages.success(request, "Промпт проекта обновлён из файла.")
+        return redirect("projects:prompts", pk=project.pk)
+
+    @staticmethod
+    def _parse_payload(payload: str):
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError:
+            pass
+        try:
+            import yaml
+        except ModuleNotFoundError:
+            return None
+        try:
+            return yaml.safe_load(payload)
+        except yaml.YAMLError:
+            return None

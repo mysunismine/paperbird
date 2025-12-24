@@ -22,6 +22,28 @@
         </div>
       </div>
 
+      <div class="card shadow-sm mb-4">
+        <div class="card-body">
+          <form method="post" action="{% url 'projects:prompts-import' project.pk %}" enctype="multipart/form-data" class="row gy-3 gx-3 align-items-end">
+            {% csrf_token %}
+            <div class="col-12 col-lg-5">
+              <label class="form-label fw-semibold small" for="prompt_file">Импорт промптов (JSON/YAML)</label>
+              <input class="form-control" type="file" id="prompt_file" name="prompt_file" accept=".json,.yaml,.yml,.txt" />
+            </div>
+            <div class="col-12 col-lg-5">
+              <label class="form-label fw-semibold small" for="prompt_payload">Или вставьте содержимое</label>
+              <textarea class="form-control font-monospace" id="prompt_payload" name="prompt_payload" rows="2" placeholder="{&quot;prompt_config&quot;: {...}}"></textarea>
+              <div class="form-text">Подойдёт JSON/YAML из экспорта проекта (секция prompt_config).</div>
+            </div>
+            <div class="col-12 col-lg-2 d-grid">
+              <button type="submit" class="btn btn-outline-primary">
+                <i class="bi bi-upload me-1"></i>Импортировать
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
       {# Placeholders Section (Collapsible) #}
       <div class="accordion mb-4" id="placeholder-accordion">
         <div class="accordion-item">

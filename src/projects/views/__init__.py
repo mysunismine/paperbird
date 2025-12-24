@@ -1,9 +1,10 @@
 """Views package for projects app."""
 
 from .collector import ProjectCollectorQueueView
+from .export import ProjectExportView
 from .feed import ProjectPostDetailView, ProjectPostListView
 from .projects import ProjectCreateView, ProjectListView
-from .prompts import ProjectPromptExportView, ProjectPromptsView
+from .prompts import ProjectPromptExportView, ProjectPromptImportView, ProjectPromptsView
 from .settings import ProjectSettingsView
 from .sources import (
     ProjectSourceCreateView,
@@ -16,10 +17,12 @@ from .sources import (
 __all__ = [
     "ProjectCollectorQueueView",
     "ProjectCreateView",
+    "ProjectExportView",
     "ProjectListView",
     "ProjectPostDetailView",
     "ProjectPostListView",
     "ProjectPromptExportView",
+    "ProjectPromptImportView",
     "ProjectPromptsView",
     "ProjectSettingsView",
     "ProjectSourceCreateView",

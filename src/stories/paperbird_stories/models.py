@@ -191,10 +191,60 @@ class Story(models.Model):
 
     # --- Работа с изображением ----------------------------------------------
 
-    def attach_image(self, *, prompt: str, data: bytes, mime_type: str) -> None:
-        """Сохраняет изображение сюжета, заменяя предыдущее."""
-        """Сохраняет изображение сюжета, заменяя предыдущее."""
+    def main_image(self) -> StoryImage | None:
+        self.ensure_legacy_image()
+        image = self.images.filter(is_main=True).first()
+        if image:
+            return image
+        return None
 
+    def selected_images(self) -> models.QuerySet["StoryImage"]:
+        self.ensure_legacy_image()
+        return self.images.filter(is_selected=True).order_by("-is_main", "created_at")
+
+    def ensure_legacy_image(self) -> None:
+        if self.images.exists():
+            return
+        if not self.image_file:
+            return
+        image = StoryImage.objects.create(
+            story=self,
+            prompt=self.image_prompt,
+            source_kind=StoryImage.SourceKind.GENERATED,
+            is_selected=True,
+            is_main=True,
+        )
+        image.image_file = self.image_file
+        image.save(update_fields=["image_file"])
+
+    def attach_image(
+        self,
+        *,
+        prompt: str,
+        data: bytes,
+        mime_type: str,
+        source_kind: str = "generated",
+    ) -> "StoryImage":
+        """Добавляет изображение сюжета и делает его главным."""
+        return self.add_image(
+            prompt=prompt,
+            data=data,
+            mime_type=mime_type,
+            source_kind=source_kind,
+            set_main=True,
+            is_selected=True,
+        )
+
+    def add_image(
+        self,
+        *,
+        prompt: str,
+        data: bytes,
+        mime_type: str,
+        source_kind: str,
+        set_main: bool,
+        is_selected: bool,
+    ) -> "StoryImage":
         if not data:
             raise ValueError("Пустые данные изображения")
 
@@ -202,22 +252,41 @@ class Story(models.Model):
         filename = f"story_{self.pk}_{uuid.uuid4().hex}.{extension}"
         content = ContentFile(data)
 
-        if self.image_file:
-            self.image_file.delete(save=False)
+        image = StoryImage.objects.create(
+            story=self,
+            prompt=prompt.strip(),
+            source_kind=source_kind,
+            is_selected=is_selected,
+        )
+        image.image_file.save(filename, content, save=True)
 
-        self.image_file.save(filename, content, save=False)
-        self.image_prompt = prompt.strip()
+        if set_main or not self.images.filter(is_main=True).exists():
+            self.set_main_image(image)
+        return image
+
+    def set_main_image(self, image: "StoryImage") -> None:
+        self.images.filter(is_main=True).exclude(pk=image.pk).update(is_main=False)
+        if not image.is_main:
+            image.is_main = True
+            image.is_selected = True
+            image.save(update_fields=["is_main", "is_selected"])
+        self.image_file = image.image_file
+        self.image_prompt = image.prompt
         self.save(update_fields=["image_prompt", "image_file", "updated_at"])
 
     def remove_image(self) -> None:
-        """Удаляет прикреплённое изображение."""
-        """Удаляет прикреплённое изображение."""
-
+        """Удаляет главное изображение сюжета."""
+        main = self.images.filter(is_main=True).first()
+        if main:
+            main.delete()
         if self.image_file:
             self.image_file.delete(save=False)
         self.image_file = None
         self.image_prompt = ""
         self.save(update_fields=["image_prompt", "image_file", "updated_at"])
+        replacement = self.images.filter(is_selected=True).first()
+        if replacement:
+            self.set_main_image(replacement)
 
     @staticmethod
     def _extension_from_mime(mime_type: str) -> str:
@@ -232,6 +301,48 @@ class Story(models.Model):
         if mime_type == "image/jpeg":
             return "jpg"
         return default_extension
+
+
+class StoryImage(models.Model):
+    """Изображения, связанные с сюжетом."""
+
+    class SourceKind(models.TextChoices):
+        GENERATED = "generated", "Сгенерировано"
+        UPLOAD = "upload", "Загрузка"
+        SOURCE = "source", "Источник"
+
+    story = models.ForeignKey(
+        Story,
+        on_delete=models.CASCADE,
+        related_name="images",
+        verbose_name="Сюжет",
+    )
+    image_file = models.FileField(
+        "Изображение",
+        upload_to="story_images/",
+    )
+    prompt = models.TextField(
+        "Промпт генерации",
+        blank=True,
+        default="",
+    )
+    source_kind = models.CharField(
+        "Источник",
+        max_length=20,
+        choices=SourceKind.choices,
+        default=SourceKind.GENERATED,
+    )
+    is_selected = models.BooleanField("Выбрано для публикации", default=True)
+    is_main = models.BooleanField("Основное", default=False)
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Изображение сюжета"
+        verbose_name_plural = "Изображения сюжетов"
+        ordering = ("-is_main", "-created_at")
+
+    def __str__(self) -> str:
+        return f"{self.story} — {self.image_file.name}"
 
 
 class StoryPost(models.Model):

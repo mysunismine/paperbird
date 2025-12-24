@@ -18,7 +18,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils import timezone
-from django.views.generic import DetailView, TemplateView
+from django.views.generic import DetailView
 
 from projects.services.telethon_client import TelethonCredentialsMissingError
 from stories.paperbird_stories.forms import (
@@ -27,7 +27,7 @@ from stories.paperbird_stories.forms import (
     StoryPublishForm,
     StoryRewriteForm,
 )
-from stories.paperbird_stories.models import Publication, RewritePreset, Story
+from stories.paperbird_stories.models import Publication, RewritePreset, Story, StoryImage
 from stories.paperbird_stories.services import (
     PublicationFailed,
     RewriteFailed,
@@ -37,40 +37,6 @@ from stories.paperbird_stories.services import (
     default_rewriter,
     make_prompt_messages,
 )
-
-
-class StoryPromptSnapshotView(LoginRequiredMixin, TemplateView):
-    """Отображает последний промпт рерайта."""
-
-    template_name = "stories/story_prompt_preview.html"
-
-    def get(self, request, pk: int, *args, **kwargs):
-        story = get_object_or_404(
-            Story.objects.select_related("project"),
-            pk=pk,
-            project__owner=request.user,
-        )
-        if not story.prompt_snapshot:
-            messages.info(request, "У сюжета ещё нет сохранённого промпта.")
-            return redirect("stories:detail", pk=story.pk)
-        prompt_messages = list(story.prompt_snapshot)
-        prompt_form = StoryPromptConfirmForm(
-            story=story,
-            initial={
-                "prompt_system": StoryDetailView._extract_message(prompt_messages, "system"),
-                "prompt_user": StoryDetailView._extract_message(prompt_messages, "user"),
-                "preset": story.last_rewrite_preset,
-                "editor_comment": story.editor_comment or "",
-            },
-        )
-        context = {
-            "story": story,
-            "prompt_form": prompt_form,
-            "editor_comment": story.editor_comment or "",
-            "preset": story.last_rewrite_preset,
-            "preview_source": "latest",
-        }
-        return self.render_to_response(context)
 
 
 class StoryDetailView(LoginRequiredMixin, DetailView):
@@ -124,6 +90,16 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             Story.Status.PUBLISHED,
         }
         context["media_url"] = settings.MEDIA_URL
+        context["main_image"] = self.object.main_image()
+        context["generated_images"] = self.object.images.filter(
+            source_kind__in=[
+                StoryImage.SourceKind.GENERATED,
+                StoryImage.SourceKind.UPLOAD,
+            ]
+        )
+        context["source_images"] = self.object.images.filter(
+            source_kind=StoryImage.SourceKind.SOURCE
+        )
         rewrite_form: StoryRewriteForm = context["rewrite_form"]
         context["prompt_preview"] = self._build_prompt_preview(
             editor_comment=self._form_editor_comment(rewrite_form),
@@ -148,6 +124,10 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             return self._handle_save(request)
         if action == "attach_media":
             return self._handle_attach_media(request)
+        if action == "set_main_image":
+            return self._handle_set_main_image(request)
+        if action == "toggle_image":
+            return self._handle_toggle_image(request)
             messages.error(request, "Неизвестное действие")
         return redirect(self.get_success_url())
 
@@ -359,6 +339,7 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
                     prompt="",
                     data=data,
                     mime_type=media_info["mime"],
+                    source_kind=StoryImage.SourceKind.SOURCE,
                 )
             except Exception as exc:
                 messages.error(request, f"Не удалось прикрепить изображение: {exc}")
@@ -367,6 +348,36 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             return redirect(self._build_success_url(step="rewrite"))
 
         messages.error(request, "Не удалось найти локальный файл среди выбранных медиа.")
+        return redirect(self._build_success_url(step="rewrite"))
+
+    def _handle_set_main_image(self, request):
+        image_id = request.POST.get("image_id")
+        if not image_id or not str(image_id).isdigit():
+            messages.error(request, "Некорректное изображение.")
+            return redirect(self._build_success_url(step="rewrite"))
+        image = get_object_or_404(
+            self.object.images,
+            pk=int(image_id),
+        )
+        self.object.set_main_image(image)
+        messages.success(request, "Основное изображение обновлено.")
+        return redirect(self._build_success_url(step="rewrite"))
+
+    def _handle_toggle_image(self, request):
+        image_id = request.POST.get("image_id")
+        if not image_id or not str(image_id).isdigit():
+            messages.error(request, "Некорректное изображение.")
+            return redirect(self._build_success_url(step="rewrite"))
+        image = get_object_or_404(
+            self.object.images,
+            pk=int(image_id),
+        )
+        selected = request.POST.get("selected") == "1"
+        if image.is_main and not selected:
+            messages.error(request, "Главное изображение всегда публикуется.")
+            return redirect(self._build_success_url(step="rewrite"))
+        image.is_selected = selected
+        image.save(update_fields=["is_selected"])
         return redirect(self._build_success_url(step="rewrite"))
 
     def _find_post_media(self, post, *, allow_download: bool = False):

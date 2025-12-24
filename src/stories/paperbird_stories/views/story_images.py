@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import mimetypes
 import uuid
@@ -25,12 +26,16 @@ from stories.paperbird_stories.forms import (
     StoryImageGenerateForm,
     StoryImageUploadForm,
 )
-from stories.paperbird_stories.models import Story
+from stories.paperbird_stories.models import Story, StoryImage
 from stories.paperbird_stories.services import (
     ImageGenerationFailed,
     default_image_generator,
     normalize_image_quality,
     normalize_image_size,
+)
+from stories.paperbird_stories.services.image_prompt import (
+    ImagePromptSuggestionFailed,
+    suggest_image_prompt,
 )
 
 
@@ -68,6 +73,8 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             return self._handle_attach_source(request)
         if action == "upload":
             return self._handle_upload(request)
+        if action == "suggest_prompt":
+            return self._handle_suggest_prompt(request)
         messages.error(request, "Неизвестное действие")
         return redirect("stories:detail", pk=self.object.pk)
 
@@ -80,6 +87,7 @@ class StoryImageView(LoginRequiredMixin, DetailView):
                     prompt="",
                     data=image_file.read(),
                     mime_type=image_file.content_type,
+                    source_kind=StoryImage.SourceKind.UPLOAD,
                 )
             except ValueError as exc:
                 messages.error(request, f"Не удалось прикрепить изображение: {exc}")
@@ -95,6 +103,19 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             source_media=self._source_media(),
         )
         return self.render_to_response(context)
+
+    def _handle_suggest_prompt(self, request):
+        if request.headers.get("X-Requested-With") != "XMLHttpRequest":
+            messages.error(request, "Запрос рекомендованного промпта доступен только через AJAX.")
+            return redirect("stories:image", pk=self.object.pk)
+        try:
+            prompt = suggest_image_prompt(self.object)
+        except ImagePromptSuggestionFailed as exc:
+            return JsonResponse(
+                {"status": "error", "message": str(exc)},
+                status=500,
+            )
+        return JsonResponse({"status": "success", "prompt": prompt})
 
     def _handle_generate(self, request):
         is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
@@ -135,6 +156,8 @@ class StoryImageView(LoginRequiredMixin, DetailView):
                 "size": safe_size,
                 "quality": quality,
             }
+            preview_token = self._store_preview(request, preview_data)
+            preview_data["preview_token"] = preview_token
             if is_ajax:
                 return JsonResponse({"status": "success", "preview": preview_data})
             
@@ -142,7 +165,15 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             if safe_size != size:
                 messages.info(request, "Размер изображения автоматически скорректирован.")
             messages.success(request, "Изображение успешно сгенерировано.")
-            attach_form = StoryImageAttachForm(initial=preview_data)
+            attach_initial = {
+                "prompt": preview_data["prompt"],
+                "mime_type": preview_data["mime"],
+                "model": preview_data["model"],
+                "size": preview_data["size"],
+                "quality": preview_data["quality"],
+                "preview_token": preview_token,
+            }
+            attach_form = StoryImageAttachForm(initial=attach_initial)
             context = self.get_context_data(
                 generate_form=form,
                 preview=preview_data,
@@ -162,11 +193,28 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             prompt = form.cleaned_data["prompt"]
             data = form.cleaned_data["image_data"]
             mime_type = form.cleaned_data["mime_type"]
+            token = (form.cleaned_data.get("preview_token") or "").strip()
+            if not data and token:
+                preview = self._load_preview(request, token)
+                if not preview:
+                    messages.error(request, "Предпросмотр устарел. Сгенерируйте изображение заново.")
+                    return redirect("stories:image", pk=self.object.pk)
+                data = preview["data"]
+                mime_type = preview["mime"]
+            if not data:
+                messages.error(request, "Не удалось прикрепить изображение: отсутствуют данные.")
+                return redirect("stories:image", pk=self.object.pk)
             try:
-                self.object.attach_image(prompt=prompt, data=data, mime_type=mime_type)
+                self.object.attach_image(
+                    prompt=prompt,
+                    data=data,
+                    mime_type=mime_type,
+                    source_kind=StoryImage.SourceKind.GENERATED,
+                )
             except ValueError as exc:
                 form.add_error(None, str(exc))
             else:
+                self._clear_preview(request)
                 messages.success(request, "Изображение прикреплено к сюжету.")
                 return redirect("stories:detail", pk=self.object.pk)
 
@@ -183,6 +231,20 @@ class StoryImageView(LoginRequiredMixin, DetailView):
                 "size": safe_size,
                 "quality": safe_quality,
             }
+        else:
+            token = (request.POST.get("preview_token") or "").strip()
+            if token:
+                stored = self._load_preview(request, token)
+                if stored:
+                    preview = {
+                        "data": base64.b64encode(stored["data"]).decode("ascii"),
+                        "mime": stored["mime"],
+                        "prompt": request.POST.get("prompt", ""),
+                        "model": request.POST.get("model", ""),
+                        "size": normalize_image_size(request.POST.get("size", "")),
+                        "quality": normalize_image_quality(request.POST.get("quality", "")),
+                        "preview_token": token,
+                    }
         context = self.get_context_data(
             generate_form=self._generate_form_initial(
                 prompt=preview["prompt"] if preview else None,
@@ -196,6 +258,47 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             source_media=self._source_media(),
         )
         return self.render_to_response(context)
+
+    def _preview_session_key(self) -> str:
+        return f"story_image_preview:{self.object.pk}"
+
+    def _store_preview(self, request, preview: dict[str, Any]) -> str:
+        token = uuid.uuid4().hex
+        request.session[self._preview_session_key()] = {
+            "token": token,
+            "data": preview.get("data", ""),
+            "mime": preview.get("mime", "image/png"),
+            "prompt": preview.get("prompt", ""),
+        }
+        request.session.modified = True
+        return token
+
+    def _load_preview(self, request, token: str) -> dict[str, Any] | None:
+        stored = request.session.get(self._preview_session_key())
+        if not isinstance(stored, dict):
+            return None
+        if stored.get("token") != token:
+            return None
+        data = stored.get("data") or ""
+        if not data:
+            return None
+        try:
+            decoded = base64.b64decode(data, validate=True)
+        except (binascii.Error, ValueError):
+            return None
+        if not decoded:
+            return None
+        return {
+            "data": decoded,
+            "mime": stored.get("mime") or "image/png",
+            "prompt": stored.get("prompt") or "",
+        }
+
+    def _clear_preview(self, request) -> None:
+        key = self._preview_session_key()
+        if key in request.session:
+            request.session.pop(key, None)
+            request.session.modified = True
 
     def _handle_remove(self, request):
         form = StoryImageDeleteForm(request.POST)
@@ -227,7 +330,12 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             messages.error(request, "Не удалось прочитать файл медиа.")
             return redirect("stories:image", pk=self.object.pk)
 
-        self.object.attach_image(prompt="", data=data, mime_type=media["mime"])
+        self.object.attach_image(
+            prompt="",
+            data=data,
+            mime_type=media["mime"],
+            source_kind=StoryImage.SourceKind.SOURCE,
+        )
         messages.success(
             request,
             f"Изображение из поста «{post}» прикреплено к сюжету.",

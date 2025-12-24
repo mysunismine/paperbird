@@ -1,7 +1,9 @@
+import hashlib
 import json
 from http import HTTPStatus
 from unittest.mock import ANY, patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -17,7 +19,7 @@ from core.constants import (
     REWRITE_MODEL_CHOICES,
 )
 from core.models import WorkerTask
-from projects.models import Post, Project, ProjectPromptConfig, Source
+from projects.models import Post, Project, ProjectPromptConfig, Source, WebPreset
 from projects.services.prompt_config import ensure_prompt_config
 from stories.paperbird_stories.services import StoryFactory
 
@@ -214,6 +216,7 @@ class ProjectPromptsViewTests(TestCase):
             "output_format": config.output_format,
             "output_example": config.output_example,
             "editor_comment_note": config.editor_comment_note,
+            "image_prompt_template": config.image_prompt_template,
         }
         if overrides:
             data.update(overrides)
@@ -261,6 +264,94 @@ class ProjectPromptsViewTests(TestCase):
         body = response.content.decode("utf-8")
         self.assertTrue(body.startswith("1. [СИСТЕМНАЯ РОЛЬ]"))
         self.assertIn("5. [ФОРМАТ ОТВЕТА — JSON]", body)
+
+    def test_import_updates_prompt_config(self) -> None:
+        url = reverse("projects:prompts-import", args=[self.project.id])
+        payload = {
+            "prompt_config": {
+                "system_role": "Новый системный промпт",
+                "task_instruction": "Новая инструкция",
+                "documents_intro": "Документы",
+                "style_requirements": "Стиль",
+                "output_format": "Формат",
+                "output_example": "Пример",
+                "editor_comment_note": "Комментарий",
+                "image_prompt_template": "Шаблон картинки",
+            }
+        }
+        upload = SimpleUploadedFile(
+            "prompt.json",
+            json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            content_type="application/json",
+        )
+        response = self.client.post(url, data={"prompt_file": upload}, follow=True)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.prompt_config.system_role, "Новый системный промпт")
+        self.assertEqual(self.project.prompt_config.image_prompt_template, "Шаблон картинки")
+
+
+class ProjectExportViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("exporter", password="secret")
+        self.client.force_login(self.user)
+        self.project = Project.objects.create(
+            owner=self.user,
+            name="Экспорт",
+            publish_target="@export",
+        )
+        preset_data = make_preset_payload("site_feed")
+        checksum = hashlib.sha256(
+            json.dumps(preset_data, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        self.preset = WebPreset.objects.create(
+            name=preset_data["name"],
+            version=preset_data["version"],
+            schema_version=1,
+            status=WebPreset.Status.ACTIVE,
+            checksum=checksum,
+            config=preset_data,
+        )
+        Source.objects.create(
+            project=self.project,
+            type=Source.Type.TELEGRAM,
+            title="Telegram",
+            username="news",
+            retention_days=5,
+            is_active=True,
+        )
+        Source.objects.create(
+            project=self.project,
+            type=Source.Type.WEB,
+            title="Web",
+            web_preset=self.preset,
+            web_preset_snapshot=preset_data,
+            retention_days=7,
+            is_active=False,
+        )
+
+    def test_export_returns_json_payload(self) -> None:
+        url = reverse("projects:export", args=[self.project.pk])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        payload = json.loads(response.content)
+        self.assertEqual(payload["project"]["name"], "Экспорт")
+        self.assertEqual(payload["project"]["publish_target"], "@export")
+        self.assertIn("image_prompt_template", payload["prompt_config"])
+        self.assertEqual(len(payload["sources"]), 2)
+        snapshot = payload["sources"][1]["web_preset_snapshot"]
+        self.assertEqual(snapshot["name"], "site_feed")
+        self.assertEqual(payload["web_presets"][0]["name"], "site_feed")
+
+    def test_export_returns_yaml_payload(self) -> None:
+        url = reverse("projects:export", args=[self.project.pk])
+        response = self.client.get(f"{url}?format=yaml")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response["Content-Type"], "text/yaml; charset=utf-8")
+        import yaml
+
+        payload = yaml.safe_load(response.content)
+        self.assertEqual(payload["project"]["name"], "Экспорт")
 
 
 class ProjectSourcesViewTests(TestCase):

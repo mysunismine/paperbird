@@ -113,3 +113,41 @@ class OpenAIImageProviderTests(SimpleTestCase):
 
         self.assertEqual(image.data, b"mini")
         self.assertEqual(payloads[0]["size"], "1024x1024")
+
+    def test_maps_quality_for_dalle_models(self) -> None:
+        provider = OpenAIImageProvider(model="dall-e-3")
+
+        class DummyResponse:
+            def __init__(self, payload: str) -> None:
+                self._payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return self._payload.encode("utf-8")
+
+        payloads: list[dict] = []
+
+        def fake_urlopen(request, timeout=30):
+            data = json.loads(request.data.decode("utf-8"))
+            payloads.append(data)
+            response_body = {
+                "data": [
+                    {
+                        "b64_json": base64.b64encode(b"mini").decode("ascii"),
+                        "mime_type": "image/png",
+                    }
+                ]
+            }
+            return DummyResponse(json.dumps(response_body))
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            provider.generate(prompt="Demo", quality="low")
+            provider.generate(prompt="Demo", quality="high")
+
+        self.assertEqual(payloads[0]["quality"], "standard")
+        self.assertEqual(payloads[1]["quality"], "hd")

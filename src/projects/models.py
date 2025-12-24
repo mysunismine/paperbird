@@ -384,6 +384,11 @@ class ProjectPromptConfig(models.Model):
     output_format = models.TextField("Формат ответа", blank=True)
     output_example = models.TextField("Пример вывода", blank=True)
     editor_comment_note = models.TextField("Комментарий редактора", blank=True)
+    image_prompt_template = models.TextField(
+        "Промпт для генерации идеи изображения",
+        blank=True,
+        help_text="Шаблон для запроса в модель при подборе идеи иллюстрации.",
+    )
     created_at = models.DateTimeField("Создано", auto_now_add=True)
     updated_at = models.DateTimeField("Обновлено", auto_now=True)
 

@@ -19,9 +19,13 @@
     top: 1rem;
   }
   .preview-area .card-img-top {
-    max-height: 400px;
+    max-height: 280px;
+    width: 100%;
     object-fit: contain;
     background-color: #f8f9fa;
+  }
+  .preview-clickable {
+    cursor: zoom-in;
   }
   .preview-placeholder {
       display: flex;
@@ -29,6 +33,15 @@
       justify-content: center;
       color: #adb5bd;
       min-height: 250px;
+      text-align: center;
+  }
+  .preview-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    color: #6c757d;
   }
   .source-media-grid {
       display: grid;
@@ -92,6 +105,20 @@
                           {{ generate_form.prompt.label_tag }}
                           {{ generate_form.prompt }}
                           {% if generate_form.prompt.errors %}<div class="text-danger small mt-1">{{ generate_form.prompt.errors|join:', ' }}</div>{% endif %}
+                          <div class="border rounded p-2 mt-2 bg-light-subtle">
+                            <div class="d-flex align-items-center justify-content-between mb-1">
+                              <span class="small text-muted">Рекомендуемый промпт</span>
+                              <button type="button" class="btn btn-sm btn-outline-secondary" id="use-recommended-prompt" disabled>
+                                Использовать
+                              </button>
+                            </div>
+                            <p class="small text-muted mb-2" id="recommended-prompt-text">
+                              Нажмите «Сгенерировать», чтобы получить рекомендацию.
+                            </p>
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="refresh-recommended-prompt">
+                              Сгенерировать
+                            </button>
+                          </div>
                         </div>
                         <div class="row g-3">
                           <div class="col-md-4">{{ generate_form.model.label_tag }}{{ generate_form.model }}</div>
@@ -150,7 +177,7 @@
         </div>
         <div class="preview-placeholder">
             {% if story.image_file %}
-                <img src="{{ story.image_file.url }}" id="preview-image" class="card-img-top" alt="Текущее изображение">
+                <img src="{{ story.image_file.url }}" id="preview-image" class="card-img-top preview-clickable" alt="Текущее изображение" data-full-src="{{ story.image_file.url }}">
             {% else %}
                 <i class="bi bi-image h1"></i>
             {% endif %}
@@ -173,13 +200,34 @@
   </div>
 </div>
 
+<div class="modal fade" id="previewImageModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-6">Полный просмотр</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body text-center">
+        <img id="preview-modal-image" src="" alt="Полный размер" class="img-fluid rounded">
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const previewPlaceholder = document.querySelector('.preview-placeholder');
-    const previewImage = document.getElementById('preview-image');
     const previewPrompt = document.getElementById('preview-prompt');
     const attachButton = document.getElementById('attach-button');
     const attachFormFields = document.getElementById('attach-form-fields');
+    const recommendedText = document.getElementById('recommended-prompt-text');
+    const recommendedUseButton = document.getElementById('use-recommended-prompt');
+    const recommendedRefreshButton = document.getElementById('refresh-recommended-prompt');
+    const promptInput = document.getElementById('{{ generate_form.prompt.id_for_label }}');
+    const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]');
+    let recommendedValue = '';
+    const storyId = {{ story.pk }};
+    const recommendationKey = `paperbird:story:${storyId}:image_recommendation`;
     
     // --- Generate Form ---
     const generateForm = document.getElementById('image-generate-form');
@@ -196,7 +244,14 @@ document.addEventListener('DOMContentLoaded', function () {
             body: new URLSearchParams(formData),
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': formData.get('csrfmiddlewaretoken') }
         })
-        .then(response => response.json())
+        .then(async (response) => {
+            const data = await response.json().catch(() => null);
+            if (!response.ok || !data) {
+                const message = data && data.message ? data.message : 'Ошибка генерации.';
+                throw new Error(message);
+            }
+            return data;
+        })
         .then(data => {
             if (data.status === 'success') {
                 updatePreview(data.preview.data, data.preview.mime, data.preview.prompt);
@@ -206,8 +261,64 @@ document.addEventListener('DOMContentLoaded', function () {
                 showError(data.message || 'Ошибка генерации.');
             }
         })
-        .catch(() => showError('Сетевая ошибка.'));
+        .catch((err) => showError(err.message || 'Сетевая ошибка.'));
     });
+
+    // --- Recommended Prompt ---
+    function applyRecommendation(value) {
+        if (!recommendedText) return;
+        recommendedValue = value || '';
+        if (recommendedValue) {
+            recommendedText.textContent = recommendedValue;
+            if (recommendedUseButton) {
+                recommendedUseButton.disabled = false;
+            }
+        }
+    }
+
+    function fetchRecommendedPrompt() {
+        if (!recommendedText || !csrfToken) return;
+        recommendedText.textContent = 'Генерация рекомендованного промпта...';
+        if (recommendedUseButton) {
+            recommendedUseButton.disabled = true;
+        }
+        const formData = new FormData();
+        formData.append('action', 'suggest_prompt');
+        formData.append('csrfmiddlewaretoken', csrfToken.value);
+        fetch(window.location.href, {
+            method: 'POST',
+            body: new URLSearchParams(formData),
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrfToken.value }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' && data.prompt) {
+                applyRecommendation(data.prompt);
+                localStorage.setItem(recommendationKey, data.prompt);
+            } else {
+                recommendedText.textContent = data.message || 'Не удалось получить рекомендованный промпт. Попробуйте ещё раз.';
+            }
+        })
+        .catch(() => {
+            recommendedText.textContent = 'Не удалось получить рекомендованный промпт. Попробуйте ещё раз.';
+        });
+    }
+
+    if (recommendedRefreshButton) {
+        recommendedRefreshButton.addEventListener('click', fetchRecommendedPrompt);
+    }
+
+    if (recommendedUseButton) {
+        recommendedUseButton.addEventListener('click', () => {
+            if (!promptInput || !recommendedValue) return;
+            promptInput.value = recommendedValue;
+        });
+    }
+
+    const storedRecommendation = localStorage.getItem(recommendationKey);
+    if (storedRecommendation) {
+        applyRecommendation(storedRecommendation);
+    }
 
     // --- Source Media ---
     const sourceMediaItems = document.querySelectorAll('.source-media-item');
@@ -256,27 +367,37 @@ document.addEventListener('DOMContentLoaded', function () {
     // --- Helper Functions ---
     function updatePreview(base64Data, mimeType, promptText) {
         const imgSrc = `data:${mimeType};base64,${base64Data}`;
-        if (previewImage) {
-            previewImage.src = imgSrc;
-        } else {
-            const newImg = document.createElement('img');
-            newImg.src = imgSrc;
-            newImg.id = 'preview-image';
-            newImg.className = 'card-img-top';
-            previewPlaceholder.innerHTML = '';
-            previewPlaceholder.appendChild(newImg);
+        let imageNode = document.getElementById('preview-image');
+        if (!imageNode) {
+            imageNode = document.createElement('img');
+            imageNode.id = 'preview-image';
+            imageNode.className = 'card-img-top preview-clickable';
         }
-        previewPrompt.textContent = promptText;
+        imageNode.src = imgSrc;
+        imageNode.setAttribute('data-full-src', imgSrc);
+        if (previewPlaceholder && !previewPlaceholder.contains(imageNode)) {
+            previewPlaceholder.innerHTML = '';
+            previewPlaceholder.appendChild(imageNode);
+        }
+        if (previewPrompt) {
+            previewPrompt.textContent = promptText;
+        }
     }
 
     function prepareAttachForm(previewData) {
         let fieldsHtml = '';
+        const promptValue = (promptInput && promptInput.value) ? promptInput.value : previewData.prompt;
+        previewData.prompt = promptValue;
         for (const [key, value] of Object.entries(previewData)) {
             if (key !== 'data' && key !== 'mime') { // data and mime are handled separately
                  fieldsHtml += `<input type="hidden" name="${key}" value="${escapeHtml(value)}">`;
             }
         }
-        fieldsHtml += `<input type="hidden" name="image_data" value="${previewData.data}">`;
+        if (previewData.preview_token) {
+            fieldsHtml += `<input type="hidden" name="preview_token" value="${escapeHtml(previewData.preview_token)}">`;
+        } else {
+            fieldsHtml += `<input type="hidden" name="image_data" value="${previewData.data}">`;
+        }
         fieldsHtml += `<input type="hidden" name="mime_type" value="${previewData.mime}">`;
         
         attachFormFields.innerHTML = fieldsHtml;
@@ -284,16 +405,17 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function showLoading(message) {
-        previewPlaceholder.innerHTML = `<div class="spinner-border text-primary" role="status"></div><p class="mt-2">${message}</p>`;
+        previewPlaceholder.innerHTML = `<div class="preview-status"><div class="spinner-border text-primary" role="status"></div><div class="small">${message}</div></div>`;
         attachButton.disabled = true;
     }
 
     function showError(message) {
-        previewPlaceholder.innerHTML = `<div class="text-danger"><i class="bi bi-exclamation-triangle-fill h3"></i><p>${message}</p></div>`;
+        previewPlaceholder.innerHTML = `<div class="preview-status text-danger"><i class="bi bi-exclamation-triangle-fill h3"></i><div class="small">${message}</div></div>`;
     }
     
     function hideLoading() {
-        if (!previewImage) { // If there was no image before
+        const currentImage = document.getElementById('preview-image');
+        if (!currentImage && previewPlaceholder) {
             previewPlaceholder.innerHTML = '<i class="bi bi-image h1"></i>';
         }
     }
@@ -303,6 +425,36 @@ document.addEventListener('DOMContentLoaded', function () {
         const div = document.createElement('div');
         div.innerText = text;
         return div.innerHTML;
+    }
+
+    const previewModal = document.getElementById('previewImageModal');
+    const previewModalImage = document.getElementById('preview-modal-image');
+    previewPlaceholder.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!target || target.id !== 'preview-image' || !previewModalImage) return;
+        const src = target.getAttribute('data-full-src') || target.src;
+        previewModalImage.src = src;
+        if (window.bootstrap && previewModal) {
+            const modal = window.bootstrap.Modal.getOrCreateInstance(previewModal);
+            modal.show();
+        }
+    });
+
+    if (previewModal) {
+        previewModal.addEventListener('hidden.bs.modal', () => {
+            if (previewModalImage) {
+                previewModalImage.src = '';
+            }
+        });
+    }
+
+    if (promptInput) {
+        promptInput.addEventListener('input', () => {
+            const hiddenPrompt = attachFormFields.querySelector('input[name="prompt"]');
+            if (hiddenPrompt) {
+                hiddenPrompt.value = promptInput.value;
+            }
+        });
     }
 });
 </script>

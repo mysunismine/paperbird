@@ -20,12 +20,15 @@ class ProjectPromptConfigForm(forms.ModelForm):
             "output_format",
             "output_example",
             "editor_comment_note",
+            "image_prompt_template",
         ]
         widgets = {
             field: forms.Textarea(
                 attrs={
                     "class": "form-control font-monospace",
-                    "rows": 4 if field not in {"output_format", "output_example"} else 8,
+                    "rows": 4
+                    if field not in {"output_format", "output_example", "image_prompt_template"}
+                    else 8,
                 }
             )
             for field in fields
@@ -38,6 +41,7 @@ class ProjectPromptConfigForm(forms.ModelForm):
             "output_format": "Формат ответа (JSON)",
             "output_example": "Пример корректного вывода",
             "editor_comment_note": "Комментарий редактора",
+            "image_prompt_template": "Промпт для идеи изображения",
         }
         help_texts = {
             "system_role": "Например: «Ты — редактор ... {{PROJECT_NAME}}».",
@@ -46,5 +50,9 @@ class ProjectPromptConfigForm(forms.ModelForm):
             ),
             "editor_comment_note": (
                 "Используйте {{EDITOR_COMMENT}}, чтобы подставить текст редактора."
+            ),
+            "image_prompt_template": (
+                "Модель должна вернуть JSON с полем prompt. "
+                "Можно использовать {{STORY_TITLE}}, {{STORY_SUMMARY}}, {{STORY_BODY}}."
             ),
         }

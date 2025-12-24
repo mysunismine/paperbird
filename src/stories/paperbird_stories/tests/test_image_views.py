@@ -67,10 +67,15 @@ class StoryImageViewTests(TestCase):
                 "size": self.project.image_size,
                 "quality": self.project.image_quality,
             },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
         )
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertIn("data:image/png;base64", response.content.decode("utf-8"))
+        payload = response.json()
+        self.assertEqual(payload["status"], "success")
+        self.assertIn("preview_token", payload["preview"])
+        self.assertIn("data", payload["preview"])
+        self.assertIn("mime", payload["preview"])
         mock_generator.assert_called_once_with(model=self.project.image_model)
         stub_generator.generate.assert_called_once_with(
             prompt="Яркий закат",
@@ -162,6 +167,18 @@ class StoryImageViewTests(TestCase):
             self.story.refresh_from_db()
             self.assertFalse(self.story.image_file)
             self.assertFalse(os.path.exists(stored_path))
+
+    @patch("stories.paperbird_stories.views.story_images.suggest_image_prompt")
+    def test_suggest_prompt_returns_json(self, mock_suggest) -> None:
+        mock_suggest.return_value = "Рекомендованный промпт"
+        response = self.client.post(
+            reverse("stories:image", kwargs={"pk": self.story.pk}),
+            data={"action": "suggest_prompt"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.json()["status"], "success")
+        self.assertEqual(response.json()["prompt"], "Рекомендованный промпт")
 
 
 class YandexProviderRoutingTests(TestCase):

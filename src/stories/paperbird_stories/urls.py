@@ -9,7 +9,6 @@ from .views import (
     StoryDetailView,
     StoryImageView,
     StoryListView,
-    StoryPromptSnapshotView,
 )
 
 app_name = "stories"
@@ -19,7 +18,6 @@ urlpatterns = [
     path("actions/create-from-posts/", StoryCreateView.as_view(), name="create-from-posts"),
     path("<int:pk>/delete/", StoryDeleteView.as_view(), name="delete"),
     path("<int:pk>/", StoryDetailView.as_view(), name="detail"),
-    path("<int:pk>/prompt/", StoryPromptSnapshotView.as_view(), name="prompt"),
     path("<int:pk>/image/", StoryImageView.as_view(), name="image"),
     path("publications/", PublicationListView.as_view(), name="publications"),
 ]

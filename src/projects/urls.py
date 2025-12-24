@@ -5,8 +5,10 @@ from django.urls import path
 from .views import (
     ProjectCollectorQueueView,
     ProjectCreateView,
+    ProjectExportView,
     ProjectListView,
     ProjectPromptExportView,
+    ProjectPromptImportView,
     ProjectPromptsView,
     ProjectSettingsView,
     ProjectSourceCreateView,
@@ -22,11 +24,17 @@ urlpatterns = [
     path("", ProjectListView.as_view(), name="list"),
     path("create/", ProjectCreateView.as_view(), name="create"),
     path("<int:pk>/settings/", ProjectSettingsView.as_view(), name="settings"),
+    path("<int:pk>/export/", ProjectExportView.as_view(), name="export"),
     path("<int:pk>/prompts/", ProjectPromptsView.as_view(), name="prompts"),
     path(
         "<int:pk>/prompts/export/",
         ProjectPromptExportView.as_view(),
         name="prompts-export",
+    ),
+    path(
+        "<int:pk>/prompts/import/",
+        ProjectPromptImportView.as_view(),
+        name="prompts-import",
     ),
     path("<int:pk>/sources/", ProjectSourcesView.as_view(), name="sources"),
     path(

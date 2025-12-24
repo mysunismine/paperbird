@@ -163,39 +163,133 @@
             </div>
           </form>
           <hr class="my-4" />
-          <h3 class="h6">Медиафайлы из источников</h3>
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+            <h3 class="h6 mb-0">Медиа для публикации</h3>
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'stories:image' story.pk %}">
+              <i class="bi bi-image me-1"></i>
+              Открыть страницу изображений
+            </a>
+          </div>
           <p class="small text-muted mb-3">
-            Выберите изображение из собранных постов, чтобы сделать его основным для сюжета.
-            Если подходящей картинки нет, воспользуйтесь генерацией или загрузкой на вкладке «Изображение».
+            Добавляйте изображения из постов или генерации, выбирайте какие публиковать и какое сделать основным.
           </p>
-          {% if source_media %}
-            <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
-              {% for item in source_media %}
-                <div class="col">
-                  <div class="card h-100 shadow-sm">
-                    <img src="{{ item.url }}" class="card-img-top" alt="Медиа поста" style="aspect-ratio: 4/3; object-fit: cover;">
-                    <div class="card-body p-2 text-center">
-                      <form method="post" class="d-flex flex-column gap-1">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="attach_media">
-                        <input type="hidden" name="media_post_id" value="{{ item.post.id }}">
-                        <button class="btn btn-sm btn-outline-primary" type="submit">
-                          <i class="bi bi-star me-1"></i>
-                          Сделать основным
-                        </button>
-                        <span class="small text-muted">{{ item.label }}</span>
-                      </form>
+
+          <ul class="nav nav-tabs" id="story-media-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active" id="media-source-tab" data-bs-toggle="tab" data-bs-target="#media-source" type="button" role="tab" aria-controls="media-source" aria-selected="true">
+                Из источников
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="media-generated-tab" data-bs-toggle="tab" data-bs-target="#media-generated" type="button" role="tab" aria-controls="media-generated" aria-selected="false">
+                Сгенерированные
+              </button>
+            </li>
+          </ul>
+
+          <div class="tab-content pt-3">
+            <div class="tab-pane fade show active" id="media-source" role="tabpanel" aria-labelledby="media-source-tab">
+              {% if source_media %}
+                <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
+                  {% for item in source_media %}
+                    <div class="col">
+                      <div class="card h-100 shadow-sm">
+                        <img src="{{ item.url }}" class="card-img-top" alt="Медиа поста" style="aspect-ratio: 4/3; object-fit: cover;">
+                        <div class="card-body p-2 text-center">
+                          <form method="post" class="d-flex flex-column gap-1">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="attach_media">
+                            <input type="hidden" name="media_post_id" value="{{ item.post.id }}">
+                            <button class="btn btn-sm btn-outline-primary" type="submit">
+                              <i class="bi bi-plus-lg me-1"></i>
+                              Добавить
+                            </button>
+                            <span class="small text-muted">{{ item.label }}</span>
+                          </form>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  {% endfor %}
                 </div>
-              {% endfor %}
+              {% else %}
+                <div class="alert alert-info mb-3">
+                  В исходных постах этого сюжета нет доступных изображений. Попробуйте сгенерировать
+                  картинку или загрузить свою на странице «Изображение».
+                </div>
+              {% endif %}
+
+              {% if source_images %}
+                <h4 class="h6 mt-4">Выбранные из источников</h4>
+                <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
+                  {% for image in source_images %}
+                    <div class="col">
+                      <div class="card h-100 shadow-sm">
+                        <img src="{{ image.image_file.url }}" class="card-img-top" alt="Изображение сюжета" style="aspect-ratio: 4/3; object-fit: cover;">
+                        <div class="card-body p-2 d-flex flex-column gap-1">
+                          {% if image.is_main %}
+                            <span class="badge text-bg-primary align-self-start">Основное</span>
+                          {% endif %}
+                          <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="toggle_image">
+                            <input type="hidden" name="image_id" value="{{ image.id }}">
+                            <input type="hidden" name="selected" value="{% if image.is_selected %}0{% else %}1{% endif %}">
+                            <button class="btn btn-sm {% if image.is_selected %}btn-outline-secondary{% else %}btn-outline-primary{% endif %} w-100" type="submit">
+                              {% if image.is_selected %}Убрать из публикации{% else %}В публикацию{% endif %}
+                            </button>
+                          </form>
+                          <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="set_main_image">
+                            <input type="hidden" name="image_id" value="{{ image.id }}">
+                            <button class="btn btn-sm btn-outline-primary w-100" type="submit">Сделать главным</button>
+                          </form>
+                        </div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
             </div>
-          {% else %}
-            <div class="alert alert-info mb-0">
-              В исходных постах этого сюжета нет доступных изображений. Попробуйте сгенерировать
-              картинку или загрузить свою на вкладке «Изображение».
+
+            <div class="tab-pane fade" id="media-generated" role="tabpanel" aria-labelledby="media-generated-tab">
+              {% if generated_images %}
+                <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
+                  {% for image in generated_images %}
+                    <div class="col">
+                      <div class="card h-100 shadow-sm">
+                        <img src="{{ image.image_file.url }}" class="card-img-top" alt="Сгенерированное изображение" style="aspect-ratio: 4/3; object-fit: cover;">
+                        <div class="card-body p-2 d-flex flex-column gap-1">
+                          {% if image.is_main %}
+                            <span class="badge text-bg-primary align-self-start">Основное</span>
+                          {% endif %}
+                          <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="toggle_image">
+                            <input type="hidden" name="image_id" value="{{ image.id }}">
+                            <input type="hidden" name="selected" value="{% if image.is_selected %}0{% else %}1{% endif %}">
+                            <button class="btn btn-sm {% if image.is_selected %}btn-outline-secondary{% else %}btn-outline-primary{% endif %} w-100" type="submit">
+                              {% if image.is_selected %}Убрать из публикации{% else %}В публикацию{% endif %}
+                            </button>
+                          </form>
+                          <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="set_main_image">
+                            <input type="hidden" name="image_id" value="{{ image.id }}">
+                            <button class="btn btn-sm btn-outline-primary w-100" type="submit">Сделать главным</button>
+                          </form>
+                        </div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="alert alert-info">
+                  Пока нет сгенерированных изображений. Перейдите на страницу «Изображение», чтобы создать их.
+                </div>
+              {% endif %}
             </div>
-          {% endif %}
+          </div>
         </div>
       </div>
     </div>
@@ -224,11 +318,11 @@
               </div>
               
               {# New Media Order Section #}
-              {% if story.image_file %}
+              {% if main_image %}
                 <div class="mb-3 border rounded p-3">
                   <label class="form-label d-block mb-2 fw-semibold">Позиция основного изображения</label>
                   <div class="d-flex align-items-start gap-3">
-                    <img src="{{ story.image_file.url }}" alt="Основное изображение сюжета" class="rounded" style="width: 120px; height: 90px; object-fit: cover;" />
+                    <img src="{{ main_image.image_file.url }}" alt="Основное изображение сюжета" class="rounded" style="width: 120px; height: 90px; object-fit: cover;" />
                     <div id="media_order_choices" class="pt-2">
                       {{ publish_form.media_order }}
                     </div>

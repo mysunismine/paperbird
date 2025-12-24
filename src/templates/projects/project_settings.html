@@ -24,6 +24,23 @@
           </a>
         </div>
 
+        <div class="alert alert-secondary d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-4">
+          <div>
+            <div class="fw-semibold">Экспорт проекта</div>
+            <p class="mb-0 small text-muted">Скачайте настройки, источники и снимки пресетов без постов.</p>
+          </div>
+          <div class="d-flex gap-2">
+            <a class="btn btn-outline-primary" href="{% url 'projects:export' project.pk %}">
+              <i class="bi bi-download me-1"></i>
+              JSON
+            </a>
+            <a class="btn btn-outline-secondary" href="{% url 'projects:export' project.pk %}?format=yaml">
+              <i class="bi bi-download me-1"></i>
+              YAML
+            </a>
+          </div>
+        </div>
+
         <div class="card shadow-sm">
           <div class="card-body p-4">
             <form method="post" novalidate>
