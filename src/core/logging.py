@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import traceback
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -82,6 +83,11 @@ class StructuredFormatter(logging.Formatter):
 
         payload.setdefault("level", record.levelname)
         payload.setdefault("logger", record.name)
+        if record.exc_info:
+            payload.setdefault(
+                "exception",
+                "".join(traceback.format_exception(*record.exc_info)).strip(),
+            )
 
         for field in REQUIRED_FIELDS:
             value = getattr(record, field, None)

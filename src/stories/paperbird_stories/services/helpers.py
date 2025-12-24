@@ -98,7 +98,7 @@ def _openai_temperature_for_model(model: str) -> float:
     """Возвращает температуру OpenAI для модели."""
 
     lowered = (model or "").lower()
-    if any(lowered.startswith(prefix) for prefix in ("gpt-5", "gpt-5o")):
+    if any(lowered.startswith(prefix) for prefix in ("gpt-5",)):
         return 1.0
     if model in OPENAI_MODELS_WITH_FIXED_TEMPERATURE:
         return 1.0

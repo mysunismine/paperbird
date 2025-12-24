@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import mimetypes
 import uuid
 from collections.abc import Sequence
@@ -21,6 +22,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.generic import DetailView
 
+from core.constants import REWRITE_MODEL_CHOICES, normalize_openai_model
 from projects.services.telethon_client import TelethonCredentialsMissingError
 from stories.paperbird_stories.forms import (
     StoryContentForm,
@@ -38,6 +40,8 @@ from stories.paperbird_stories.services import (
     default_rewriter,
     make_prompt_messages,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class StoryDetailView(LoginRequiredMixin, DetailView):
@@ -106,9 +110,11 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             editor_comment=self._form_editor_comment(rewrite_form),
             preset=self._form_preset(rewrite_form),
         )
+        normalized_model = normalize_openai_model(self.object.project.rewrite_model)
+        model_labels = dict(REWRITE_MODEL_CHOICES)
         context["rewrite_meta"] = {
-            "model_code": self.object.project.rewrite_model,
-            "model_label": self.object.project.get_rewrite_model_display(),
+            "model_code": normalized_model,
+            "model_label": model_labels.get(normalized_model, normalized_model),
             "preset": self._form_preset(rewrite_form) or self.object.last_rewrite_preset,
         }
         context["active_step"] = self._derive_step(requested_step)
@@ -163,8 +169,14 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
                     messages_override=messages_override,
                 )
             except RewriteFailed as exc:
+                logger.exception(
+                    "Rewrite failed for story %s during prompt confirm", self.object.pk
+                )
                 self._add_rewrite_message(messages.ERROR, f"Рерайт не удался: {exc}")
             except Exception as exc:  # pragma: no cover - подсказка пользователю
+                logger.exception(
+                    "Rewrite crashed for story %s during prompt confirm", self.object.pk
+                )
                 self._add_rewrite_message(messages.ERROR, f"Не удалось запустить рерайт: {exc}")
             else:
                 self._add_rewrite_message(
@@ -195,6 +207,9 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
                         preset=preset,
                     )
                 except RewriteFailed as exc:
+                    logger.exception(
+                        "Prompt preview failed for story %s", self.object.pk
+                    )
                     self._add_rewrite_message(
                         messages.ERROR,
                         f"Не удалось подготовить промпт: {exc}",
@@ -221,8 +236,10 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
                 preset=preset,
             )
         except RewriteFailed as exc:
+            logger.exception("Rewrite failed for story %s", self.object.pk)
             self._add_rewrite_message(messages.ERROR, f"Рерайт не удался: {exc}")
         except Exception as exc:  # pragma: no cover - подсказка пользователю
+            logger.exception("Rewrite crashed for story %s", self.object.pk)
             self._add_rewrite_message(messages.ERROR, f"Не удалось запустить рерайт: {exc}")
         else:
             self._add_rewrite_message(

@@ -23,6 +23,7 @@ from core.constants import (
     IMAGE_SIZE_CHOICES,
     REWRITE_DEFAULT_MODEL,
     REWRITE_MODEL_CHOICES,
+    normalize_openai_model,
 )
 from projects.services.language import detect_language
 
@@ -142,6 +143,11 @@ class Project(models.Model):
         verbose_name_plural = "Проекты"
         unique_together = ("owner", "name")
         ordering = ("name",)
+
+    def clean(self) -> None:
+        super().clean()
+        self.rewrite_model = normalize_openai_model(self.rewrite_model)
+        self.image_prompt_model = normalize_openai_model(self.image_prompt_model)
 
     def __str__(self) -> str:
         return f"{self.name}"

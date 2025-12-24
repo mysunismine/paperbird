@@ -72,7 +72,7 @@ def ensure_post_media_local(post: Post, *, timeout: float | None = None) -> list
         local, relative = is_local(url)
         if local and relative:
             stored.append(relative)
-            updated_manifest.append(_manifest_entry(entry, relative, media_prefix))
+            updated_manifest.append(_manifest_entry(entry, relative, media_prefix, entry_type))
             continue
 
         parsed = urlparse(url)

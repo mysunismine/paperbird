@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from projects.models import Project
 from stories.paperbird_stories.models import RewritePreset, RewriteResult, RewriteTask, Story
 
 from .exceptions import RewriteFailed
+from core.constants import OPENAI_MODEL_ALIASES
 from .helpers import (
     _looks_like_gemini_model,
     _looks_like_yandex_text_model,
@@ -24,6 +26,8 @@ from .helpers import (
     build_yandex_model_uri,
 )
 from .prompts import make_prompt_messages
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -142,7 +146,15 @@ class OpenAIChatProvider:
             "https://api.openai.com/v1/chat/completions",
         )
         self.api_key = (api_key or os.getenv("OPENAI_API_KEY", "")).strip()
-        self.model = (model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")).strip()
+        requested_model = (model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")).strip()
+        normalized_model = OPENAI_MODEL_ALIASES.get(requested_model, requested_model)
+        if normalized_model != requested_model:
+            logger.warning(
+                "OpenAI model %s is deprecated; using %s instead.",
+                requested_model,
+                normalized_model,
+            )
+        self.model = normalized_model
         self.timeout = timeout or getattr(settings, "OPENAI_TIMEOUT", 30)
         if not self.api_key:
             raise RewriteFailed("OPENAI_API_KEY не задан")
@@ -381,7 +393,15 @@ def default_rewriter(*, project: Project | None = None) -> StoryRewriter:
     if project is not None:
         rewrite_model = getattr(project, "rewrite_model", "") or ""
         if rewrite_model:
-            provider_kwargs["model"] = rewrite_model
+            normalized_model = OPENAI_MODEL_ALIASES.get(rewrite_model, rewrite_model)
+            if normalized_model != rewrite_model:
+                logger.warning(
+                    "Project %s uses deprecated OpenAI model %s; switching to %s.",
+                    project.pk,
+                    rewrite_model,
+                    normalized_model,
+                )
+            provider_kwargs["model"] = normalized_model
     model_name = provider_kwargs.get("model") or ""
     if model_name and _looks_like_yandex_text_model(model_name):
         provider = YandexGPTProvider(**provider_kwargs)

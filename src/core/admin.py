@@ -20,6 +20,7 @@ from stories.paperbird_stories.services.images.providers import (
     OpenAIImageProvider,
     YandexArtProvider,
 )
+from core.constants import OPENAI_MODEL_ALIASES
 from stories.paperbird_stories.services.rewrite import (
     GeminiChatProvider,
     OpenAIChatProvider,
@@ -185,17 +186,33 @@ def _build_messages(prompt: str) -> list[dict[str, str]]:
 def _format_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
+def _normalize_openai_model(model: str) -> tuple[str, str | None]:
+    cleaned = (model or "").strip()
+    normalized = OPENAI_MODEL_ALIASES.get(cleaned, cleaned)
+    if normalized != cleaned:
+        return normalized, cleaned
+    return cleaned, None
+
 
 def _model_settings() -> list[dict[str, object]]:
+    openai_model, openai_alias_from = _normalize_openai_model(
+        getattr(settings, "OPENAI_MODEL", "")
+    )
+    openai_extra = getattr(settings, "OPENAI_BASE_URL", "") or "—"
+    if openai_alias_from:
+        if openai_extra == "—":
+            openai_extra = f"alias from {openai_alias_from}"
+        else:
+            openai_extra = f"{openai_extra} (alias from {openai_alias_from})"
     return [
         {
             "section": "LLM",
             "rows": [
                 {
                     "name": "OpenAI",
-                    "model": getattr(settings, "OPENAI_MODEL", ""),
+                    "model": openai_model,
                     "key": _mask_secret(getattr(settings, "OPENAI_API_KEY", "")),
-                    "extra": getattr(settings, "OPENAI_BASE_URL", "") or "—",
+                    "extra": openai_extra,
                 },
                 {
                     "name": "Gemini",

@@ -20,9 +20,8 @@ class RewriteHelperTests(SimpleTestCase):
         raw = "```json\n{\"title\": \"Example\"}\n```"
         self.assertEqual(_strip_code_fence(raw), '{"title": "Example"}')
 
-    def test_openai_temperature_for_gpt5(self) -> None:
-        self.assertEqual(_openai_temperature_for_model("gpt-5"), 1.0)
-        self.assertEqual(_openai_temperature_for_model("gpt-5o"), 1.0)
+    def test_openai_temperature_for_gpt52(self) -> None:
+        self.assertEqual(_openai_temperature_for_model("gpt-5.2"), 1.0)
         self.assertEqual(_openai_temperature_for_model("gpt-4o-mini"), OPENAI_DEFAULT_TEMPERATURE)
 
 
@@ -55,7 +54,7 @@ class OpenAIChatProviderParsingTests(SimpleTestCase):
                 }
             ],
         }
-        provider = OpenAIChatProvider(model="gpt-5")
+        provider = OpenAIChatProvider(model="gpt-5.2")
         with patch("urllib.request.urlopen", return_value=self._FakeResponse(payload)):
             response = provider.run(messages=[{"role": "user", "content": "Hello"}])
         self.assertEqual(response.result["title"], "Hi")
@@ -75,7 +74,7 @@ class OpenAIChatProviderParsingTests(SimpleTestCase):
                 }
             ],
         }
-        provider = OpenAIChatProvider(model="gpt-5")
+        provider = OpenAIChatProvider(model="gpt-5.2")
         with patch("urllib.request.urlopen", return_value=self._FakeResponse(payload)):
             response = provider.run(messages=[{"role": "user", "content": "Hello"}])
         self.assertEqual(response.result["title"], "From parsed")

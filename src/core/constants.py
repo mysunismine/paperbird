@@ -137,11 +137,27 @@ IMAGE_DEFAULT_QUALITY = "medium"
 REWRITE_MODEL_CHOICES = (
     ("gpt-4o-mini", "gpt-4o-mini"),
     ("gpt-4o", "gpt-4o"),
+    ("gpt-4.1", "gpt-4.1"),
     ("gpt-4.1-mini", "gpt-4.1-mini"),
-    ("gpt-5", "gpt-5"),
-    ("gpt-5o", "gpt-5o"),
+    ("gpt-4.1-nano", "gpt-4.1-nano"),
+    ("gpt-5.2", "gpt-5.2"),
+    ("gpt-3.5-turbo", "gpt-3.5-turbo"),
+    ("gpt-3.5-turbo-0125", "gpt-3.5-turbo-0125"),
+    ("gpt-3.5-turbo-1106", "gpt-3.5-turbo-1106"),
     ("gemini-1.5-flash", "gemini-1.5-flash"),
     ("yandexgpt-lite", "yandexgpt-lite"),
     ("yandexgpt", "yandexgpt"),
 )
 REWRITE_DEFAULT_MODEL = REWRITE_MODEL_CHOICES[0][0]
+
+OPENAI_MODEL_ALIASES = {
+    "gpt-5": "gpt-5.2",
+    "gpt-5.0": "gpt-5.2",
+    "gpt-5o": "gpt-4o",
+    "gpt-5o-mini": "gpt-4o-mini",
+}
+
+
+def normalize_openai_model(model: str) -> str:
+    cleaned = (model or "").strip()
+    return OPENAI_MODEL_ALIASES.get(cleaned, cleaned)
