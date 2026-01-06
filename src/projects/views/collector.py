@@ -30,6 +30,8 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
 
     def dispatch(self, request, *args, **kwargs):
         """Проверяет права доступа к проекту и инициализирует его."""
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = get_object_or_404(
             Project,
             pk=kwargs["pk"],

@@ -67,6 +67,8 @@ class TelethonSessionSetupView(LoginRequiredMixin, TemplateView):
     template_name = "accounts/telethon_session.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         user = request.user
         if not (user.telethon_api_id and user.telethon_api_hash):
             messages.error(

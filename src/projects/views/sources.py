@@ -7,6 +7,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
 from django.utils import timezone
+from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.views.generic import DetailView, FormView, TemplateView, UpdateView
 
@@ -24,6 +25,8 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
 
     def dispatch(self, request, *args, **kwargs):
         """Проверяет права доступа к проекту и инициализирует его."""
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = get_object_or_404(
             Project,
             pk=kwargs["pk"],
@@ -124,6 +127,8 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
 
     def dispatch(self, request, *args, **kwargs):
         """Проверяет права доступа к проекту и инициализирует его."""
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = get_object_or_404(
             Project,
             pk=kwargs["project_pk"],
@@ -252,6 +257,7 @@ class ProjectSourceUpdateView(LoginRequiredMixin, UpdateView):
         return redirect(self.get_success_url())
 
 
+@login_required
 @require_POST
 def delete_source(request, project_pk: int, pk: int):
     """Удаляет источник и перенаправляет на список источников."""

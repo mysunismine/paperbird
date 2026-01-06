@@ -48,6 +48,8 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
 
     def dispatch(self, request, *args, **kwargs):
         """Проверяет права доступа к проекту и инициализирует его."""
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = get_object_or_404(
             Project, pk=kwargs["pk"], owner=request.user
         )
@@ -240,6 +242,8 @@ class ProjectPostDetailView(LoginRequiredMixin, TemplateView):
 
     def dispatch(self, request, *args, **kwargs):
         """Проверяет права доступа к проекту и посту."""
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = get_object_or_404(
             Project, pk=kwargs["project_pk"], owner=request.user
         )
