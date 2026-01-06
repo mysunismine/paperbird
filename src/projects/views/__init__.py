@@ -5,7 +5,7 @@ from .export import ProjectExportView
 from .feed import ProjectPostDetailView, ProjectPostListView
 from .projects import ProjectCreateView, ProjectListView
 from .prompts import ProjectPromptExportView, ProjectPromptImportView, ProjectPromptsView
-from .settings import ProjectSettingsView
+from .settings import ProjectDeleteView, ProjectSettingsView
 from .sources import (
     ProjectSourceCreateView,
     ProjectSourceDetailView,
@@ -24,6 +24,7 @@ __all__ = [
     "ProjectPromptExportView",
     "ProjectPromptImportView",
     "ProjectPromptsView",
+    "ProjectDeleteView",
     "ProjectSettingsView",
     "ProjectSourceCreateView",
     "ProjectSourceDetailView",

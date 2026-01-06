@@ -5,6 +5,7 @@ from django.urls import path
 from .views import (
     ProjectCollectorQueueView,
     ProjectCreateView,
+    ProjectDeleteView,
     ProjectExportView,
     ProjectListView,
     ProjectPromptExportView,
@@ -24,6 +25,7 @@ urlpatterns = [
     path("", ProjectListView.as_view(), name="list"),
     path("create/", ProjectCreateView.as_view(), name="create"),
     path("<int:pk>/settings/", ProjectSettingsView.as_view(), name="settings"),
+    path("<int:pk>/delete/", ProjectDeleteView.as_view(), name="delete"),
     path("<int:pk>/export/", ProjectExportView.as_view(), name="export"),
     path("<int:pk>/prompts/", ProjectPromptsView.as_view(), name="prompts"),
     path(

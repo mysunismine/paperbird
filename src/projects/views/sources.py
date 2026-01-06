@@ -51,10 +51,17 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         """Формирует контекст для шаблона."""
         context = super().get_context_data(**kwargs)
+        now = timezone.now()
+        blocked_sources = self.project.sources.filter(
+            type=Source.Type.WEB,
+            web_last_status="blocked",
+            web_blocked_until__gt=now,
+        )
         context.update(
             {
                 "project": self.project,
                 "sources": self.project.sources.order_by("type", "title", "telegram_id"),
+                "blocked_sources": blocked_sources,
                 "create_url": reverse_lazy(
                     "projects:source-create",
                     kwargs={"project_pk": self.project.pk},
@@ -95,6 +102,9 @@ class ProjectSourceDetailView(LoginRequiredMixin, DetailView):
         if not source.is_active:
             status_display = "Приостановлен"
             status_color = "warning"
+        elif source.web_last_status == "blocked" or source.is_web_blocked():
+            status_display = "Возможная блокировка"
+            status_color = "danger"
         else:
             latest_log = source.sync_logs.order_by("-started_at").first()
             if latest_log and latest_log.status == "failed":

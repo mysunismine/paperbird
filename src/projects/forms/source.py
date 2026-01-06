@@ -54,6 +54,10 @@ class SourceBaseForm(forms.ModelForm):
             "web_retry_max_attempts",
             "web_retry_base_delay",
             "web_retry_max_delay",
+            "web_request_interval_sec",
+            "web_request_jitter_sec",
+            "web_max_items_per_run",
+            "web_block_cooldown_sec",
         ]
         widgets = {
             "type": forms.Select(attrs={"class": "form-select"}),
@@ -87,6 +91,18 @@ class SourceBaseForm(forms.ModelForm):
             "web_retry_max_delay": forms.NumberInput(
                 attrs={"class": "form-control", "min": 5, "step": 5}
             ),
+            "web_request_interval_sec": forms.NumberInput(
+                attrs={"class": "form-control", "min": 1, "step": 1}
+            ),
+            "web_request_jitter_sec": forms.NumberInput(
+                attrs={"class": "form-control", "min": 0, "step": 1}
+            ),
+            "web_max_items_per_run": forms.NumberInput(
+                attrs={"class": "form-control", "min": 1, "step": 1}
+            ),
+            "web_block_cooldown_sec": forms.NumberInput(
+                attrs={"class": "form-control", "min": 60, "step": 60}
+            ),
         }
         labels = {
             "type": "Тип источника",
@@ -101,6 +117,10 @@ class SourceBaseForm(forms.ModelForm):
             "web_retry_max_attempts": "Максимум попыток веб-задачи",
             "web_retry_base_delay": "Базовая задержка ретрая (сек.)",
             "web_retry_max_delay": "Максимальная задержка ретрая (сек.)",
+            "web_request_interval_sec": "Минимальный интервал между запросами (сек.)",
+            "web_request_jitter_sec": "Случайная пауза между запросами (сек.)",
+            "web_max_items_per_run": "Максимум статей за запуск",
+            "web_block_cooldown_sec": "Cooldown при блокировке (сек.)",
         }
         help_texts = {
             "type": "Выберите тип источника. От этого зависит, какие поля нужно будет заполнить.",
@@ -141,6 +161,10 @@ class SourceBaseForm(forms.ModelForm):
         self.fields["web_retry_max_attempts"].widget.attrs["class"] += " source-web-field"
         self.fields["web_retry_base_delay"].widget.attrs["class"] += " source-web-field"
         self.fields["web_retry_max_delay"].widget.attrs["class"] += " source-web-field"
+        self.fields["web_request_interval_sec"].widget.attrs["class"] += " source-web-field"
+        self.fields["web_request_jitter_sec"].widget.attrs["class"] += " source-web-field"
+        self.fields["web_max_items_per_run"].widget.attrs["class"] += " source-web-field"
+        self.fields["web_block_cooldown_sec"].widget.attrs["class"] += " source-web-field"
 
         # Initial values and querysets
         self.fields["web_preset"].queryset = WebPreset.objects.order_by("name", "version")
@@ -152,6 +176,14 @@ class SourceBaseForm(forms.ModelForm):
             self.fields["web_retry_base_delay"].initial = 30
         if not self.initial.get("web_retry_max_delay"):
             self.fields["web_retry_max_delay"].initial = 900
+        if not self.initial.get("web_request_interval_sec"):
+            self.fields["web_request_interval_sec"].initial = 10
+        if not self.initial.get("web_request_jitter_sec"):
+            self.fields["web_request_jitter_sec"].initial = 3
+        if not self.initial.get("web_max_items_per_run"):
+            self.fields["web_max_items_per_run"].initial = 10
+        if not self.initial.get("web_block_cooldown_sec"):
+            self.fields["web_block_cooldown_sec"].initial = 21600
 
     def clean_telegram_id(self):
         value = self.cleaned_data.get("telegram_id")
@@ -249,6 +281,10 @@ class SourceBaseForm(forms.ModelForm):
             cleaned["web_retry_max_attempts"] = None
             cleaned["web_retry_base_delay"] = None
             cleaned["web_retry_max_delay"] = None
+            cleaned["web_request_interval_sec"] = None
+            cleaned["web_request_jitter_sec"] = None
+            cleaned["web_max_items_per_run"] = None
+            cleaned["web_block_cooldown_sec"] = None
 
         return cleaned
 

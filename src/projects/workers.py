@@ -20,6 +20,7 @@ from projects.services.telethon_client import (
     TelethonCredentialsMissingError,
 )
 from projects.services.web_collector import WebCollector
+from projects.services.web_collector.fetcher import HttpBlockedError
 from projects.services.web_preset_registry import PresetValidationError
 
 _is_registered = False
@@ -251,6 +252,14 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
         enqueued = 0
 
         def _enqueue_source_task(source: Source) -> None:
+            if source.is_web_blocked():
+                logger.info(
+                    "collector_web_source_enqueued_skip",
+                    project_id=project.pk,
+                    source_id=source.pk,
+                    reason="cooldown",
+                )
+                return
             already_pending = WorkerTask.objects.filter(
                 queue=WorkerTask.Queue.COLLECTOR_WEB,
                 status__in=[WorkerTask.Status.QUEUED, WorkerTask.Status.RUNNING],
@@ -311,6 +320,19 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
         source_id=source_id,
     )
     for source in sources:
+        if source.is_web_blocked():
+            Source.objects.filter(pk=source.pk).update(
+                web_last_status="cooldown",
+                web_last_synced_at=timezone.now(),
+                updated_at=timezone.now(),
+            )
+            logger.info(
+                "collector_web_source_skipped",
+                source_id=source.pk,
+                project_id=project.pk,
+                reason="cooldown",
+            )
+            continue
         log = SourceSyncLog.objects.create(source=source)
         with logging_context(project_id=project.pk, source_id=source.pk):
             logger.info(
@@ -337,6 +359,27 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
                     source_id=source.pk,
                     project_id=project.pk,
                     error=str(exc),
+                )
+                continue
+            except HttpBlockedError as exc:
+                policy = source.web_policy()
+                cooldown_until = timezone.now() + timedelta(
+                    seconds=policy.get("block_cooldown_sec", 21600)
+                )
+                log.finish(status="failed", error=str(exc))
+                Source.objects.filter(pk=source.pk).update(
+                    web_last_status="blocked",
+                    web_last_synced_at=timezone.now(),
+                    web_blocked_until=cooldown_until,
+                    web_block_reason=str(exc),
+                    updated_at=timezone.now(),
+                )
+                logger.warning(
+                    "collector_web_source_blocked",
+                    source_id=source.pk,
+                    project_id=project.pk,
+                    error=str(exc),
+                    cooldown_until=cooldown_until.isoformat(),
                 )
                 continue
             except Exception as exc:  # pragma: no cover - defensive logging

@@ -54,6 +54,13 @@
           <div class="card shadow-sm mb-4">
             <div class="card-body">
               <h2 class="h5 card-title">Сводка</h2>
+              {% if source.type == "web" and source.web_last_status == "blocked" %}
+                <div class="alert alert-warning mb-3" role="alert">
+                  Мы перестали получать новости из этого источника. Возможно, сайт
+                  временно заблокировал доступ{% if source.web_blocked_until %} до {{ source.web_blocked_until|date:"d.m.Y H:i" }}{% endif %}.
+                  {% if source.web_block_reason %}<div class="small text-muted mt-2">{{ source.web_block_reason }}</div>{% endif %}
+                </div>
+              {% endif %}
               <dl class="row mb-0">
                 <dt class="col-sm-5">Тип</dt>
                 <dd class="col-sm-7">{{ source.get_type_display }}</dd>

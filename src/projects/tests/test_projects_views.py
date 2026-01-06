@@ -1,5 +1,6 @@
 import hashlib
 import json
+from datetime import timedelta
 from http import HTTPStatus
 from unittest.mock import ANY, patch
 
@@ -89,6 +90,7 @@ class ProjectCreateViewTests(TestCase):
                 "image_model": alt_model,
                 "image_size": alt_size,
                 "image_quality": alt_quality,
+                "image_prompt_model": rewrite_choice,
                 "retention_days": 45,
                 "collector_telegram_interval": 60,
                 "collector_web_interval": 300,
@@ -118,6 +120,7 @@ class ProjectCreateViewTests(TestCase):
                 "image_model": IMAGE_DEFAULT_MODEL,
                 "image_size": IMAGE_DEFAULT_SIZE,
                 "image_quality": IMAGE_DEFAULT_QUALITY,
+                "image_prompt_model": REWRITE_DEFAULT_MODEL,
                 "retention_days": 90,
                 "collector_telegram_interval": 60,
                 "collector_web_interval": 300,
@@ -171,6 +174,7 @@ class ProjectSettingsViewTests(TestCase):
                 "image_model": new_model,
                 "image_size": new_size,
                 "image_quality": new_quality,
+                "image_prompt_model": new_rewrite,
                 "retention_days": 60,
                 "collector_telegram_interval": 90,
                 "collector_web_interval": 240,
@@ -360,6 +364,18 @@ class ProjectSourcesViewTests(TestCase):
         self.other = User.objects.create_user("reader", password="secret")
         self.client.force_login(self.user)
         self.project = Project.objects.create(owner=self.user, name="Мониторинг")
+        self.preset_payload = make_preset_payload("news_source")
+        checksum = hashlib.sha256(
+            json.dumps(self.preset_payload, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        self.web_preset = WebPreset.objects.create(
+            name=self.preset_payload["name"],
+            version=self.preset_payload["version"],
+            schema_version=1,
+            status=WebPreset.Status.ACTIVE,
+            checksum=checksum,
+            config=self.preset_payload,
+        )
 
     def test_get_sources_page(self) -> None:
         response = self.client.get(reverse("projects:sources", args=[self.project.pk]))
@@ -385,6 +401,64 @@ class ProjectSourcesViewTests(TestCase):
         response = self.client.get(reverse("projects:sources", args=[self.project.pk]))
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
 
+    def test_sources_page_warns_on_blocked_source(self) -> None:
+        Source.objects.create(
+            project=self.project,
+            type=Source.Type.WEB,
+            title="Известия",
+            web_preset=self.web_preset,
+            web_preset_snapshot=self.preset_payload,
+            web_last_status="blocked",
+            web_blocked_until=timezone.now() + timedelta(hours=1),
+        )
+        response = self.client.get(reverse("projects:sources", args=[self.project.pk]))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, "Возможная блокировка")
+        self.assertContains(
+            response,
+            "Мы перестали получать новости из некоторых веб-источников",
+        )
+
+
+class ProjectSourceDetailViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("curator", password="secret")
+        self.client.force_login(self.user)
+        self.project = Project.objects.create(owner=self.user, name="Мониторинг")
+        preset_payload = make_preset_payload("news_detail")
+        checksum = hashlib.sha256(
+            json.dumps(preset_payload, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        self.web_preset = WebPreset.objects.create(
+            name=preset_payload["name"],
+            version=preset_payload["version"],
+            schema_version=1,
+            status=WebPreset.Status.ACTIVE,
+            checksum=checksum,
+            config=preset_payload,
+        )
+        self.source = Source.objects.create(
+            project=self.project,
+            type=Source.Type.WEB,
+            title="Известия",
+            web_preset=self.web_preset,
+            web_preset_snapshot=preset_payload,
+            web_last_status="blocked",
+            web_blocked_until=timezone.now() + timedelta(hours=2),
+            web_block_reason="HTTP 403 for https://example.com/news",
+        )
+
+    def test_detail_page_shows_block_warning(self) -> None:
+        response = self.client.get(
+            reverse(
+                "projects:source-detail",
+                kwargs={"project_pk": self.project.pk, "pk": self.source.pk},
+            )
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, "Мы перестали получать новости из этого источника")
+        self.assertContains(response, "HTTP 403 for https://example.com/news")
+
 
 class ProjectSourceCreateViewTests(TestCase):
     def setUp(self) -> None:
@@ -399,7 +473,7 @@ class ProjectSourceCreateViewTests(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertContains(response, "Добавить источник")
 
-    @patch("projects.forms.enqueue_source_refresh")
+    @patch("projects.forms.source.enqueue_source_refresh")
     def test_post_creates_source(self, mock_refresh) -> None:
         response = self.client.post(
             reverse("projects:source-create", kwargs={"project_pk": self.project.pk}),
@@ -420,7 +494,7 @@ class ProjectSourceCreateViewTests(TestCase):
         self.assertIsNone(source.telegram_id)
         mock_refresh.assert_called_once_with(source)
 
-    @patch("projects.forms.enqueue_source_refresh")
+    @patch("projects.forms.source.enqueue_source_refresh")
     def test_username_from_s_path_normalized(self, mock_refresh) -> None:
         response = self.client.post(
             reverse("projects:source-create", kwargs={"project_pk": self.project.pk}),
@@ -441,7 +515,7 @@ class ProjectSourceCreateViewTests(TestCase):
         self.assertEqual(source.username, "bazabazon")
         mock_refresh.assert_called_once()
 
-    @patch("projects.forms.enqueue_source_refresh")
+    @patch("projects.forms.source.enqueue_source_refresh")
     def test_invite_link_detection_from_username_field(self, mock_refresh) -> None:
         self.client.post(
             reverse("projects:source-create", kwargs={"project_pk": self.project.pk}),
@@ -459,7 +533,7 @@ class ProjectSourceCreateViewTests(TestCase):
         self.assertEqual(source.invite_link, "https://t.me/+abcdef")
         mock_refresh.assert_called_once()
 
-    @patch("projects.forms.enqueue_source_refresh")
+    @patch("projects.forms.source.enqueue_source_refresh")
     def test_create_source_autofills_title(self, mock_refresh) -> None:
         response = self.client.post(
             reverse("projects:source-create", kwargs={"project_pk": self.project.pk}),
@@ -545,7 +619,7 @@ class ProjectSourceUpdateViewTests(TestCase):
         self.assertContains(response, "Редактирование источника")
         self.assertContains(response, "Новости")
 
-    @patch("projects.forms.enqueue_source_refresh")
+    @patch("projects.forms.source.enqueue_source_refresh")
     def test_post_updates_source(self, mock_refresh) -> None:
         url = reverse("projects:source-edit", args=[self.project.pk, self.source.pk])
         response = self.client.post(

@@ -41,6 +41,12 @@
       <div class="invalid-feedback d-block">{{ error }}</div>
     {% endfor %}
   </div>
+  <h5 class="h6 mt-4">Политика запросов</h5>
+  <hr class="mt-2 mb-3" />
+  {% include form_field_template with field=form.web_request_interval_sec %}
+  {% include form_field_template with field=form.web_request_jitter_sec %}
+  {% include form_field_template with field=form.web_max_items_per_run %}
+  {% include form_field_template with field=form.web_block_cooldown_sec %}
 </div>
 
 <h4 class="h5 mt-4">Обработка постов</h4>

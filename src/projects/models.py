@@ -278,6 +278,48 @@ class Source(models.Model):
         blank=True,
         help_text="Верхняя граница экспоненциальной паузы между попытками (по умолчанию 900).",
     )
+    web_request_interval_sec = models.PositiveSmallIntegerField(
+        "Минимальный интервал между запросами (сек)",
+        null=True,
+        blank=True,
+        help_text="Пауза между запросами к сайту, чтобы не перегружать источник.",
+    )
+    web_request_jitter_sec = models.PositiveSmallIntegerField(
+        "Случайная пауза (сек)",
+        null=True,
+        blank=True,
+        help_text="Добавляется случайная задержка к каждому запросу.",
+    )
+    web_max_items_per_run = models.PositiveSmallIntegerField(
+        "Максимум статей за запуск",
+        null=True,
+        blank=True,
+        help_text="Ограничивает число статей, которые парсер забирает за один запуск.",
+    )
+    web_block_cooldown_sec = models.PositiveIntegerField(
+        "Cooldown при блокировке (сек)",
+        null=True,
+        blank=True,
+        help_text="Сколько ждать перед следующей попыткой, если сайт заблокировал доступ.",
+    )
+    web_blocked_until = models.DateTimeField(
+        "Блокировка до",
+        blank=True,
+        null=True,
+        help_text="До этого времени источник не будет опрашиваться.",
+    )
+    web_block_reason = models.TextField("Причина блокировки", blank=True)
+    web_last_seen_url = models.URLField(
+        "Последний обработанный URL",
+        blank=True,
+        help_text="Используется для инкрементального сбора веб-источников.",
+    )
+    web_last_seen_published_at = models.DateTimeField(
+        "Последняя дата публикации",
+        blank=True,
+        null=True,
+        help_text="Используется для инкрементального сбора веб-источников.",
+    )
     include_keywords = models.JSONField(
         "Whitelist ключевых слов",
         default=list,
@@ -343,6 +385,21 @@ class Source(models.Model):
         if self.web_preset:
             return self.web_preset.config
         return {}
+
+    def web_policy(self) -> dict[str, int]:
+        """Возвращает значения политики веб-источника с дефолтами."""
+        return {
+            "request_interval_sec": self.web_request_interval_sec or 10,
+            "request_jitter_sec": self.web_request_jitter_sec or 3,
+            "max_items_per_run": self.web_max_items_per_run or 10,
+            "block_cooldown_sec": self.web_block_cooldown_sec or 21600,
+        }
+
+    def is_web_blocked(self) -> bool:
+        """Проверяет, находится ли источник на паузе из-за блокировки."""
+        if not self.web_blocked_until:
+            return False
+        return timezone.now() < self.web_blocked_until
 
     def has_web_duplicates(
         self,
@@ -818,4 +875,35 @@ class SourceSyncLog(models.Model):
         self.error_message = error or ""
         self.fetched_messages = fetched
         self.skipped_messages = skipped
-        self.save()
+        self.save(
+            update_fields=[
+                "finished_at",
+                "status",
+                "error_message",
+                "fetched_messages",
+                "skipped_messages",
+            ]
+        )
+
+
+class WebFetchCache(models.Model):
+    """Кеш для web-источников (ETag/Last-Modified)."""
+
+    source = models.ForeignKey(
+        Source,
+        on_delete=models.CASCADE,
+        related_name="web_cache_entries",
+        verbose_name="Источник",
+    )
+    url = models.URLField("URL", max_length=1000)
+    etag = models.CharField("ETag", max_length=255, blank=True)
+    last_modified = models.CharField("Last-Modified", max_length=255, blank=True)
+    last_status_code = models.PositiveSmallIntegerField("Последний статус", default=0)
+    last_checked_at = models.DateTimeField("Последняя проверка", blank=True, null=True)
+    created_at = models.DateTimeField("Создан", auto_now_add=True)
+    updated_at = models.DateTimeField("Обновлён", auto_now=True)
+
+    class Meta:
+        verbose_name = "Кеш веб-запросов"
+        verbose_name_plural = "Кеш веб-запросов"
+        unique_together = ("source", "url")

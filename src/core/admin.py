@@ -14,13 +14,13 @@ from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
 
+from core.constants import OPENAI_MODEL_ALIASES
 from stories.paperbird_stories.services.exceptions import ImageGenerationFailed
 from stories.paperbird_stories.services.images.providers import (
     GeminiImageProvider,
     OpenAIImageProvider,
     YandexArtProvider,
 )
-from core.constants import OPENAI_MODEL_ALIASES
 from stories.paperbird_stories.services.rewrite import (
     GeminiChatProvider,
     OpenAIChatProvider,

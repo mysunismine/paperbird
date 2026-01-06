@@ -19,6 +19,12 @@
   <div class="card shadow-sm">
     <div class="card-body">
       <h2 class="h5 mb-3">Подключённые источники</h2>
+      {% if blocked_sources %}
+        <div class="alert alert-warning" role="alert">
+          Мы перестали получать новости из некоторых веб-источников. Возможно, доступ
+          временно заблокирован: {% for blocked in blocked_sources %}<strong>{{ blocked.title }}</strong>{% if not forloop.last %}, {% endif %}{% endfor %}.
+        </div>
+      {% endif %}
       {% if sources %}
         <div class="list-group">
           {% for source in sources %}
@@ -34,6 +40,11 @@
                   {% endif %}
                   <div>
                     <h3 class="h6 mb-1">{{ source.title|default:"(Без названия)" }}</h3>
+                    {% if source.type == "web" and source.web_last_status == "blocked" %}
+                      <span class="badge text-bg-danger mb-2">Возможная блокировка</span>
+                    {% elif source.type == "web" and source.web_last_status == "failed" %}
+                      <span class="badge text-bg-warning mb-2">Ошибка</span>
+                    {% endif %}
                     <p class="small text-muted mb-1">
                       {% if source.type == "telegram" %}
                         Канал: {{ source.username|default:source.invite_link }}

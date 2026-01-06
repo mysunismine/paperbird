@@ -34,6 +34,10 @@ from .utils import collapse_whitespace, normalize_url, parse_datetime, strip_tra
 logger = event_logger("projects.web_collector")
 
 
+class ArticleNotModifiedError(Exception):
+    """Возникает, когда страница статьи не изменилась."""
+
+
 @dataclass(slots=True)
 class ArticleItem:
     url: str
@@ -67,21 +71,29 @@ class WebCollector:
         self.fetcher = fetcher or HttpFetcher()
         self.selector = selector or SelectorEngine()
         self.validator = validator or WebPresetValidator()
+        self._cache_source_id: int | None = None
 
     def collect(self, source: Source) -> dict[str, Any]:
+        self._cache_source_id = source.pk
         preset = source.active_web_preset()
         if not preset:
             raise PresetValidationError("Источник не содержит пресет")
+        policy = source.web_policy()
         self.validator.validate(preset)
         stats = {"created": 0, "updated": 0, "skipped": 0, "items": 0}
         cutoff = source.retention_cutoff()
         cutoff_utc = cutoff.astimezone(UTC) if cutoff else None
-        list_items = self._crawl_list_pages(preset, source)
+        list_items = self._crawl_list_pages(preset, source, policy)
+        if policy["max_items_per_run"] and len(list_items) > policy["max_items_per_run"]:
+            list_items = list_items[: policy["max_items_per_run"]]
         logger.info("web_collector_list_items", count=len(list_items), source_id=source.pk)
         for item in list_items:
             stats["items"] += 1
             try:
-                article = self._fetch_article(item, preset, source)
+                article = self._fetch_article(item, preset, source, policy)
+            except ArticleNotModifiedError:
+                stats["skipped"] += 1
+                continue
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.warning("web_collector_article_failed", url=item.url, error=str(exc))
                 stats["skipped"] += 1
@@ -123,14 +135,36 @@ class WebCollector:
                 stats["updated"] += 1
         source.web_last_synced_at = timezone.now()
         source.web_last_status = "ok"
-        source.save(update_fields=["web_last_synced_at", "web_last_status", "updated_at"])
+        source.web_blocked_until = None
+        source.web_block_reason = ""
+        if list_items:
+            source.web_last_seen_url = list_items[0].url
+            published_items = [item.published_at for item in list_items if item.published_at]
+            if published_items:
+                source.web_last_seen_published_at = max(published_items)
+        source.save(
+            update_fields=[
+                "web_last_synced_at",
+                "web_last_status",
+                "web_blocked_until",
+                "web_block_reason",
+                "web_last_seen_url",
+                "web_last_seen_published_at",
+                "updated_at",
+            ]
+        )
         return stats
 
     # --- pipeline helpers -------------------------------------------------
 
-    def _crawl_list_pages(self, preset: dict[str, Any], source: Source) -> list[ArticleItem]:
+    def _crawl_list_pages(
+        self,
+        preset: dict[str, Any],
+        source: Source,
+        policy: dict[str, int],
+    ) -> list[ArticleItem]:
         list_config = preset.get("list_page") or {}
-        fetch_config = preset.get("fetch") or {}
+        fetch_config = self._build_fetch_config(preset.get("fetch") or {}, policy)
         selectors = list_config.get("selectors") or {}
         item_selector = selectors.get("items")
         if not item_selector:
@@ -141,10 +175,19 @@ class WebCollector:
         pagination_selector = (list_config.get("pagination") or {}).get("selector")
         seen_urls: set[str] = set()
         items: list[ArticleItem] = []
+        last_seen_url = source.web_last_seen_url
+        last_seen_published_at = source.web_last_seen_published_at
         for seed in seeds:
             current_url = seed
             for _ in range(max_pages):
                 page = self.fetcher.fetch(current_url, fetch_config)
+                if page.status_code == 304:
+                    logger.info(
+                        "web_collector_list_not_modified",
+                        source_id=source.pk,
+                        url=current_url,
+                    )
+                    break
                 soup = self.selector.parse(page.content)
                 for node in self.selector.select_items(soup, item_selector):
                     item_url = self._extract_with_fallback(
@@ -162,6 +205,14 @@ class WebCollector:
                     title = self._safe_extract(node, title_expr)
                     published_expr = selectors.get("published_at")
                     published_at = parse_datetime(self._safe_extract(node, published_expr))
+                    if last_seen_url and absolute_url == last_seen_url:
+                        return items
+                    if (
+                        last_seen_published_at
+                        and published_at
+                        and published_at <= last_seen_published_at
+                    ):
+                        return items
                     items.append(
                         ArticleItem(
                             url=absolute_url,
@@ -182,11 +233,14 @@ class WebCollector:
         item: ArticleItem,
         preset: dict[str, Any],
         source: Source,
+        policy: dict[str, int],
     ) -> ArticlePayload:
-        fetch_config = preset.get("fetch") or {}
+        fetch_config = self._build_fetch_config(preset.get("fetch") or {}, policy)
         article_config = preset.get("article_page") or {}
         selectors = article_config.get("selectors") or {}
         response = self.fetcher.fetch(item.url, fetch_config)
+        if response.status_code == 304:
+            raise ArticleNotModifiedError(item.url)
         soup = self.selector.parse(response.content)
         self._apply_cleanup(soup, article_config.get("cleanup") or {})
         title = self._safe_extract(soup, selectors.get("title")) or item.title or item.url
@@ -246,6 +300,23 @@ class WebCollector:
             metadata=metadata,
             images=images,
         )
+
+    def _build_fetch_config(self, base: dict[str, Any], policy: dict[str, int]) -> dict[str, Any]:
+        config = dict(base)
+        min_interval = policy.get("request_interval_sec") or 0
+        jitter_sec = policy.get("request_jitter_sec") or 0
+        if min_interval:
+            config["min_interval_sec"] = max(
+                float(config.get("min_interval_sec") or 0),
+                float(min_interval),
+            )
+        if jitter_sec:
+            config["jitter_sec"] = max(
+                float(config.get("jitter_sec") or 0),
+                float(jitter_sec),
+            )
+        config["cache_source_id"] = config.get("cache_source_id") or self._cache_source_id
+        return config
 
     def _extract_content_html(
         self,

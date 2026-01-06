@@ -6,7 +6,9 @@ import json
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
+from django.views import View
 from django.views.generic import UpdateView
 
 from core.constants import IMAGE_PROVIDER_SETTINGS
@@ -47,3 +49,14 @@ class ProjectSettingsView(LoginRequiredMixin, UpdateView):
             f"Настройки проекта «{self.object.name}» обновлены.",
         )
         return response
+
+
+class ProjectDeleteView(LoginRequiredMixin, View):
+    """Удаляет проект текущего пользователя."""
+
+    def post(self, request, pk: int):
+        project = get_object_or_404(Project, pk=pk, owner=request.user)
+        project_name = project.name
+        project.delete()
+        messages.success(request, f"Проект «{project_name}» удалён.")
+        return redirect("projects:list")

@@ -32,6 +32,7 @@ class ProjectTimePreferenceFormTests(TestCase):
             "image_model": IMAGE_DEFAULT_MODEL,
             "image_size": IMAGE_DEFAULT_SIZE,
             "image_quality": IMAGE_DEFAULT_QUALITY,
+            "image_prompt_model": REWRITE_DEFAULT_MODEL,
             "retention_days": 30,
             "collector_telegram_interval": 300,
             "collector_web_interval": 300,

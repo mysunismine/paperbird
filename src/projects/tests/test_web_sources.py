@@ -1,5 +1,7 @@
 import hashlib
+import importlib.util
 import json
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest import skipUnless
 from unittest.mock import patch
@@ -9,12 +11,15 @@ from django.utils import timezone
 
 from core.models import WorkerTask
 from projects.forms import SourceCreateForm
-from projects.models import Post, Project, Source, WebPreset
+from projects.models import Post, Project, Source, WebFetchCache, WebPreset
 from projects.services.web_collector import WebCollector, parse_datetime
+from projects.services.web_collector.fetcher import HttpFetcher
 from projects.services.web_preset_registry import PresetValidationError, WebPresetRegistry
 from projects.workers import collect_project_web_sources_task
 
 from . import HAS_BS4, HAS_JSONSCHEMA, User, make_preset_payload
+
+HAS_HTTPX = importlib.util.find_spec("httpx") is not None  # pragma: no cover
 
 
 @skipUnless(HAS_JSONSCHEMA, "jsonschema не установлена")
@@ -57,7 +62,7 @@ class WebPresetRegistryTests(TestCase):
 
 @skipUnless(HAS_JSONSCHEMA, "jsonschema не установлена")
 class WebSourceFormTests(TestCase):
-    @patch("projects.forms.enqueue_source_refresh")
+    @patch("projects.forms.source.enqueue_source_refresh")
     def test_web_source_created_from_json_payload(self, mock_refresh) -> None:
         user = User.objects.create_user("web", password="secret")
         project = Project.objects.create(owner=user, name="Web feed")
@@ -171,7 +176,43 @@ class WebCollectorTests(TestCase):
         self.assertTrue(post.content_md)
         self.assertTrue(post.external_link)
         stats_repeat = collector.collect(self.source)
-        self.assertGreaterEqual(stats_repeat["skipped"], 1)
+        self.assertEqual(stats_repeat["created"], 0)
+        self.assertEqual(Post.objects.filter(source=self.source).count(), 1)
+
+    def test_collect_respects_last_seen_url(self) -> None:
+        self.source.web_last_seen_url = "https://example.com/article-1"
+        self.source.save(update_fields=["web_last_seen_url", "updated_at"])
+        collector = WebCollector(fetcher=self.fetcher)
+        stats = collector.collect(self.source)
+        self.assertEqual(stats["created"], 0)
+        self.assertFalse(Post.objects.filter(source=self.source).exists())
+
+    def test_collect_respects_last_seen_published_at(self) -> None:
+        self.source.web_last_seen_published_at = timezone.now()
+        snapshot = dict(self.source.web_preset_snapshot)
+        snapshot["list_page"] = dict(snapshot["list_page"])
+        snapshot["list_page"]["selectors"] = dict(snapshot["list_page"]["selectors"])
+        snapshot["list_page"]["selectors"]["published_at"] = "time@datetime"
+        self.source.web_preset_snapshot = snapshot
+        self.source.save(
+            update_fields=[
+                "web_last_seen_published_at",
+                "web_preset_snapshot",
+                "updated_at",
+            ]
+        )
+        self.fetcher.responses["https://example.com/news"] = """
+        <html><body>
+          <article class="item">
+            <a href="https://example.com/article-1">Новость дня</a>
+            <time datetime="2024-01-01T00:00:00+00:00"></time>
+          </article>
+        </body></html>
+        """
+        collector = WebCollector(fetcher=self.fetcher)
+        stats = collector.collect(self.source)
+        self.assertEqual(stats["created"], 0)
+        self.assertFalse(Post.objects.filter(source=self.source).exists())
 
     def test_collect_combines_multiple_content_nodes(self) -> None:
         multi_preset = make_preset_payload("multi_content")
@@ -246,6 +287,63 @@ class WebCollectorTests(TestCase):
         post = Post.objects.get(source=source)
         self.assertIn("https://example.com/images/photo.jpg", post.images_manifest)
         self.assertIn("https://cdn.example.com/extra.jpg", post.images_manifest)
+
+
+@skipUnless(HAS_HTTPX, "httpx не установлена")
+class WebFetcherCacheTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("cache", password="secret")
+        self.project = Project.objects.create(owner=self.user, name="Cache Project")
+        self.source = Source.objects.create(
+            project=self.project,
+            type=Source.Type.WEB,
+            title="Cache Source",
+            web_preset_snapshot=make_preset_payload("cache_preset"),
+            is_active=True,
+        )
+
+    def _make_response(self, status_code: int, headers: dict[str, str], text: str):
+        class FakeResponse:
+            def __init__(self, status_code, headers, text):
+                self.status_code = status_code
+                self.headers = headers
+                self.text = text
+                self.url = "https://example.com/news"
+
+        return FakeResponse(status_code, headers, text)
+
+    @patch("projects.services.web_collector.fetcher.httpx.get")
+    def test_fetcher_stores_and_reuses_cache_headers(self, mock_get) -> None:
+        mock_get.side_effect = [
+            self._make_response(
+                200,
+                {"ETag": "etag-1", "Last-Modified": "Mon, 10 Mar 2025 12:00:00 GMT"},
+                "<html>Ok</html>",
+            ),
+            self._make_response(304, {}, ""),
+        ]
+        fetcher = HttpFetcher()
+        result = fetcher.fetch(
+            "https://example.com/news",
+            {"cache_source_id": self.source.pk},
+        )
+        self.assertEqual(result.status_code, 200)
+        cache = WebFetchCache.objects.get(source=self.source, url="https://example.com/news")
+        self.assertEqual(cache.etag, "etag-1")
+        self.assertEqual(cache.last_status_code, 200)
+
+        result = fetcher.fetch(
+            "https://example.com/news",
+            {"cache_source_id": self.source.pk},
+        )
+        self.assertEqual(result.status_code, 304)
+        cache.refresh_from_db()
+        self.assertEqual(cache.last_status_code, 304)
+
+        _, kwargs = mock_get.call_args
+        headers = kwargs["headers"]
+        self.assertEqual(headers["If-None-Match"], "etag-1")
+        self.assertEqual(headers["If-Modified-Since"], "Mon, 10 Mar 2025 12:00:00 GMT")
 
 
 class CollectProjectWebSourcesTaskTests(TestCase):
@@ -348,3 +446,36 @@ class CollectProjectWebSourcesTaskTests(TestCase):
         self.assertEqual(source_call.kwargs["max_attempts"], 7)
         self.assertEqual(source_call.kwargs["base_retry_delay"], 45)
         self.assertEqual(source_call.kwargs["max_retry_delay"], 300)
+
+    @patch("projects.workers.enqueue_task")
+    def test_task_skips_blocked_sources(self, mock_enqueue) -> None:
+        source = self._add_web_source()
+        Source.objects.filter(pk=source.pk).update(
+            web_last_status="blocked",
+            web_blocked_until=timezone.now() + timedelta(hours=1),
+        )
+        task = WorkerTask.objects.create(
+            queue=WorkerTask.Queue.COLLECTOR_WEB,
+            payload={"project_id": self.project.id, "interval": 60},
+        )
+        collect_project_web_sources_task(task)
+        for call in mock_enqueue.call_args_list:
+            payload = call.kwargs.get("payload") or {}
+            self.assertNotIn("source_id", payload)
+
+    @patch("projects.workers.WebCollector.collect")
+    def test_task_skips_blocked_source_run(self, mock_collect) -> None:
+        source = self._add_web_source()
+        Source.objects.filter(pk=source.pk).update(
+            web_last_status="blocked",
+            web_blocked_until=timezone.now() + timedelta(hours=1),
+        )
+        task = WorkerTask.objects.create(
+            queue=WorkerTask.Queue.COLLECTOR_WEB,
+            payload={"project_id": self.project.id, "source_id": source.id, "interval": 60},
+        )
+        result = collect_project_web_sources_task(task)
+        self.assertEqual(result["status"], "ok")
+        mock_collect.assert_not_called()
+        source.refresh_from_db()
+        self.assertEqual(source.web_last_status, "cooldown")

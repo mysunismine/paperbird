@@ -12,12 +12,16 @@ from typing import Any, Protocol
 from django.conf import settings
 from django.db import transaction
 
-from core.constants import OPENAI_DEFAULT_TEMPERATURE, OPENAI_RESPONSE_FORMAT, REWRITE_MAX_ATTEMPTS
+from core.constants import (
+    OPENAI_DEFAULT_TEMPERATURE,
+    OPENAI_MODEL_ALIASES,
+    OPENAI_RESPONSE_FORMAT,
+    REWRITE_MAX_ATTEMPTS,
+)
 from projects.models import Project
 from stories.paperbird_stories.models import RewritePreset, RewriteResult, RewriteTask, Story
 
 from .exceptions import RewriteFailed
-from core.constants import OPENAI_MODEL_ALIASES
 from .helpers import (
     _looks_like_gemini_model,
     _looks_like_yandex_text_model,
