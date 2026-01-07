@@ -28,9 +28,8 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
         self.project = get_object_or_404(
-            Project,
+            Project.objects.accessible_by(request.user),
             pk=kwargs["pk"],
-            owner=request.user,
         )
         return super().dispatch(request, *args, **kwargs)
 
@@ -85,7 +84,7 @@ class ProjectSourceDetailView(LoginRequiredMixin, DetailView):
         """Возвращает queryset с предзагрузкой связанных данных."""
         return (
             Source.objects.filter(
-                project__owner=self.request.user,
+                project__in=Project.objects.accessible_by(self.request.user),
                 project_id=self.kwargs["project_pk"],
             )
             .select_related("project")
@@ -130,9 +129,8 @@ class ProjectSourceCreateView(LoginRequiredMixin, FormView):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
         self.project = get_object_or_404(
-            Project,
+            Project.objects.accessible_by(request.user),
             pk=kwargs["project_pk"],
-            owner=request.user,
         )
         return super().dispatch(request, *args, **kwargs)
 
@@ -229,7 +227,7 @@ class ProjectSourceUpdateView(LoginRequiredMixin, UpdateView):
     def get_queryset(self):
         """Возвращает queryset источников для текущего пользователя и проекта."""
         return Source.objects.filter(
-            project__owner=self.request.user,
+            project__in=Project.objects.accessible_by(self.request.user),
             project_id=self.kwargs["project_pk"],
         ).select_related("project")
 
@@ -261,7 +259,7 @@ class ProjectSourceUpdateView(LoginRequiredMixin, UpdateView):
 @require_POST
 def delete_source(request, project_pk: int, pk: int):
     """Удаляет источник и перенаправляет на список источников."""
-    project = get_object_or_404(Project, pk=project_pk, owner=request.user)
+    project = get_object_or_404(Project.objects.accessible_by(request.user), pk=project_pk)
     source = get_object_or_404(Source, pk=pk, project=project)
     source.delete()
     ensure_collector_tasks(project)

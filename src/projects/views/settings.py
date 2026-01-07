@@ -28,7 +28,7 @@ class ProjectSettingsView(LoginRequiredMixin, UpdateView):
 
     def get_queryset(self):
         """Возвращает queryset проектов текущего пользователя."""
-        return Project.objects.filter(owner=self.request.user)
+        return Project.objects.accessible_by(self.request.user)
 
     def get_form_kwargs(self) -> dict:
         """Возвращает аргументы для формы, включая владельца."""

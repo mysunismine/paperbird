@@ -92,6 +92,9 @@
                     <button class="nav-link" id="source-media-tab" data-bs-toggle="tab" data-bs-target="#source-media" type="button" role="tab" aria-controls="source-media" aria-selected="false">Медиа из постов</button>
                 </li>
                 <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="library-tab" data-bs-toggle="tab" data-bs-target="#library" type="button" role="tab" aria-controls="library" aria-selected="false">Медиабиблиотека</button>
+                </li>
+                <li class="nav-item" role="presentation">
                     <button class="nav-link" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload" type="button" role="tab" aria-controls="upload" aria-selected="false">Загрузить</button>
                 </li>
             </ul>
@@ -156,6 +159,32 @@
                         </div>
                     {% else %}
                         <div class="alert alert-info">В исходных постах сюжета нет изображений.</div>
+                    {% endif %}
+                </div>
+                <!-- Media Library Tab -->
+                <div class="tab-pane fade" id="library" role="tabpanel">
+                    <p class="small text-muted">Выберите изображение из медиабиблиотеки проекта.</p>
+                    {% if library_assets %}
+                        <div class="source-media-grid">
+                            {% for asset in library_assets %}
+                            <div class="source-media-item rounded p-2">
+                                <img src="{{ asset.image_file.url }}" alt="{{ asset.title|default:'Медиа' }}" class="img-fluid rounded">
+                                <div class="small text-muted mt-1">
+                                  {{ asset.title|default:"Без названия" }}
+                                </div>
+                                <form method="post" class="mt-2">
+                                  {% csrf_token %}
+                                  <input type="hidden" name="action" value="attach_library">
+                                  <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                  <button class="btn btn-sm btn-outline-primary w-100" type="submit">
+                                    Прикрепить
+                                  </button>
+                                </form>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">В медиабиблиотеке проекта нет изображений.</div>
                     {% endif %}
                 </div>
                 <!-- Upload Tab -->
@@ -422,7 +451,7 @@ document.addEventListener('DOMContentLoaded', function () {
     fetchRecommendedPrompt();
 
     // --- Source Media Tab ---
-    document.querySelectorAll('.source-media-item').forEach(item => {
+    document.querySelectorAll('.source-media-item[data-url]').forEach(item => {
         item.addEventListener('click', function() {
             const url = this.dataset.url;
             const mime = this.dataset.mime;

@@ -23,9 +23,8 @@ class ProjectExportView(LoginRequiredMixin, View):
 
     def get(self, request, *args, **kwargs):
         project = get_object_or_404(
-            Project,
+            Project.objects.accessible_by(request.user),
             pk=kwargs["pk"],
-            owner=request.user,
         )
         export_payload = build_project_export(project)
         fmt = (request.GET.get("format") or "json").lower()

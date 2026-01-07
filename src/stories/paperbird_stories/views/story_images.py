@@ -21,11 +21,13 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import DetailView
 
 from core.constants import IMAGE_PROVIDER_SETTINGS
-from projects.models import Post
+from media_library.models import MediaAsset
+from projects.models import Post, Project
 from stories.paperbird_stories.forms import (
     StoryImageAttachForm,
     StoryImageDeleteForm,
     StoryImageGenerateForm,
+    StoryImageLibraryAttachForm,
     StoryImageUploadForm,
 )
 from stories.paperbird_stories.models import Story, StoryImage
@@ -50,7 +52,9 @@ class StoryImageView(LoginRequiredMixin, DetailView):
     context_object_name = "story"
 
     def get_queryset(self):
-        return Story.objects.filter(project__owner=self.request.user).select_related("project")
+        return Story.objects.filter(
+            project__in=Project.objects.accessible_by(self.request.user)
+        ).select_related("project")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -65,6 +69,11 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             if gemini_image_size and model_key == "gemini-3-pro-image-preview":
                 provider_settings[model_key]["default_image_size"] = gemini_image_size
         context["image_provider_settings"] = json.dumps(provider_settings)
+        context["library_assets"] = (
+            MediaAsset.objects.filter(project=self.object.project)
+            .select_related("created_by")
+            .order_by("-created_at")
+        )
         return context
 
     def get(self, request, *args, **kwargs):
@@ -93,6 +102,8 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             return self._handle_upload(request)
         if action == "suggest_prompt":
             return self._handle_suggest_prompt(request)
+        if action == "attach_library":
+            return self._handle_attach_library(request)
         messages.error(request, "Неизвестное действие")
         return redirect("stories:detail", pk=self.object.pk)
 
@@ -406,6 +417,29 @@ class StoryImageView(LoginRequiredMixin, DetailView):
             f"Изображение из поста «{post}» прикреплено к сюжету.",
         )
         return redirect("stories:image", pk=self.object.pk)
+
+    def _handle_attach_library(self, request):
+        form = StoryImageLibraryAttachForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Не удалось выбрать изображение из медиабиблиотеки.")
+            return redirect("stories:image", pk=self.object.pk)
+        asset_id = form.cleaned_data["asset_id"]
+        asset = get_object_or_404(
+            MediaAsset.objects.filter(project=self.object.project),
+            pk=asset_id,
+        )
+        image = StoryImage.objects.create(
+            story=self.object,
+            prompt=asset.prompt or asset.title,
+            source_kind=StoryImage.SourceKind.LIBRARY,
+            is_selected=True,
+        )
+        image.image_file = asset.image_file
+        image.library_asset = asset
+        image.save(update_fields=["image_file", "library_asset"])
+        self.object.set_main_image(image)
+        messages.success(request, "Изображение из медиабиблиотеки прикреплено к сюжету.")
+        return redirect("stories:detail", pk=self.object.pk)
 
     def _generate_form_initial(
         self,

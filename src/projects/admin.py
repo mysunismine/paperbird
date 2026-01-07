@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 
-from projects.models import Post, Project, Source, SourceSyncLog, WebPreset
+from projects.models import Post, Project, ProjectMember, Source, SourceSyncLog, WebPreset
 
 
 @admin.register(Project)
@@ -13,6 +13,13 @@ class ProjectAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "created_at")
     search_fields = ("name", "owner__username", "owner__email")
     readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(ProjectMember)
+class ProjectMemberAdmin(admin.ModelAdmin):
+    list_display = ("project", "user", "created_at")
+    list_filter = ("project",)
+    search_fields = ("project__name", "user__username", "user__email")
 
 
 @admin.register(Source)

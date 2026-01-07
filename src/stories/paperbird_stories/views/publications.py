@@ -27,7 +27,9 @@ class PublicationListView(LoginRequiredMixin, ListView):
 
     def get_queryset(self):
         return (
-            Publication.objects.filter(story__project__owner=self.request.user)
+            Publication.objects.filter(
+                story__project__in=Project.objects.accessible_by(self.request.user)
+            )
             .select_related("story", "story__project")
             .order_by("-created_at")
         )
@@ -52,10 +54,7 @@ class PublicationListView(LoginRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
         publications = context.get("publications", [])
         context["publication_forms"] = self._build_forms(publications, bound_form=bound_form)
-        context["projects"] = (
-            Project.objects.filter(owner=self.request.user)
-            .order_by("name")
-        )
+        context["projects"] = Project.objects.accessible_by(self.request.user).order_by("name")
         return context
 
     def post(self, request, *args, **kwargs):
@@ -120,7 +119,7 @@ class PublicationListView(LoginRequiredMixin, ListView):
         return get_object_or_404(
             Publication.objects.select_related("story", "story__project"),
             pk=int(identifier),
-            story__project__owner=self.request.user,
+            story__project__in=Project.objects.accessible_by(self.request.user),
         )
 
     def _redirect_to_page(self, page: str | None):

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Медиабиблиотека — Paperbird{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-3">Медиабиблиотека</h1>
+
+<form method="get" class="row g-2 align-items-end mb-4">
+  <div class="col-md-6">
+    <label class="form-label">Проект</label>
+    <select name="project" class="form-select" onchange="this.form.submit()">
+      {% for item in projects %}
+        <option value="{{ item.id }}" {% if project and item.id == project.id %}selected{% endif %}>
+          {{ item.name }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+</form>
+
+{% if project %}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header">Загрузить изображение</div>
+    <div class="card-body">
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="upload">
+        <input type="hidden" name="project" value="{{ project.id }}">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-8">{{ upload_form.image_file }}</div>
+          <div class="col-md-4">
+            <button class="btn btn-primary w-100" type="submit">Добавить</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-header">Медиа из постов</div>
+    <div class="card-body">
+      {% if post_media %}
+        <div class="row row-cols-2 row-cols-md-4 g-3">
+          {% for item in post_media %}
+            <div class="col">
+              <div class="card h-100">
+                <img src="{{ item.url }}" class="card-img-top" alt="Пост {{ item.post.id }}" style="aspect-ratio: 4/3; object-fit: cover;">
+                <div class="card-body p-2">
+                  <div class="small text-muted">Пост #{{ item.post.id }}</div>
+                </div>
+                <div class="card-footer bg-white">
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="import_post">
+                    <input type="hidden" name="project" value="{{ project.id }}">
+                    <input type="hidden" name="post_id" value="{{ item.post.id }}">
+                    <button class="btn btn-sm btn-outline-primary w-100" type="submit">В медиабиблиотеку</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="alert alert-info">В проекте пока нет медиафайлов из постов.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <h2 class="h5 mb-3">Изображения проекта</h2>
+  {% if assets %}
+    <div class="row row-cols-2 row-cols-md-4 g-3">
+      {% for asset in assets %}
+        <div class="col">
+          <div class="card h-100 shadow-sm">
+            <img src="{{ asset.image_file.url }}" class="card-img-top" alt="{{ asset.title|default:'Медиа' }}" style="aspect-ratio: 4/3; object-fit: cover;">
+            <div class="card-body p-2">
+              <div class="fw-semibold small">{{ asset.title|default:"Без названия" }}</div>
+              <div class="text-muted small">{{ asset.get_source_kind_display }}</div>
+              {% if asset.created_by %}
+                <div class="text-muted small">{{ asset.created_by }}</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-info">В медиабиблиотеке пока нет изображений.</div>
+  {% endif %}
+{% else %}
+  <div class="alert alert-warning">Создайте проект, чтобы использовать медиабиблиотеку.</div>
+{% endif %}
+{% endblock %}

@@ -34,7 +34,7 @@ class ProjectPromptsView(LoginRequiredMixin, FormView):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
         self.project = get_object_or_404(
-            Project, pk=kwargs["pk"], owner=request.user
+            Project.objects.accessible_by(request.user), pk=kwargs["pk"]
         )
         self.config = ensure_prompt_config(self.project)
         return super().dispatch(request, *args, **kwargs)
@@ -104,7 +104,7 @@ class ProjectPromptExportView(LoginRequiredMixin, View):
     def get(self, request, *args, **kwargs):
         """Генерирует и возвращает текстовый файл с экспортом промтов."""
         project = get_object_or_404(
-            Project, pk=kwargs["pk"], owner=request.user
+            Project.objects.accessible_by(request.user), pk=kwargs["pk"]
         )
         ensure_prompt_config(project)
         content = self._render_export(project)
@@ -132,9 +132,8 @@ class ProjectPromptImportView(LoginRequiredMixin, View):
 
     def post(self, request, *args, **kwargs):
         project = get_object_or_404(
-            Project,
+            Project.objects.accessible_by(request.user),
             pk=kwargs["pk"],
-            owner=request.user,
         )
         file = request.FILES.get("prompt_file")
         payload = (request.POST.get("prompt_payload") or "").strip()

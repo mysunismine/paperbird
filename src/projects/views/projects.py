@@ -26,7 +26,7 @@ class ProjectListView(LoginRequiredMixin, ListView):
     def get_queryset(self):
         """Возвращает queryset проектов текущего пользователя с аннотациями."""
         return (
-            Project.objects.filter(owner=self.request.user)
+            Project.objects.accessible_by(self.request.user)
             .annotate(
                 posts_total=Count("posts", distinct=True),
                 stories_total=Count("stories", distinct=True),

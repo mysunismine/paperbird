@@ -18,7 +18,7 @@ class FeedView(LoginRequiredMixin, RedirectView):
 
     def get_redirect_url(self, *args, **kwargs):
         project_id = self.request.GET.get("project")
-        projects = Project.objects.filter(owner=self.request.user).order_by("name")
+        projects = Project.objects.accessible_by(self.request.user).order_by("name")
         if project_id and project_id.isdigit():
             project = projects.filter(pk=int(project_id)).first()
             if project:

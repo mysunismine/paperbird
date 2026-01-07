@@ -51,10 +51,10 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
         self.project = get_object_or_404(
-            Project, pk=kwargs["pk"], owner=request.user
+            Project.objects.accessible_by(request.user), pk=kwargs["pk"]
         )
         self._projects = list(
-            Project.objects.filter(owner=request.user).order_by("name")
+            Project.objects.accessible_by(request.user).order_by("name")
         )
         return super().dispatch(request, *args, **kwargs)
 
@@ -245,7 +245,7 @@ class ProjectPostDetailView(LoginRequiredMixin, TemplateView):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
         self.project = get_object_or_404(
-            Project, pk=kwargs["project_pk"], owner=request.user
+            Project.objects.accessible_by(request.user), pk=kwargs["project_pk"]
         )
         self.post = get_object_or_404(
             Post.objects.select_related("source", "project"),

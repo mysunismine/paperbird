@@ -74,6 +74,22 @@
               </li>
               <li class="nav-item">
                 <a
+                  class="nav-link {% if current_app == 'media_library' and current_url == 'library' %}active{% endif %}"
+                  href="{% url 'media_library:library' %}"
+                >
+                  Медиабиблиотека
+                </a>
+              </li>
+              <li class="nav-item">
+                <a
+                  class="nav-link {% if current_app == 'media_library' and current_url != 'library' %}active{% endif %}"
+                  href="{% url 'media_library:studio' %}"
+                >
+                  Медиа-студия
+                </a>
+              </li>
+              <li class="nav-item">
+                <a
                   class="nav-link {% if current_app == 'stories' and current_url == 'publications' %}active{% endif %}"
                   href="{% url 'stories:publications' %}"
                 >

@@ -32,6 +32,13 @@ if TYPE_CHECKING:  # pragma: no cover - используется только д
     from projects.services.post_filters import PostFilterOptions
 
 
+class ProjectQuerySet(models.QuerySet):
+    def accessible_by(self, user) -> ProjectQuerySet:
+        if not user or not getattr(user, "is_authenticated", False):
+            return self.none()
+        return self.filter(models.Q(owner=user) | models.Q(members=user)).distinct()
+
+
 class Project(models.Model):
     """Проект объединяет источники и собранные посты."""
 
@@ -40,6 +47,13 @@ class Project(models.Model):
         on_delete=models.CASCADE,
         related_name="projects",
         verbose_name="Владелец",
+    )
+    members = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through="ProjectMember",
+        related_name="member_projects",
+        verbose_name="Участники",
+        blank=True,
     )
     name = models.CharField("Название", max_length=200)
     description = models.TextField("Описание", blank=True)
@@ -138,6 +152,13 @@ class Project(models.Model):
     created_at = models.DateTimeField("Создан", auto_now_add=True)
     updated_at = models.DateTimeField("Обновлён", auto_now=True)
 
+    objects = ProjectQuerySet.as_manager()
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        super().save(*args, **kwargs)
+        if self.owner_id:
+            ProjectMember.objects.get_or_create(project=self, user_id=self.owner_id)
+
     class Meta:
         verbose_name = "Проект"
         verbose_name_plural = "Проекты"
@@ -158,6 +179,37 @@ class Project(models.Model):
         if not self.retention_days:
             return None
         return timezone.now() - timedelta(days=self.retention_days)
+
+
+class ProjectMember(models.Model):
+    """Участник проекта."""
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="project_members",
+        verbose_name="Проект",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="project_memberships",
+        verbose_name="Пользователь",
+    )
+    created_at = models.DateTimeField("Добавлен", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Участник проекта"
+        verbose_name_plural = "Участники проектов"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "user"],
+                name="unique_project_member",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.project.name} — {self.user}"
 
 
 class WebPreset(models.Model):

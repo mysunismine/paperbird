@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Медиа-студия — Paperbird{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-3">Медиа-студия</h1>
+
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header">Проекты</div>
+      <div class="card-body">
+        <form method="get">
+          <label class="form-label">Проект</label>
+          <select name="project" class="form-select" onchange="this.form.submit()">
+            {% for item in projects %}
+              <option value="{{ item.id }}" {% if story and item.id == story.project.id %}selected{% endif %}>
+                {{ item.name }}
+              </option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-header">Сюжеты проекта</div>
+      <div class="list-group list-group-flush">
+        {% for item in story_list %}
+          <a class="list-group-item list-group-item-action {% if story and item.id == story.id %}active{% endif %}" href="{% url 'media_library:studio_story' story_id=item.id %}">
+            {{ item.title|default:"Сюжет без названия" }}
+            <div class="small {% if story and item.id == story.id %}text-white-50{% else %}text-muted{% endif %}">#{{ item.id }}</div>
+          </a>
+        {% empty %}
+          <div class="list-group-item">Нет доступных сюжетов.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-8">
+    {% if story %}
+      <div class="card shadow-sm mb-3">
+        <div class="card-header">Контекст сюжета</div>
+        <div class="card-body">
+          <h2 class="h5">{{ story.title|default:"Сюжет без названия" }}</h2>
+          <p class="text-muted mb-2">Проект: {{ story.project.name }}</p>
+          <div class="border rounded p-3 bg-light" style="white-space: pre-wrap;">
+            {{ story.body|default:story.summary|default:story.title|default:"Текст сюжета пока не заполнен." }}
+          </div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-3">
+        <div class="card-header">Идея изображения</div>
+        <div class="card-body">
+          {% if suggested_prompt %}
+            <p class="mb-0">{{ suggested_prompt }}</p>
+          {% elif suggested_prompt_error %}
+            <div class="alert alert-warning mb-0">{{ suggested_prompt_error }}</div>
+          {% else %}
+            <div class="text-muted">Рекомендация пока недоступна.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-3">
+        <div class="card-header">Генерация</div>
+        <div class="card-body">
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="generate">
+            <input type="hidden" name="story" value="{{ story.id }}">
+            <div class="mb-3">
+              {{ generate_form.prompt.label_tag }}
+              {{ generate_form.prompt }}
+            </div>
+            <div class="row g-3">
+              <div class="col-md-4">{{ generate_form.model.label_tag }}{{ generate_form.model }}</div>
+              <div class="col-md-4">{{ generate_form.size.label_tag }}{{ generate_form.size }}</div>
+              <div class="col-md-4">{{ generate_form.quality.label_tag }}{{ generate_form.quality }}</div>
+              <div class="col-md-4">{{ generate_form.aspect_ratio.label_tag }}{{ generate_form.aspect_ratio }}</div>
+              <div class="col-md-4">{{ generate_form.image_size.label_tag }}{{ generate_form.image_size }}</div>
+            </div>
+            <button class="btn btn-primary mt-3" type="submit">Сгенерировать</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card shadow-sm">
+        <div class="card-header">Предпросмотр</div>
+        <div class="card-body text-center">
+          {% if preview %}
+            <img src="data:{{ preview.mime }};base64,{{ preview.data }}" class="img-fluid rounded" alt="Предпросмотр">
+            <p class="text-muted small mt-2">{{ preview.prompt }}</p>
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="save">
+              <input type="hidden" name="story" value="{{ story.id }}">
+              {{ attach_form.as_p }}
+              <button class="btn btn-success" type="submit">Сохранить в медиабиблиотеку</button>
+            </form>
+          {% else %}
+            <div class="text-muted">Сгенерируйте изображение, чтобы увидеть предпросмотр.</div>
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <div class="alert alert-warning">Выберите проект и сюжет для работы в медиа-студии.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

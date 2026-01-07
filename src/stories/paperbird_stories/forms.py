@@ -337,6 +337,10 @@ class StoryImageUploadForm(forms.Form):
     )
 
 
+class StoryImageLibraryAttachForm(forms.Form):
+    asset_id = forms.IntegerField(widget=forms.HiddenInput())
+
+
 class PublicationManageForm(forms.ModelForm):
     """Форма для ручного управления публикацией."""
 

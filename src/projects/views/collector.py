@@ -33,9 +33,8 @@ class ProjectCollectorQueueView(LoginRequiredMixin, TemplateView):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
         self.project = get_object_or_404(
-            Project,
+            Project.objects.accessible_by(request.user),
             pk=kwargs["pk"],
-            owner=request.user,
         )
         return super().dispatch(request, *args, **kwargs)
 
