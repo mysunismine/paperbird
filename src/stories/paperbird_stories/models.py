@@ -310,6 +310,7 @@ class StoryImage(models.Model):
         GENERATED = "generated", "Сгенерировано"
         UPLOAD = "upload", "Загрузка"
         SOURCE = "source", "Источник"
+        LIBRARY = "library", "Медиабиблиотека"
 
     story = models.ForeignKey(
         Story,
@@ -320,6 +321,14 @@ class StoryImage(models.Model):
     image_file = models.FileField(
         "Изображение",
         upload_to="story_images/",
+    )
+    library_asset = models.ForeignKey(
+        "media_library.MediaAsset",
+        on_delete=models.SET_NULL,
+        related_name="story_images",
+        null=True,
+        blank=True,
+        verbose_name="Медиа библиотеки",
     )
     prompt = models.TextField(
         "Промпт генерации",

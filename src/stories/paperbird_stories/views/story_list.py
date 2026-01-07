@@ -21,7 +21,9 @@ class StoryListView(LoginRequiredMixin, ListView):
     context_object_name = "stories"
 
     def get_queryset(self):
-        return Story.objects.filter(project__owner=self.request.user).select_related("project")
+        return Story.objects.filter(
+            project__in=Project.objects.accessible_by(self.request.user)
+        ).select_related("project")
 
 
 class StoryCreateView(LoginRequiredMixin, View):
@@ -40,7 +42,7 @@ class StoryCreateView(LoginRequiredMixin, View):
             return self._redirect_back(project_id)
 
         project = get_object_or_404(
-            Project.objects.filter(owner=request.user),
+            Project.objects.accessible_by(request.user),
             pk=project_id,
         )
         posts = list(
@@ -74,7 +76,7 @@ class StoryCreateView(LoginRequiredMixin, View):
     def _redirect_back(self, project_id: int | str | None):
         if project_id and str(project_id).isdigit():
             return redirect("feed-detail", int(project_id))
-        first_project = self.request.user.projects.order_by("id").first()
+        first_project = Project.objects.accessible_by(self.request.user).order_by("id").first()
         if first_project:
             return redirect("feed-detail", first_project.id)
         return redirect("projects:list")
@@ -87,7 +89,7 @@ class StoryDeleteView(LoginRequiredMixin, View):
         story = get_object_or_404(
             Story.objects.select_related("project"),
             pk=pk,
-            project__owner=request.user,
+            project__in=Project.objects.accessible_by(request.user),
         )
         title = story.title.strip() if story.title else ""
         story.delete()

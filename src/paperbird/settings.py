@@ -98,6 +98,7 @@ INSTALLED_APPS = [
     "accounts",
     "projects",
     "core",
+    "media_library",
     "stories.paperbird_stories",
 ]
 

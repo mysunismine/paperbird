@@ -23,6 +23,7 @@ from django.utils import timezone
 from django.views.generic import DetailView
 
 from core.constants import REWRITE_MODEL_CHOICES, normalize_openai_model
+from projects.models import Project
 from projects.services.telethon_client import TelethonCredentialsMissingError
 from stories.paperbird_stories.forms import (
     StoryContentForm,
@@ -53,7 +54,7 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
 
     def get_queryset(self):
         return (
-            Story.objects.filter(project__owner=self.request.user)
+            Story.objects.filter(project__in=Project.objects.accessible_by(self.request.user))
             .select_related("project")
             .prefetch_related(
                 "story_posts__post",
@@ -100,6 +101,7 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             source_kind__in=[
                 StoryImage.SourceKind.GENERATED,
                 StoryImage.SourceKind.UPLOAD,
+                StoryImage.SourceKind.LIBRARY,
             ]
         )
         context["source_images"] = self.object.images.filter(
