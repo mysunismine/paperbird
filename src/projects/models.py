@@ -639,6 +639,12 @@ class Post(models.Model):
         items: list[dict[str, str]] = []
         seen: set[str] = set()
 
+        def normalize_key(value: str) -> str:
+            parsed = urlparse(value)
+            path = parsed.path or value
+            normalized = path.lstrip("/")
+            return normalized or value
+
         def build_item(url: str, media_type: str | None) -> dict[str, str]:
             raw_type = media_type or "image"
             normalized = raw_type.lower()
@@ -655,7 +661,7 @@ class Post(models.Model):
             }
 
         if self.media_url:
-            normalized = urlparse(self.media_url).path or self.media_url
+            normalized = normalize_key(self.media_url)
             if normalized not in seen:
                 seen.add(normalized)
                 items.append(build_item(self.media_url, self.media_type))
@@ -670,7 +676,7 @@ class Post(models.Model):
                 entry_type = entry.get("type") or entry.get("media_type")
             if not url:
                 continue
-            normalized = urlparse(url).path or url
+            normalized = normalize_key(url)
             if normalized in seen:
                 continue
             seen.add(normalized)

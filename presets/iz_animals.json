@@ -42,11 +42,8 @@
       "title": "#block-purple-content h1[itemprop='headline'] span",
       "content": "#block-purple-content div.text-article div[itemprop='articleBody'], #block-purple-content div.text-article .text-article__inside",
       "images": [
-        "#block-purple-content div.text-article div[itemprop='articleBody'] img@src*",
         "#block-purple-content div.text-article div[itemprop='articleBody'] img@data-src*",
-        "#block-purple-content div.text-article .text-article__inside img@data-src*",
-        "#block-purple-content .big_photo__img img@data-src?",
-        "#block-purple-content .big_photo__img link[itemprop='url contentUrl']@href?"
+        "#block-purple-content div.text-article .text-article__inside img@data-src*"
       ]
     },
     "cleanup": {
@@ -65,7 +62,7 @@
       ]
     },
     "normalize": {
-      "html_to_md": true,
+      "html_to_md": false,
       "collapse_whitespace": true,
       "make_absolute_urls": true,
       "strip_tracking_params": true

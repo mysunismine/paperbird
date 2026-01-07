@@ -78,8 +78,13 @@
         <a class="btn btn-outline-secondary" href="{% url 'feed-detail' project.id %}">
           <i class="bi bi-arrow-left me-1"></i>К ленте
         </a>
+        <form id="create-story-form" method="post" action="{% url 'stories:create-from-posts' %}" class="d-inline">
+          {% csrf_token %}
+          <input type="hidden" name="project" value="{{ project.id }}" />
+          <input type="hidden" name="posts" value="{{ post.id }}" />
+        </form>
         <div class="btn-group">
-          <button type="button" class="btn btn-primary">
+          <button type="submit" form="create-story-form" class="btn btn-primary">
             <i class="bi bi-magic me-1"></i>В сюжет
           </button>
           <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
