@@ -107,6 +107,15 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         context["source_images"] = self.object.images.filter(
             source_kind=StoryImage.SourceKind.SOURCE
         )
+        # Context for "Select from Library"
+        from media_library.models import MediaAsset
+        context["library_assets"] = MediaAsset.objects.filter(
+            project=self.object.project
+        ).order_by("-created_at")[:12]
+        context["attached_asset_ids"] = set(
+            self.object.images.values_list("library_asset_id", flat=True)
+        )
+        
         rewrite_form: StoryRewriteForm = context["rewrite_form"]
         context["prompt_preview"] = self._build_prompt_preview(
             editor_comment=self._form_editor_comment(rewrite_form),
@@ -133,12 +142,40 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             return self._handle_save(request)
         if action == "attach_media":
             return self._handle_attach_media(request)
+        if action == "attach_library_asset":
+            return self._handle_attach_library_asset(request)
         if action == "set_main_image":
             return self._handle_set_main_image(request)
         if action == "toggle_image":
             return self._handle_toggle_image(request)
             messages.error(request, "Неизвестное действие")
         return redirect(self.get_success_url())
+
+    def _handle_attach_library_asset(self, request):
+        from media_library.models import MediaAsset
+        asset_id = request.POST.get("asset_id")
+        if not asset_id:
+            messages.error(request, "Не выбрано медиа.")
+            return redirect(self._build_success_url(step="rewrite"))
+            
+        asset = get_object_or_404(MediaAsset, pk=asset_id, project=self.object.project)
+        
+        # Create a StoryImage linked to this asset
+        img = StoryImage.objects.create(
+            story=self.object,
+            library_asset=asset,
+            # Copy file to story_images to ensure stability if library asset changes/deletes? 
+            # Or reference directly? The model has image_file.
+            # Usually we duplicate the file or reference it. 
+            # For now, let's duplicate the reference to the file field.
+            image_file=asset.image_file, 
+            prompt=asset.prompt,
+            source_kind=StoryImage.SourceKind.LIBRARY,
+            is_selected=True,
+        )
+        self.object.set_main_image(img)
+        messages.success(request, "Изображение из библиотеки прикреплено.")
+        return redirect(self._build_success_url(step="rewrite"))
 
     def _handle_rewrite(self, request):
         form = StoryRewriteForm(request.POST, story=self.object)

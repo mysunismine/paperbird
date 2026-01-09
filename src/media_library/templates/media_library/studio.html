@@ -2,112 +2,298 @@
 
 {% block title %}Медиа-студия — Paperbird{% endblock %}
 
+{% block extra_head %}
+<style>
+    .studio-preview-area {
+        background-color: #f8f9fa;
+        border-radius: 0.5rem;
+        min-height: 500px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    
+    .preview-image-container {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+
+    .preview-image-container img {
+        max-width: 100%;
+        max-height: 600px;
+        object-fit: contain;
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    .preview-placeholder {
+        color: #adb5bd;
+        text-align: center;
+        padding: 3rem;
+    }
+    
+    .preview-actions {
+        margin-top: 1rem;
+        padding: 1rem;
+        background: white;
+        border-top: 1px solid #dee2e6;
+        border-radius: 0 0 0.5rem 0.5rem;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<h1 class="h3 mb-3">Медиа-студия</h1>
-
-<div class="row g-3">
-  <div class="col-lg-4">
-    <div class="card shadow-sm mb-3">
-      <div class="card-header">Проекты</div>
-      <div class="card-body">
-        <form method="get">
-          <label class="form-label">Проект</label>
-          <select name="project" class="form-select" onchange="this.form.submit()">
-            {% for item in projects %}
-              <option value="{{ item.id }}" {% if story and item.id == story.project.id %}selected{% endif %}>
-                {{ item.name }}
-              </option>
-            {% endfor %}
-          </select>
-        </form>
-      </div>
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">Медиа-студия</h1>
     </div>
 
-    <div class="card shadow-sm">
-      <div class="card-header">Сюжеты проекта</div>
-      <div class="list-group list-group-flush">
-        {% for item in story_list %}
-          <a class="list-group-item list-group-item-action {% if story and item.id == story.id %}active{% endif %}" href="{% url 'media_library:studio_story' story_id=item.id %}">
-            {{ item.title|default:"Сюжет без названия" }}
-            <div class="small {% if story and item.id == story.id %}text-white-50{% else %}text-muted{% endif %}">#{{ item.id }}</div>
-          </a>
-        {% empty %}
-          <div class="list-group-item">Нет доступных сюжетов.</div>
-        {% endfor %}
-      </div>
+    <div class="row g-4 justify-content-center" id="studio-layout-row">
+        <!-- Controls Column -->
+        <div class="col-lg-6 transition-all" id="controls-column">
+            <div class="card shadow-sm border-0">
+                <div class="card-body p-4">
+                    <h5 class="card-title mb-4">Параметры генерации</h5>
+                    <form id="image-generate-form">
+                        {% csrf_token %}
+                        
+                        <div class="mb-3">
+                            <label for="id_prompt" class="form-label fw-bold">Промпт</label>
+                            <textarea name="prompt" id="id_prompt" class="form-control form-control-lg" rows="5" placeholder="Опишите изображение детально...">{{ generate_form.prompt.value|default:'' }}</textarea>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="form-label small text-muted text-uppercase fw-bold">Модель</label>
+                            {{ generate_form.model }}
+                        </div>
+                        
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6" id="size-group">
+                                <label class="form-label small text-muted">Размер</label>
+                                {{ generate_form.size }}
+                            </div>
+                            <div class="col-md-6" id="quality-group">
+                                <label class="form-label small text-muted">Качество</label>
+                                {{ generate_form.quality }}
+                            </div>
+                            <div class="col-md-6 d-none" id="style-group">
+                                <label class="form-label small text-muted">Стиль</label>
+                                {{ generate_form.style }}
+                            </div>
+                            <div class="col-md-6 d-none" id="aspect-ratio-group">
+                                <label class="form-label small text-muted">Пропорции</label>
+                                {{ generate_form.aspect_ratio }}
+                            </div>
+                             <div class="col-md-6 d-none" id="image-size-group">
+                                <label class="form-label small text-muted">Разрешение</label>
+                                {{ generate_form.image_size }}
+                            </div>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary btn-lg py-3" id="generate-btn">
+                                <i class="bi bi-magic me-2"></i> Сгенерировать изображение
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preview Column -->
+        <div class="col-lg-8 d-none" id="preview-column">
+            <div class="studio-preview-area shadow-sm border position-relative">
+                <!-- Preview Canvas -->
+                <div class="preview-image-container mb-auto" id="preview-container"></div>
+                
+                <!-- Loading Overlay -->
+                <div id="loading-overlay" class="position-absolute top-0 start-0 w-100 h-100 bg-white bg-opacity-75 d-none flex-column align-items-center justify-content-center" style="z-index: 10; border-radius: 0.5rem;">
+                    <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div>
+                    <div class="mt-3 text-muted fw-medium fs-5" id="loading-text">Генерация...</div>
+                </div>
+
+                <!-- Action Bar -->
+                <div id="save-section" class="preview-actions d-none">
+                     <div class="row align-items-center">
+                         <div class="col-md-7">
+                             <p class="mb-0 small text-muted"><i class="bi bi-check-circle me-1"></i> Готово! Сохраните результат в библиотеку.</p>
+                         </div>
+                         <div class="col-md-5">
+                             <form id="save-form" method="post" class="d-flex gap-2">
+                                 {% csrf_token %}
+                                 <input type="hidden" name="action" value="save_to_library">
+                                 <select name="project_id" class="form-select form-select-sm" style="max-width: 150px;">
+                                     {% for p in projects %}
+                                     <option value="{{ p.id }}" {% if project and project.id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                                     {% endfor %}
+                                 </select>
+                                 <button type="submit" class="btn btn-success btn-sm text-nowrap flex-grow-1">
+                                     <i class="bi bi-hdd-fill me-1"></i> Сохранить
+                                 </button>
+                             </form>
+                         </div>
+                     </div>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
-
-  <div class="col-lg-8">
-    {% if story %}
-      <div class="card shadow-sm mb-3">
-        <div class="card-header">Контекст сюжета</div>
-        <div class="card-body">
-          <h2 class="h5">{{ story.title|default:"Сюжет без названия" }}</h2>
-          <p class="text-muted mb-2">Проект: {{ story.project.name }}</p>
-          <div class="border rounded p-3 bg-light" style="white-space: pre-wrap;">
-            {{ story.body|default:story.summary|default:story.title|default:"Текст сюжета пока не заполнен." }}
-          </div>
-        </div>
-      </div>
-
-      <div class="card shadow-sm mb-3">
-        <div class="card-header">Идея изображения</div>
-        <div class="card-body">
-          {% if suggested_prompt %}
-            <p class="mb-0">{{ suggested_prompt }}</p>
-          {% elif suggested_prompt_error %}
-            <div class="alert alert-warning mb-0">{{ suggested_prompt_error }}</div>
-          {% else %}
-            <div class="text-muted">Рекомендация пока недоступна.</div>
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="card shadow-sm mb-3">
-        <div class="card-header">Генерация</div>
-        <div class="card-body">
-          <form method="post">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="generate">
-            <input type="hidden" name="story" value="{{ story.id }}">
-            <div class="mb-3">
-              {{ generate_form.prompt.label_tag }}
-              {{ generate_form.prompt }}
-            </div>
-            <div class="row g-3">
-              <div class="col-md-4">{{ generate_form.model.label_tag }}{{ generate_form.model }}</div>
-              <div class="col-md-4">{{ generate_form.size.label_tag }}{{ generate_form.size }}</div>
-              <div class="col-md-4">{{ generate_form.quality.label_tag }}{{ generate_form.quality }}</div>
-              <div class="col-md-4">{{ generate_form.aspect_ratio.label_tag }}{{ generate_form.aspect_ratio }}</div>
-              <div class="col-md-4">{{ generate_form.image_size.label_tag }}{{ generate_form.image_size }}</div>
-            </div>
-            <button class="btn btn-primary mt-3" type="submit">Сгенерировать</button>
-          </form>
-        </div>
-      </div>
-
-      <div class="card shadow-sm">
-        <div class="card-header">Предпросмотр</div>
-        <div class="card-body text-center">
-          {% if preview %}
-            <img src="data:{{ preview.mime }};base64,{{ preview.data }}" class="img-fluid rounded" alt="Предпросмотр">
-            <p class="text-muted small mt-2">{{ preview.prompt }}</p>
-            <form method="post">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="save">
-              <input type="hidden" name="story" value="{{ story.id }}">
-              {{ attach_form.as_p }}
-              <button class="btn btn-success" type="submit">Сохранить в медиабиблиотеку</button>
-            </form>
-          {% else %}
-            <div class="text-muted">Сгенерируйте изображение, чтобы увидеть предпросмотр.</div>
-          {% endif %}
-        </div>
-      </div>
-    {% else %}
-      <div class="alert alert-warning">Выберите проект и сюжет для работы в медиа-студии.</div>
-    {% endif %}
-  </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const generateForm = document.getElementById('image-generate-form');
+    const saveForm = document.getElementById('save-form');
+    const saveSection = document.getElementById('save-section');
+    const previewContainer = document.getElementById('preview-container');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const loadingText = document.getElementById('loading-text');
+    
+    const controlsColumn = document.getElementById('controls-column');
+    const previewColumn = document.getElementById('preview-column');
+    const layoutRow = document.getElementById('studio-layout-row');
+    
+    const modelSelect = document.getElementById('id_model');
+    const providerSettingsRaw = '{{ image_provider_settings|escapejs }}';
+    const providerSettings = providerSettingsRaw ? JSON.parse(providerSettingsRaw) : {};
+
+    function updateSettingsVisibility() {
+        const model = modelSelect.value;
+        const isGemini = model.includes('gemini');
+        const settings = providerSettings[model] || {};
+        
+        toggleDisplay('size-group', !isGemini);
+        toggleDisplay('quality-group', !isGemini);
+        toggleDisplay('aspect-ratio-group', isGemini);
+        toggleDisplay('image-size-group', isGemini);
+        
+        const hasStyles = settings.styles && settings.styles.length > 0;
+        toggleDisplay('style-group', hasStyles);
+    }
+    
+    function toggleDisplay(id, show) {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('d-none', !show);
+    }
+    
+    if(modelSelect) {
+        modelSelect.addEventListener('change', updateSettingsVisibility);
+        updateSettingsVisibility();
+    }
+
+    function switchLayout() {
+        if (previewColumn.classList.contains('d-none')) {
+            // Remove centering and shrink controls
+            controlsColumn.classList.remove('col-lg-6');
+            controlsColumn.classList.add('col-lg-4');
+            layoutRow.classList.remove('justify-content-center');
+            
+            // Show preview
+            previewColumn.classList.remove('d-none');
+        }
+    }
+
+    function setLoading(isLoading, text="Загрузка...") {
+        loadingText.textContent = text;
+        loadingOverlay.classList.toggle('d-none', !isLoading);
+        loadingOverlay.classList.toggle('d-flex', isLoading);
+        document.getElementById('generate-btn').disabled = isLoading;
+    }
+
+    function updatePreview(data, mime) {
+        switchLayout();
+        previewContainer.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = `data:${mime};base64,${data}`;
+        img.className = 'img-fluid';
+        previewContainer.appendChild(img);
+        saveSection.classList.remove('d-none');
+    }
+
+    if(generateForm) {
+        generateForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // On first generation, we might want to switch layout immediately or wait for result
+            // Let's show the loading overlay. If it's the first time, we'll need to show the preview column
+            // so the overlay is visible.
+            if (previewColumn.classList.contains('d-none')) {
+                switchLayout();
+                // Ensure placeholder is gone if layout switches
+                previewContainer.innerHTML = '';
+            }
+
+            setLoading(true, "Генерация изображения...");
+            
+            const formData = new FormData(this);
+            formData.append('action', 'generate');
+
+            fetch(window.location.href, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                },
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                setLoading(false);
+                if(data.status === 'success') {
+                    updatePreview(data.preview.data, data.preview.mime);
+                } else {
+                    alert(data.message || 'Ошибка генерации');
+                }
+            })
+            .catch(err => {
+                setLoading(false);
+                alert('Ошибка сети');
+            });
+        });
+    }
+    
+    if(saveForm) {
+         saveForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const btn = saveForm.querySelector('button');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+            const formData = new FormData(this);
+            
+            fetch(window.location.href, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                },
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    btn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Сохранено';
+                    btn.classList.replace('btn-success', 'btn-outline-success');
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.classList.replace('btn-outline-success', 'btn-success');
+                        btn.disabled = false;
+                    }, 2000);
+                } else {
+                    alert(data.message || 'Ошибка сохранения');
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            })
+            .catch(err => {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                alert('Ошибка сети');
+            });
+         });
+    }
+});
+</script>
 {% endblock %}

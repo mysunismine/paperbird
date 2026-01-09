@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}{{ asset.title|default:"Медиа" }} — Paperbird{% endblock %}
+
+{% block content %}
+<div class="mb-3 d-flex align-items-center justify-content-between">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="{% url 'media_library:library' %}?project={{ asset.project.id }}">Медиабиблиотека</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ asset.title|truncatechars:30 }}</li>
+        </ol>
+    </nav>
+    <a href="{% url 'media_library:library' %}?project={{ asset.project.id }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i> Назад
+    </a>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <div class="row g-0">
+            <div class="col-lg-8 bg-light d-flex align-items-center justify-content-center p-4" style="min-height: 500px;">
+                {% if asset.media_type == "video" %}
+                    <video controls class="img-fluid rounded shadow-sm" style="max-height: 80vh;">
+                        <source src="{{ asset.image_file.url }}" type="video/mp4">
+                        Ваш браузер не поддерживает видео.
+                    </video>
+                {% else %}
+                    <img src="{{ asset.image_file.url }}" alt="{{ asset.title }}" class="img-fluid rounded shadow-sm" style="max-height: 80vh; object-fit: contain;">
+                {% endif %}
+            </div>
+            <div class="col-lg-4 border-start">
+                <div class="p-4 h-100 d-flex flex-column">
+                    <h1 class="h4 mb-3">{{ asset.title|default:"Без названия" }}</h1>
+                    
+                    <div class="mb-4">
+                        <h6 class="text-uppercase text-muted small fw-bold mb-2">Информация</h6>
+                        <dl class="row mb-0 small">
+                            <dt class="col-sm-4 text-muted">Проект</dt>
+                            <dd class="col-sm-8">{{ asset.project.name }}</dd>
+
+                            <dt class="col-sm-4 text-muted">Добавлено</dt>
+                            <dd class="col-sm-8">{{ asset.created_at|naturaltime }}</dd>
+
+                            <dt class="col-sm-4 text-muted">Автор</dt>
+                            <dd class="col-sm-8">{{ asset.created_by|default:"—" }}</dd>
+
+                            <dt class="col-sm-4 text-muted">Источник</dt>
+                            <dd class="col-sm-8">{{ asset.get_source_kind_display }}</dd>
+                            
+                            <dt class="col-sm-4 text-muted">Тип</dt>
+                            <dd class="col-sm-8">{{ asset.get_media_type_display }}</dd>
+                        </dl>
+                    </div>
+
+                    {% if asset.prompt %}
+                    <div class="mb-4 flex-grow-1">
+                        <h6 class="text-uppercase text-muted small fw-bold mb-2">Промпт</h6>
+                        <div class="bg-light p-3 rounded small text-secondary" style="white-space: pre-wrap;">{{ asset.prompt }}</div>
+                    </div>
+                    {% endif %}
+
+                    <div class="mt-auto">
+                        <a href="{{ asset.image_file.url }}" download class="btn btn-primary w-100">
+                            <i class="bi bi-download me-2"></i> Скачать файл
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

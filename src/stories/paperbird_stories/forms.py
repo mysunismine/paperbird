@@ -249,6 +249,12 @@ class StoryImageGenerateForm(forms.Form):
         widget=forms.Select(attrs={"class": "form-select"}),
         required=False,
     )
+    style = forms.ChoiceField(
+        label="Стиль (OpenAI)",
+        choices=[("", "По умолчанию"), ("vivid", "Яркий (Vivid)"), ("natural", "Естественный (Natural)")],
+        widget=forms.Select(attrs={"class": "form-select"}),
+        required=False,
+    )
 
     def clean_prompt(self):
         """Проверяет, что промпт не пуст."""

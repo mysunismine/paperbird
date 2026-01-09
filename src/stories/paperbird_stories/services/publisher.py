@@ -201,26 +201,38 @@ class TelethonPublisherBackend:
 
             async def _send_images() -> None:
                 nonlocal published_at
+                file_list = []
+                
+                # Support legacy single file
                 if legacy_image_path and legacy_image_path.exists():
-                    image_message = await client.send_file(
-                        target,
-                        legacy_image_path.as_posix(),
-                        caption=None,
-                    )
-                    mid, published_at_value = _append_message(image_message)
-                    message_ids.append(mid)
-                    published_at = published_at_value
-                    return
+                    file_list.append(legacy_image_path.as_posix())
+                
+                # Support multiple images (album)
                 for image in images:
                     image_path = _image_path(image)
-                    if not image_path:
-                        continue
-                    image_message = await client.send_file(
-                        target,
-                        image_path.as_posix(),
-                        caption=None,
-                    )
-                    mid, published_at_value = _append_message(image_message)
+                    if image_path:
+                        file_list.append(image_path.as_posix())
+                
+                if not file_list:
+                    return
+
+                # If multiple files are passed, Telethon sends them as an album.
+                # If a single file is passed in a list, it sends it as a single file.
+                # We send the list directly.
+                result_messages = await client.send_file(
+                    target,
+                    file_list,
+                    caption=None,
+                )
+                
+                # result_messages can be a single Message or a list of Messages (for album)
+                if isinstance(result_messages, list):
+                    for msg in result_messages:
+                        mid, published_at_value = _append_message(msg)
+                        message_ids.append(mid)
+                        published_at = published_at_value
+                else:
+                    mid, published_at_value = _append_message(result_messages)
                     message_ids.append(mid)
                     published_at = published_at_value
 

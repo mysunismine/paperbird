@@ -6,9 +6,11 @@ from django import forms
 
 
 class MediaAssetUploadForm(forms.Form):
-    image_file = forms.ImageField(
+    image_file = forms.FileField(
         label="Файл",
         required=True,
-        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
-        error_messages={"required": "Выберите изображение"},
+        widget=forms.ClearableFileInput(
+            attrs={"class": "form-control", "accept": "image/*,video/*"}
+        ),
+        error_messages={"required": "Выберите файл"},
     )

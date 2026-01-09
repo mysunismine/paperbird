@@ -36,6 +36,7 @@ class StoryImageGenerator:
         quality: str | None = None,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
+        **kwargs,
     ) -> GeneratedImage:
         """Генерирует изображение."""
         return self.provider.generate(
@@ -45,6 +46,7 @@ class StoryImageGenerator:
             quality=quality,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
+            **kwargs,
         )
 
 

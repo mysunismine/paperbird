@@ -163,32 +163,95 @@
             </div>
           </form>
           <hr class="my-4" />
-          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-            <h3 class="h6 mb-0">Медиа для публикации</h3>
-            <a class="btn btn-sm btn-outline-secondary" href="{% url 'stories:image' story.pk %}">
-              <i class="bi bi-image me-1"></i>
-              Открыть страницу изображений
-            </a>
+          <hr class="my-4" />
+          <h3 class="h6 mb-3">Медиа для публикации</h3>
+          
+          <div class="card mb-4 bg-light">
+            <div class="card-body">
+                <h5 class="h6">1. Создать новую иллюстрацию</h5>
+                <div class="mb-2">
+                    <label class="form-label small text-muted">Рекомендуемый промпт</label>
+                    <div class="input-group">
+                        <textarea class="form-control" rows="2" readonly id="suggested-prompt">{{ story.image_prompt|default:story.title }}</textarea>
+                        <a href="{% url 'media_library:studio' %}?prompt={{ story.image_prompt|default:story.title|urlencode }}" class="btn btn-primary d-flex align-items-center" target="_blank">
+                            <i class="bi bi-magic me-2"></i> Создать
+                        </a>
+                    </div>
+                    <div class="form-text">Нажмите «Создать», чтобы перейти в студию.</div>
+                </div>
+            </div>
           </div>
-          <p class="small text-muted mb-3">
-            Добавляйте изображения из постов или генерации, выбирайте какие публиковать и какое сделать основным.
-          </p>
 
+          <h5 class="h6 mb-3">2. Выбрать изображение</h5>
           <ul class="nav nav-tabs" id="story-media-tabs" role="tablist">
             <li class="nav-item" role="presentation">
-              <button class="nav-link active" id="media-source-tab" data-bs-toggle="tab" data-bs-target="#media-source" type="button" role="tab" aria-controls="media-source" aria-selected="true">
-                Из источников
+              <button class="nav-link active" id="media-library-tab" data-bs-toggle="tab" data-bs-target="#media-library" type="button" role="tab">
+                Библиотека
               </button>
             </li>
             <li class="nav-item" role="presentation">
-              <button class="nav-link" id="media-generated-tab" data-bs-toggle="tab" data-bs-target="#media-generated" type="button" role="tab" aria-controls="media-generated" aria-selected="false">
-                Сгенерированные
+              <button class="nav-link" id="media-source-tab" data-bs-toggle="tab" data-bs-target="#media-source" type="button" role="tab">
+                Из постов
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="media-selected-tab" data-bs-toggle="tab" data-bs-target="#media-selected" type="button" role="tab">
+                Выбранные
               </button>
             </li>
           </ul>
 
           <div class="tab-content pt-3">
-            <div class="tab-pane fade show active" id="media-source" role="tabpanel" aria-labelledby="media-source-tab">
+            <!-- Library Tab -->
+            <div class="tab-pane fade show active" id="media-library" role="tabpanel">
+                <p class="small text-muted">Последние изображения из медиабиблиотеки проекта.</p>
+                {% if library_assets %}
+                <div class="row row-cols-2 row-cols-md-4 g-3">
+                    {% for asset in library_assets %}
+                    <div class="col">
+                        {% if asset.id in attached_asset_ids %}
+                            <div class="card h-100 shadow-sm border-success bg-success-subtle">
+                                <div class="position-relative">
+                                    <img src="{{ asset.image_file.url }}" class="card-img-top" style="aspect-ratio: 1; object-fit: cover;">
+                                    <div class="position-absolute top-0 end-0 p-1">
+                                        <span class="badge text-bg-success rounded-circle p-2"><i class="bi bi-check-lg"></i></span>
+                                    </div>
+                                </div>
+                                <div class="card-body p-2">
+                                    <p class="small text-truncate mb-2" title="{{ asset.prompt }}">{{ asset.title|default:"Без названия" }}</p>
+                                    <button class="btn btn-sm btn-success w-100 disabled" disabled>
+                                        <i class="bi bi-check2"></i> Выбрано
+                                    </button>
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="card h-100 shadow-sm">
+                                <div class="position-relative">
+                                    <img src="{{ asset.image_file.url }}" class="card-img-top" style="aspect-ratio: 1; object-fit: cover;">
+                                </div>
+                                <div class="card-body p-2">
+                                    <p class="small text-truncate mb-2" title="{{ asset.prompt }}">{{ asset.title|default:"Без названия" }}</p>
+                                    <form method="post">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="attach_library_asset">
+                                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                        <button class="btn btn-sm btn-outline-primary w-100" type="submit">
+                                            Выбрать
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="alert alert-light">Библиотека пуста.</div>
+                {% endif %}
+            </div>
+
+            <!-- Source Tab -->
+            <div class="tab-pane fade" id="media-source" role="tabpanel">
               {% if source_media %}
                 <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
                   {% for item in source_media %}
@@ -213,83 +276,55 @@
                 </div>
               {% else %}
                 <div class="alert alert-info mb-3">
-                  В исходных постах этого сюжета нет доступных изображений. Попробуйте сгенерировать
-                  картинку или загрузить свою на странице «Изображение».
+                  В исходных постах нет изображений.
                 </div>
               {% endif %}
+            </div>
 
+            <!-- Selected Tab (Currently Attached) -->
+            <div class="tab-pane fade" id="media-selected" role="tabpanel">
               <div id="source-images-container">
-                {% if source_images %}
-                  <h4 class="h6 mt-4">Выбранные из источников</h4>
+                {% if generated_images or source_images %} 
                   <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3" id="source-images-grid">
-                    {% for image in source_images %}
+                    {% for image in story.images.all %}
                       <div class="col">
-                        <div class="card h-100 shadow-sm">
-                          <img src="{{ image.image_file.url }}" class="card-img-top" alt="Изображение сюжета" style="aspect-ratio: 4/3; object-fit: cover;">
+                        <div class="card h-100 shadow-sm {% if image.is_main %}border-warning{% endif %}">
+                          <div class="position-relative">
+                              <img src="{{ image.image_file.url }}" class="card-img-top" alt="Изображение сюжета" style="aspect-ratio: 4/3; object-fit: cover;">
+                              <div class="position-absolute top-0 end-0 p-2">
+                                  <form method="post">
+                                      {% csrf_token %}
+                                      <input type="hidden" name="action" value="set_main_image">
+                                      <input type="hidden" name="image_id" value="{{ image.id }}">
+                                      <button class="btn btn-sm {% if image.is_main %}btn-warning text-white{% else %}btn-light text-secondary{% endif %} rounded-circle shadow-sm" style="width: 32px; height: 32px; padding: 0;" type="submit" title="Сделать главным">
+                                          <i class="bi {% if image.is_main %}bi-star-fill{% else %}bi-star{% endif %}"></i>
+                                      </button>
+                                  </form>
+                              </div>
+                          </div>
                           <div class="card-body p-2 d-flex flex-column gap-1">
-                            {% if image.is_main %}
-                              <span class="badge text-bg-primary align-self-start">Основное</span>
-                            {% endif %}
                             <form method="post">
                               {% csrf_token %}
                               <input type="hidden" name="action" value="toggle_image">
                               <input type="hidden" name="image_id" value="{{ image.id }}">
                               <input type="hidden" name="selected" value="{% if image.is_selected %}0{% else %}1{% endif %}">
-                              <button class="btn btn-sm {% if image.is_selected %}btn-outline-secondary{% else %}btn-outline-primary{% endif %} w-100" type="submit">
-                                {% if image.is_selected %}Убрать из публикации{% else %}В публикацию{% endif %}
+                              <button class="btn btn-sm {% if image.is_selected %}btn-outline-danger{% else %}btn-outline-success{% endif %} w-100" type="submit">
+                                {% if image.is_selected %}
+                                    <i class="bi bi-x-lg me-1"></i> Убрать
+                                {% else %}
+                                    <i class="bi bi-check-lg me-1"></i> Вернуть
+                                {% endif %}
                               </button>
-                            </form>
-                            <form method="post">
-                              {% csrf_token %}
-                              <input type="hidden" name="action" value="set_main_image">
-                              <input type="hidden" name="image_id" value="{{ image.id }}">
-                              <button class="btn btn-sm btn-outline-primary w-100" type="submit">Сделать главным</button>
                             </form>
                           </div>
                         </div>
                       </div>
                     {% endfor %}
                   </div>
+                {% else %}
+                    <div class="alert alert-warning">Ничего не выбрано.</div>
                 {% endif %}
               </div>
-            </div>
-
-            <div class="tab-pane fade" id="media-generated" role="tabpanel" aria-labelledby="media-generated-tab">
-              {% if generated_images %}
-                <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
-                  {% for image in generated_images %}
-                    <div class="col">
-                      <div class="card h-100 shadow-sm">
-                        <img src="{{ image.image_file.url }}" class="card-img-top" alt="Сгенерированное изображение" style="aspect-ratio: 4/3; object-fit: cover;">
-                        <div class="card-body p-2 d-flex flex-column gap-1">
-                          {% if image.is_main %}
-                            <span class="badge text-bg-primary align-self-start">Основное</span>
-                          {% endif %}
-                          <form method="post">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="toggle_image">
-                            <input type="hidden" name="image_id" value="{{ image.id }}">
-                            <input type="hidden" name="selected" value="{% if image.is_selected %}0{% else %}1{% endif %}">
-                            <button class="btn btn-sm {% if image.is_selected %}btn-outline-secondary{% else %}btn-outline-primary{% endif %} w-100" type="submit">
-                              {% if image.is_selected %}Убрать из публикации{% else %}В публикацию{% endif %}
-                            </button>
-                          </form>
-                          <form method="post">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="set_main_image">
-                            <input type="hidden" name="image_id" value="{{ image.id }}">
-                            <button class="btn btn-sm btn-outline-primary w-100" type="submit">Сделать главным</button>
-                          </form>
-                        </div>
-                      </div>
-                    </div>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="alert alert-info">
-                  Пока нет сгенерированных изображений. Перейдите на страницу «Изображение», чтобы создать их.
-                </div>
-              {% endif %}
             </div>
           </div>
         </div>

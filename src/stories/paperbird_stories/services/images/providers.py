@@ -35,6 +35,7 @@ class ImageGenerationProvider:
         prompt: str,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
+        **kwargs,
     ) -> GeneratedImage:  # pragma: no cover - protocol stub
         raise NotImplementedError
 
@@ -64,6 +65,7 @@ class OpenAIImageProvider:
         model: str | None = None,
         size: str | None = None,
         quality: str | None = None,
+        style: str | None = None,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
     ) -> GeneratedImage:
@@ -83,7 +85,11 @@ class OpenAIImageProvider:
             "prompt": prompt,
             "size": normalize_image_size(size),
             "quality": use_quality,
+            "response_format": "b64_json",
         }
+        if style and style in ("vivid", "natural"):
+            payload["style"] = style
+
         body = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(self.api_url, data=body, method="POST")
         request.add_header("Content-Type", "application/json")
@@ -126,15 +132,11 @@ class OpenAIImageProvider:
     @staticmethod
     def _normalize_quality(value: str | None) -> str:
         normalized = normalize_image_quality(value)
-        mapping = {
-            "standard": "medium",
-            "hd": "high",
-        }
-        if normalized in mapping:
-            return mapping[normalized]
-        if normalized in {"low", "medium", "high", "auto"}:
-            return normalized
-        return "auto"
+        if normalized in {"hd", "high"}:
+            return "hd"
+        if normalized in {"standard", "low", "medium", "auto"}:
+            return "standard"
+        return "standard"
 
 
 class YandexArtProvider:
@@ -180,6 +182,7 @@ class YandexArtProvider:
         quality: str | None = None,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
+        **kwargs,
     ) -> GeneratedImage:
         prompt = prompt.strip()
         if not prompt:
@@ -301,6 +304,7 @@ class GeminiImageProvider:
         quality: str | None = None,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
+        **kwargs,
     ) -> GeneratedImage:
         prompt = prompt.strip()
         if not prompt:
