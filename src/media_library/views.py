@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import base64
-import binascii
-import hashlib
-import mimetypes
+import json
 import uuid
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
-import httpx
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -26,21 +21,14 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views import View
-from django.views.generic import TemplateView
+from django.views.generic import DetailView, TemplateView
 
 from core.constants import IMAGE_PROVIDER_SETTINGS
 from media_library.forms import MediaAssetUploadForm
 from media_library.models import MediaAsset
 from media_library.services import resolve_post_media
 from projects.models import Post, Project
-from stories.paperbird_stories.forms import (
-    StoryImageAttachForm,
-    StoryImageDeleteForm,
-    StoryImageGenerateForm,
-    StoryImageLibraryAttachForm,
-    StoryImageUploadForm,
-)
-from stories.paperbird_stories.models import Story, StoryImage
+from stories.paperbird_stories.forms import StoryImageGenerateForm
 from stories.paperbird_stories.services import (
     ImageGenerationFailed,
     default_image_generator,
@@ -48,10 +36,6 @@ from stories.paperbird_stories.services import (
     normalize_image_size,
 )
 from stories.paperbird_stories.services.helpers import _looks_like_gemini_model
-from stories.paperbird_stories.services.image_prompt import (
-    ImagePromptSuggestionFailed,
-    suggest_image_prompt,
-)
 
 
 class MediaLibraryView(LoginRequiredMixin, TemplateView):
@@ -75,6 +59,8 @@ class MediaLibraryView(LoginRequiredMixin, TemplateView):
             return self._handle_upload(request, project)
         if action == "import_post":
             return self._handle_import_post(request, project)
+        if action == "bulk_update":
+            return self._handle_bulk_update(request, project)
         messages.error(request, "Неизвестное действие.")
         return redirect(f"{reverse('media_library:library')}?project={project.pk}")
 
@@ -162,13 +148,16 @@ class MediaLibraryView(LoginRequiredMixin, TemplateView):
             return redirect(f"{request.path}?project={project.pk}")
 
         image_file = form.cleaned_data["image_file"]
-        title = Path(image_file.name).stem
+        title = form.cleaned_data["title"] or Path(image_file.name).stem
+        tags_value = form.cleaned_data["tags"] or ""
+        tags = self._parse_tags(tags_value)
         MediaAsset.objects.create(
             project=project,
             story=None,
             created_by=request.user,
             image_file=image_file,
             title=title,
+            tags=tags,
             source_kind=MediaAsset.SourceKind.UPLOAD,
         )
         messages.success(request, "Медиа добавлено в медиабиблиотеку.")
@@ -202,6 +191,49 @@ class MediaLibraryView(LoginRequiredMixin, TemplateView):
         )
         asset.image_file.save(filename, ContentFile(data), save=True)
         messages.success(request, "Медиа из поста добавлено в медиабиблиотеку.")
+        return redirect(f"{request.path}?project={project.pk}")
+
+    def _handle_bulk_update(self, request, project: Project):
+        asset_ids = [
+            int(item)
+            for item in request.POST.getlist("asset_ids")
+            if item and str(item).isdigit()
+        ]
+        title = (request.POST.get("bulk_title") or "").strip()
+        tags_value = (request.POST.get("bulk_tags") or "").strip()
+        append_tags = (request.POST.get("append_tags") or "").strip() == "1"
+        if not asset_ids:
+            messages.error(request, "Выберите медиа для обновления.")
+            return redirect(f"{request.path}?project={project.pk}")
+        if not title and not tags_value:
+            messages.error(request, "Заполните название или теги для обновления.")
+            return redirect(f"{request.path}?project={project.pk}")
+
+        assets = MediaAsset.objects.filter(project=project, id__in=asset_ids)
+        if not assets.exists():
+            messages.error(request, "Не удалось найти выбранные медиа.")
+            return redirect(f"{request.path}?project={project.pk}")
+
+        tags = self._parse_tags(tags_value)
+        updated = 0
+        if tags_value and append_tags:
+            for asset in assets:
+                merged_tags = list(dict.fromkeys((asset.tags or []) + tags))
+                if title:
+                    asset.title = title
+                asset.tags = merged_tags
+                update_fields = ["tags"] + (["title"] if title else [])
+                asset.save(update_fields=update_fields)
+                updated += 1
+        else:
+            update_kwargs = {}
+            if title:
+                update_kwargs["title"] = title
+            if tags_value:
+                update_kwargs["tags"] = tags
+            updated = assets.update(**update_kwargs)
+
+        messages.success(request, f"Обновлено медиа: {updated}.")
         return redirect(f"{request.path}?project={project.pk}")
 
     def _post_media_candidates(self, project: Project) -> list[dict[str, Any]]:
@@ -482,7 +514,8 @@ class MediaStudioView(LoginRequiredMixin, TemplateView):
             {
                 "projects": projects,
                 "project": project,
-                "generate_form": kwargs.get("generate_form") or self._generate_form_initial(project=project),
+                "generate_form": kwargs.get("generate_form")
+                or self._generate_form_initial(project=project),
                 "image_provider_settings": self._provider_settings(),
             }
         )
@@ -517,17 +550,17 @@ class MediaStudioView(LoginRequiredMixin, TemplateView):
         selected_model = ""
         if project:
             selected_model = project.image_model
-            
+
         default_image_size = ""
         if selected_model == "gemini-3-pro-image-preview":
             default_image_size = getattr(settings, "GEMINI_IMAGE_SIZE", "")
-            
+
         initial = {
             "prompt": prompt or "",
             "model": selected_model,
             "size": normalize_image_size(project.image_size if project else ""),
             "quality": normalize_image_quality(project.image_quality if project else ""),
-            "style": "vivid", # Default assumption
+            "style": "vivid",
             "aspect_ratio": getattr(settings, "GEMINI_IMAGE_ASPECT_RATIO", ""),
             "image_size": default_image_size,
         }
@@ -536,7 +569,7 @@ class MediaStudioView(LoginRequiredMixin, TemplateView):
     def _handle_generate(self, request):
         is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
         form = StoryImageGenerateForm(request.POST)
-        
+
         if not form.is_valid():
             if is_ajax:
                 return JsonResponse({"status": "error", "errors": form.errors}, status=400)
@@ -549,17 +582,17 @@ class MediaStudioView(LoginRequiredMixin, TemplateView):
         style = form.cleaned_data.get("style")
         aspect_ratio = (form.cleaned_data.get("aspect_ratio") or "").strip()
         image_size = (form.cleaned_data.get("image_size") or "").strip()
-        
+
         generator = default_image_generator(model=model)
         use_gemini = _looks_like_gemini_model(model)
-        
+
         if use_gemini:
             safe_size = ""
             quality = ""
-            style = "" # Gemini doesn't support this style param yet via standard api in this context
+            style = ""
         else:
             safe_size = normalize_image_size(size)
-            
+
         try:
             result = generator.generate(
                 prompt=prompt,
@@ -583,44 +616,44 @@ class MediaStudioView(LoginRequiredMixin, TemplateView):
             "prompt": prompt,
             "model": model,
         }
-        
+
         # Store in session for "Save to Library" action
         self._store_preview_session(request, preview)
-        
+
         if is_ajax:
             return JsonResponse({"status": "success", "preview": preview})
-            
+
         return self.render_to_response(self.get_context_data(generate_form=form))
 
     def _handle_save_to_library(self, request):
         is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
-        
+
         # We expect the preview to be in the session
         preview_data = self._get_preview_session(request)
         if not preview_data:
             msg = "Изображение устарело. Сгенерируйте заново."
             if is_ajax:
-                 return JsonResponse({"status": "error", "message": msg}, status=400)
+                return JsonResponse({"status": "error", "message": msg}, status=400)
             messages.error(request, msg)
             return redirect("media_library:studio")
 
         project_id = request.POST.get("project_id")
         project = None
         if project_id:
-             project = get_object_or_404(Project, pk=project_id)
+            project = get_object_or_404(Project, pk=project_id)
         else:
-             project = Project.objects.accessible_by(request.user).first()
-             
+            project = Project.objects.accessible_by(request.user).first()
+
         if not project:
             msg = "Не выбран проект для сохранения."
             if is_ajax:
-                 return JsonResponse({"status": "error", "message": msg}, status=400)
+                return JsonResponse({"status": "error", "message": msg}, status=400)
             messages.error(request, msg)
             return redirect("media_library:studio")
 
         try:
             image_data = base64.b64decode(preview_data["data"])
-            filename = f"generated_{uuid.uuid4().hex}.png" # Defaulting to png, assumption
+            filename = f"generated_{uuid.uuid4().hex}.png"
             if "jpeg" in preview_data["mime"]:
                 filename = filename.replace(".png", ".jpg")
             elif "webp" in preview_data["mime"]:
@@ -634,21 +667,21 @@ class MediaStudioView(LoginRequiredMixin, TemplateView):
                 source_kind=MediaAsset.SourceKind.GENERATED,
             )
             asset.image_file.save(filename, ContentFile(image_data), save=True)
-            
+
             # Clear session
             self._clear_preview_session(request)
-            
+
             msg = "Изображение сохранено в библиотеку."
             if is_ajax:
                 return JsonResponse({"status": "success", "message": msg})
             messages.success(request, msg)
             return redirect("media_library:studio")
-            
+
         except Exception as exc:
-             if is_ajax:
-                 return JsonResponse({"status": "error", "message": str(exc)}, status=500)
-             messages.error(request, f"Ошибка сохранения: {exc}")
-             return redirect("media_library:studio")
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": str(exc)}, status=500)
+            messages.error(request, f"Ошибка сохранения: {exc}")
+            return redirect("media_library:studio")
 
     def _store_preview_session(self, request, data: dict):
         request.session["media_studio_preview_data"] = data
@@ -656,14 +689,11 @@ class MediaStudioView(LoginRequiredMixin, TemplateView):
 
     def _get_preview_session(self, request) -> dict | None:
         return request.session.get("media_studio_preview_data")
-        
+
     def _clear_preview_session(self, request):
         if "media_studio_preview_data" in request.session:
             del request.session["media_studio_preview_data"]
             request.session.modified = True
-
-
-from django.views.generic import DetailView
 
 class MediaAssetDetailView(LoginRequiredMixin, DetailView):
     """Детальный просмотр медиа-актива."""

@@ -20,13 +20,17 @@
       </div>
       <div class="col-12 col-lg-4">
         <label class="form-label">Поиск</label>
-        <input
-          type="search"
-          name="q"
-          value="{{ search_query }}"
-          class="form-control"
-          placeholder="Ключевые слова или теги"
-        >
+        <div class="input-group">
+          <input
+            type="search"
+            name="q"
+            value="{{ search_query }}"
+            class="form-control"
+            placeholder="Ключевые слова или теги"
+          >
+          <button class="btn btn-outline-secondary" type="button" id="clear-search">Сброс</button>
+        </div>
+        <div class="form-text">Поиск по названию, промпту и тегам.</div>
       </div>
       <div class="col-12 col-lg-2">
         <label class="form-label">Теги</label>
@@ -46,7 +50,7 @@
       </div>
       <div class="col-12 col-lg-3">
         <label class="form-label">Источник</label>
-        <select name="source" class="form-select">
+        <select name="source" class="form-select" onchange="this.form.submit()">
           <option value="owned" {% if source_kind == "owned" or not source_kind %}selected{% endif %}>
             Мои
           </option>
@@ -66,7 +70,7 @@
       </div>
       <div class="col-12 col-lg-2">
         <label class="form-label">Сортировка</label>
-        <select name="sort" class="form-select">
+        <select name="sort" class="form-select" onchange="this.form.submit()">
           <option value="newest" {% if sort_value == "newest" %}selected{% endif %}>Новые</option>
           <option value="oldest" {% if sort_value == "oldest" %}selected{% endif %}>Старые</option>
           <option value="title" {% if sort_value == "title" %}selected{% endif %}>По названию</option>
@@ -75,13 +79,13 @@
       <div class="col-12 col-lg-6">
         <label class="form-label">Тип медиа</label>
         <div class="btn-group w-100" role="group" aria-label="Фильтр типа медиа">
-          <input type="radio" class="btn-check" name="type" id="type-all" value="" {% if not media_type %}checked{% endif %}>
+          <input type="radio" class="btn-check" name="type" id="type-all" value="" {% if not media_type %}checked{% endif %} onchange="this.form.submit()">
           <label class="btn btn-outline-secondary" for="type-all">Все</label>
-          <input type="radio" class="btn-check" name="type" id="type-image" value="image" {% if media_type == "image" %}checked{% endif %}>
+          <input type="radio" class="btn-check" name="type" id="type-image" value="image" {% if media_type == "image" %}checked{% endif %} onchange="this.form.submit()">
           <label class="btn btn-outline-secondary" for="type-image">Фото</label>
-          <input type="radio" class="btn-check" name="type" id="type-video" value="video" {% if media_type == "video" %}checked{% endif %}>
+          <input type="radio" class="btn-check" name="type" id="type-video" value="video" {% if media_type == "video" %}checked{% endif %} onchange="this.form.submit()">
           <label class="btn btn-outline-secondary" for="type-video">Видео</label>
-          <input type="radio" class="btn-check" name="type" id="type-gif" value="gif" {% if media_type == "gif" %}checked{% endif %}>
+          <input type="radio" class="btn-check" name="type" id="type-gif" value="gif" {% if media_type == "gif" %}checked{% endif %} onchange="this.form.submit()">
           <label class="btn btn-outline-secondary" for="type-gif">GIF</label>
         </div>
       </div>
@@ -96,6 +100,7 @@
               name="show_posts"
               value="1"
               {% if show_posts %}checked{% endif %}
+              onchange="this.form.submit()"
             >
             <label class="form-check-label" for="show_posts">Медиа из постов</label>
           </div>
@@ -107,13 +112,11 @@
               name="mine"
               value="1"
               {% if mine_only %}checked{% endif %}
+              onchange="this.form.submit()"
             >
             <label class="form-check-label" for="mine">Только мои</label>
           </div>
         </div>
-      </div>
-      <div class="col-12 col-lg-2">
-        <button class="btn btn-primary w-100" type="submit">Применить</button>
       </div>
     </div>
   </div>
@@ -146,8 +149,19 @@
         <input type="hidden" name="action" value="upload">
         <input type="hidden" name="project" value="{{ project.id }}">
         <div class="row g-2 align-items-end">
-          <div class="col-md-8">{{ upload_form.image_file }}</div>
-          <div class="col-md-4">
+          <div class="col-12 col-lg-4">
+            <label class="form-label">Файл</label>
+            {{ upload_form.image_file }}
+          </div>
+          <div class="col-12 col-lg-3">
+            <label class="form-label">Название</label>
+            {{ upload_form.title }}
+          </div>
+          <div class="col-12 col-lg-3">
+            <label class="form-label">Теги</label>
+            {{ upload_form.tags }}
+          </div>
+          <div class="col-12 col-lg-2">
             <button class="btn btn-primary w-100" type="submit">Добавить</button>
           </div>
         </div>
@@ -218,48 +232,86 @@
     <div class="text-muted small">Найдено: {{ total_count }}</div>
   </div>
   {% if page_obj and page_obj.object_list %}
-    <div class="row row-cols-2 row-cols-md-4 g-3" data-media-grid data-endpoint="{% url 'media_library:library_assets' %}" data-query="{{ pagination_query }}" data-next-page="{% if page_obj.has_next %}{{ page_obj.next_page_number }}{% else %}0{% endif %}">
-      {% for asset in page_obj %}
-        <div class="col">
-          <a href="{% url 'media_library:asset_detail' asset.pk %}" class="text-decoration-none text-reset">
-            <div class="card h-100 shadow-sm">
-              {% if asset.media_type == "video" %}
-                <video class="card-img-top media-preview" style="aspect-ratio: 4/3; object-fit: cover;" preload="metadata" muted playsinline>
-                  <source src="{{ asset.image_file.url }}">
-                </video>
-              {% else %}
-                <img src="{{ asset.image_file.url }}" class="card-img-top" alt="{{ asset.title|default:'Медиа' }}" style="aspect-ratio: 4/3; object-fit: cover;">
-              {% endif %}
-              <div class="card-body p-2">
-                <div class="d-flex justify-content-between align-items-start gap-2">
-                  <div class="fw-semibold small">{{ asset.title|default:"Без названия" }}</div>
-                  <span class="badge text-bg-light">{{ asset.get_media_type_display }}</span>
-                </div>
-                <div class="text-muted small">{{ asset.get_source_kind_display }}</div>
-                {% if asset.source_kind == "imported" %}
-                  <div class="text-warning small">Контент из постов</div>
-                {% endif %}
-                {% if asset.tags %}
-                  <div class="small text-muted">
-                    {% for tag in asset.tags|slice:":2" %}
-                      <span class="badge rounded-pill text-bg-light">#{{ tag }}</span>
-                    {% endfor %}
-                  </div>
-                {% endif %}
-                {% if asset.created_by %}
-                  <div class="text-muted small">{{ asset.created_by }}</div>
-                {% endif %}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="bulk_update">
+      <input type="hidden" name="project" value="{{ project.id }}">
+      <div class="card shadow-sm mb-3">
+        <div class="card-body">
+          <div class="row g-2 align-items-end">
+            <div class="col-12 col-lg-4">
+              <label class="form-label">Новое название</label>
+              <input type="text" name="bulk_title" class="form-control" placeholder="Оставьте пустым, если не нужно">
+            </div>
+            <div class="col-12 col-lg-4">
+              <label class="form-label">Теги</label>
+              <input type="text" name="bulk_tags" class="form-control" placeholder="Теги через запятую">
+              <div class="form-text">Выберите медиа ниже и заполните поля.</div>
+            </div>
+            <div class="col-12 col-lg-2">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="append_tags" name="append_tags" value="1">
+                <label class="form-check-label" for="append_tags">Добавить к тегам</label>
               </div>
             </div>
-          </a>
+            <div class="col-12 col-lg-2">
+              <button class="btn btn-outline-primary w-100" type="submit">Применить</button>
+            </div>
+          </div>
         </div>
-      {% endfor %}
-    </div>
-    <div class="d-flex justify-content-center mt-4">
-      <button class="btn btn-outline-secondary" type="button" data-load-more {% if not page_obj.has_next %}disabled{% endif %}>
-        Загрузить еще
-      </button>
-    </div>
+      </div>
+      <div class="row row-cols-2 row-cols-md-4 g-3" data-media-grid data-endpoint="{% url 'media_library:library_assets' %}" data-query="{{ pagination_query }}" data-next-page="{% if page_obj.has_next %}{{ page_obj.next_page_number }}{% else %}0{% endif %}">
+        {% for asset in page_obj %}
+          <div class="col">
+            <div class="card h-100 shadow-sm position-relative">
+              <div class="form-check position-absolute top-0 start-0 m-2" style="z-index: 2;">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  name="asset_ids"
+                  value="{{ asset.pk }}"
+                  aria-label="Выбрать медиа"
+                >
+              </div>
+              <a href="{% url 'media_library:asset_detail' asset.pk %}" class="text-decoration-none text-reset">
+                {% if asset.media_type == "video" %}
+                  <video class="card-img-top media-preview" style="aspect-ratio: 4/3; object-fit: cover;" preload="metadata" muted playsinline>
+                    <source src="{{ asset.image_file.url }}">
+                  </video>
+                {% else %}
+                  <img src="{{ asset.image_file.url }}" class="card-img-top" alt="{{ asset.title|default:'Медиа' }}" style="aspect-ratio: 4/3; object-fit: cover;">
+                {% endif %}
+                <div class="card-body p-2">
+                  <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div class="fw-semibold small">{{ asset.title|default:"Без названия" }}</div>
+                    <span class="badge text-bg-light">{{ asset.get_media_type_display }}</span>
+                  </div>
+                  <div class="text-muted small">{{ asset.get_source_kind_display }}</div>
+                  {% if asset.source_kind == "imported" %}
+                    <div class="text-warning small">Контент из постов</div>
+                  {% endif %}
+                  {% if asset.tags %}
+                    <div class="small text-muted">
+                      {% for tag in asset.tags|slice:":2" %}
+                        <span class="badge rounded-pill text-bg-light">#{{ tag }}</span>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                  {% if asset.created_by %}
+                    <div class="text-muted small">{{ asset.created_by }}</div>
+                  {% endif %}
+                </div>
+              </a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="d-flex justify-content-center mt-4">
+        <button class="btn btn-outline-secondary" type="button" data-load-more {% if not page_obj.has_next %}disabled{% endif %}>
+          Загрузить еще
+        </button>
+      </div>
+    </form>
     {% if is_paginated %}
       <nav class="mt-4" aria-label="Пагинация">
         <ul class="pagination justify-content-center">
@@ -302,6 +354,8 @@
     const loadMoreButton = document.querySelector("[data-load-more]");
     if (!grid || !loadMoreButton) return;
 
+    const filterForm = grid.closest("form");
+    const searchInput = filterForm?.querySelector("input[name=\"q\"]");
     const tagsInput = document.getElementById("tags-input");
     const tagsValue = document.getElementById("tags-value");
     const tagsSuggestions = document.getElementById("tags-suggestions");
@@ -327,8 +381,11 @@
         : `<img src="${item.url}" class="card-img-top" alt="${item.title}" style="aspect-ratio: 4/3; object-fit: cover;">`;
       return `
         <div class="col">
-          <a href="/media/library/asset/${item.id}/" class="text-decoration-none text-reset">
-            <div class="card h-100 shadow-sm">
+          <div class="card h-100 shadow-sm position-relative">
+            <div class="form-check position-absolute top-0 start-0 m-2" style="z-index: 2;">
+              <input class="form-check-input" type="checkbox" name="asset_ids" value="${item.id}" aria-label="Выбрать медиа">
+            </div>
+            <a href="/media/library/asset/${item.id}/" class="text-decoration-none text-reset">
               ${media}
               <div class="card-body p-2">
                 <div class="d-flex justify-content-between align-items-start gap-2">
@@ -340,8 +397,8 @@
                 ${tags ? `<div class="small text-muted">${tags}</div>` : ""}
                 ${item.created_by ? `<div class="text-muted small">${item.created_by}</div>` : ""}
               </div>
-            </div>
-          </a>
+            </a>
+          </div>
         </div>
       `;
     };
@@ -404,6 +461,30 @@
         loadMore();
       }
     });
+
+    const clearSearchButton = document.getElementById("clear-search");
+    if (filterForm && searchInput) {
+      let searchTimer;
+      searchInput.addEventListener("input", () => {
+        if (searchTimer) window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(() => {
+          filterForm.requestSubmit?.() || filterForm.submit();
+        }, 300);
+      });
+      searchInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          filterForm.requestSubmit?.() || filterForm.submit();
+        }
+      });
+      if (clearSearchButton) {
+        clearSearchButton.addEventListener("click", () => {
+          if (!searchInput.value) return;
+          searchInput.value = "";
+          filterForm.requestSubmit?.() || filterForm.submit();
+        });
+      }
+    }
 
     const renderSelectedTags = () => {
       if (!selectedTagsContainer) return;

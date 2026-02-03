@@ -21,6 +21,17 @@ from .exceptions import PublicationFailed
 from .helpers import _json_safe
 
 
+def _media_kind_for_path(path: Path) -> str:
+    ext = path.suffix.lower()
+    if ext == ".gif":
+        return "gif"
+    if ext in {".mp4", ".mov", ".webm", ".mkv", ".avi"}:
+        return "video"
+    if ext in {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif"}:
+        return "photo"
+    return "other"
+
+
 @dataclass(slots=True)
 class PublishResult:
     """Результат отправки публикации."""
@@ -201,38 +212,52 @@ class TelethonPublisherBackend:
 
             async def _send_images() -> None:
                 nonlocal published_at
-                file_list = []
+                entries: list[tuple[Path, str]] = []
                 
                 # Support legacy single file
                 if legacy_image_path and legacy_image_path.exists():
-                    file_list.append(legacy_image_path.as_posix())
+                    entries.append(
+                        (legacy_image_path, _media_kind_for_path(legacy_image_path))
+                    )
                 
                 # Support multiple images (album)
                 for image in images:
                     image_path = _image_path(image)
                     if image_path:
-                        file_list.append(image_path.as_posix())
-                
-                if not file_list:
+                        entries.append((image_path, _media_kind_for_path(image_path)))
+
+                if not entries:
                     return
 
-                # If multiple files are passed, Telethon sends them as an album.
-                # If a single file is passed in a list, it sends it as a single file.
-                # We send the list directly.
-                result_messages = await client.send_file(
-                    target,
-                    file_list,
-                    caption=None,
-                )
-                
-                # result_messages can be a single Message or a list of Messages (for album)
-                if isinstance(result_messages, list):
-                    for msg in result_messages:
-                        mid, published_at_value = _append_message(msg)
+                kinds = {kind for _path, kind in entries}
+                can_send_album = kinds.issubset({"photo"}) or kinds.issubset({"video"})
+                if can_send_album:
+                    file_list = [path.as_posix() for path, _kind in entries]
+                    result_messages = await client.send_file(
+                        target,
+                        file_list,
+                        caption=None,
+                    )
+                    if isinstance(result_messages, list):
+                        for msg in result_messages:
+                            mid, published_at_value = _append_message(msg)
+                            message_ids.append(mid)
+                            published_at = published_at_value
+                    else:
+                        mid, published_at_value = _append_message(result_messages)
                         message_ids.append(mid)
                         published_at = published_at_value
-                else:
-                    mid, published_at_value = _append_message(result_messages)
+                    return
+
+                for path, _kind in entries:
+                    force_document = _kind in {"gif", "other"}
+                    msg = await client.send_file(
+                        target,
+                        path.as_posix(),
+                        caption=None,
+                        force_document=force_document,
+                    )
+                    mid, published_at_value = _append_message(msg)
                     message_ids.append(mid)
                     published_at = published_at_value
 

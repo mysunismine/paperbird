@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -20,6 +21,7 @@ from stories.paperbird_stories.services import (
     StoryPublisher,
     TelethonPublisherBackend,
 )
+from stories.paperbird_stories.services.publisher import _media_kind_for_path
 from stories.paperbird_stories.workers import publish_story_task
 
 User = get_user_model()
@@ -194,6 +196,12 @@ class StoryPublisherTests(TestCase):
         self.assertEqual(publication.status, Publication.Status.PUBLISHED)
         self.assertEqual(publication.raw_response["sent_at"], sample_dt.isoformat())
         self.assertIsInstance(publication.raw_response["history"], list)
+
+    def test_media_kind_for_path(self) -> None:
+        self.assertEqual(_media_kind_for_path(Path("clip.mp4")), "video")
+        self.assertEqual(_media_kind_for_path(Path("image.PNG")), "photo")
+        self.assertEqual(_media_kind_for_path(Path("loop.gif")), "gif")
+        self.assertEqual(_media_kind_for_path(Path("archive.zip")), "other")
 
 
 class PublishWorkerTests(TestCase):

@@ -10,6 +10,8 @@
         <div class="d-flex align-items-center mb-2">
           {% if post.source.type == "telegram" %}
             <i class="bi bi-telegram h3 text-info me-2"></i>
+          {% elif post.source.type == "manual" %}
+            <i class="bi bi-pencil-square h3 text-warning me-2"></i>
           {% else %}
             <i class="bi bi-globe2 h3 text-success me-2"></i>
           {% endif %}

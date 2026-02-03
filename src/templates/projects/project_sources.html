@@ -6,7 +6,7 @@
   <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-4">
     <div>
       <h1 class="h3 mb-1">Источники проекта «{{ project.name }}»</h1>
-      <p class="text-muted mb-0">Подключайте Telegram-каналы или веб-ленты, чтобы коллектор пополнял ленту проекта.</p>
+      <p class="text-muted mb-0">Добавляйте источники из Telegram, веба или вручную.</p>
     </div>
     {# TODO: The dropdown links should point to specific create views for each source type #}
     <div class="btn-group">
@@ -35,6 +35,8 @@
                 <div class="d-flex w-100 align-items-start">
                   {% if source.type == "telegram" %}
                     <i class="bi bi-telegram h3 text-info me-3"></i>
+                  {% elif source.type == "manual" %}
+                    <i class="bi bi-pencil-square h3 text-warning me-3"></i>
                   {% else %}
                     <i class="bi bi-globe2 h3 text-success me-3"></i>
                   {% endif %}
@@ -48,6 +50,8 @@
                     <p class="small text-muted mb-1">
                       {% if source.type == "telegram" %}
                         Канал: {{ source.username|default:source.invite_link }}
+                      {% elif source.type == "manual" %}
+                        Ручной ввод текста
                       {% else %}
                         Пресет: {{ source.web_preset.title|default:source.web_preset.name }}
                       {% endif %}

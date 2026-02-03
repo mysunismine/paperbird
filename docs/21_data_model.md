@@ -39,11 +39,11 @@
 - **created_at** (Datetime): Дата создания.
 - **updated_at** (Datetime): Дата последнего обновления.
 
-### Source (Канал или чат)
+### Source (Источник контента)
 - **id** (UUID / Integer): Уникальный идентификатор источника.
 - **project_id** (FK -> Project): Проект, к которому относится источник.
-- **type** (Enum: 'channel', 'chat'): Тип источника.
-- **external_id** (String): Внешний id (например, Telegram channel_id).
+- **type** (Enum: 'telegram', 'web', 'manual'): Тип источника.
+- **external_id** (String): Внешний id источника (например, Telegram channel_id).
 - **title** (String): Название источника.
 - **is_active** (Boolean): Активен ли источник.
 

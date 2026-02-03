@@ -3,6 +3,7 @@
 from django.urls import path
 
 from .views import (
+    ManualPostCreateView,
     ProjectCollectorQueueView,
     ProjectCreateView,
     ProjectDeleteView,
@@ -60,4 +61,9 @@ urlpatterns = [
         name="sources-delete",
     ),
     path("<int:pk>/queues/", ProjectCollectorQueueView.as_view(), name="queue"),
+    path(
+        "<int:project_pk>/manual/",
+        ManualPostCreateView.as_view(),
+        name="manual-post",
+    ),
 ]

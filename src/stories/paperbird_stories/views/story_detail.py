@@ -109,12 +109,33 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         )
         # Context for "Select from Library"
         from media_library.models import MediaAsset
-        context["library_assets"] = MediaAsset.objects.filter(
-            project=self.object.project
-        ).order_by("-created_at")[:12]
-        context["attached_asset_ids"] = set(
-            self.object.images.values_list("library_asset_id", flat=True)
+        library_assets = list(
+            MediaAsset.objects.filter(project=self.object.project)
+            .order_by("-created_at")[:12]
         )
+        attached_images = (
+            self.object.images.filter(library_asset__isnull=False)
+            .select_related("library_asset")
+            .order_by("-is_main", "-created_at")
+        )
+        attached_asset_ids: set[int] = set()
+        attached_assets: dict[int, dict[str, Any]] = {}
+        for image in attached_images:
+            if not image.library_asset_id:
+                continue
+            attached_asset_ids.add(image.library_asset_id)
+            attached_assets.setdefault(
+                image.library_asset_id,
+                {
+                    "image_id": image.id,
+                    "is_selected": image.is_selected,
+                    "is_main": image.is_main,
+                },
+            )
+        for asset in library_assets:
+            asset.attached_image = attached_assets.get(asset.id)
+        context["library_assets"] = library_assets
+        context["attached_asset_ids"] = attached_asset_ids
         
         rewrite_form: StoryRewriteForm = context["rewrite_form"]
         context["prompt_preview"] = self._build_prompt_preview(
@@ -148,33 +169,76 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             return self._handle_set_main_image(request)
         if action == "toggle_image":
             return self._handle_toggle_image(request)
-            messages.error(request, "Неизвестное действие")
+        messages.error(request, "Неизвестное действие")
         return redirect(self.get_success_url())
 
     def _handle_attach_library_asset(self, request):
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
         from media_library.models import MediaAsset
         asset_id = request.POST.get("asset_id")
         if not asset_id:
-            messages.error(request, "Не выбрано медиа.")
+            message = "Не выбрано медиа."
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": message}, status=400)
+            messages.error(request, message)
             return redirect(self._build_success_url(step="rewrite"))
             
         asset = get_object_or_404(MediaAsset, pk=asset_id, project=self.object.project)
-        
+
+        existing = (
+            self.object.images.filter(library_asset=asset)
+            .order_by("-created_at")
+            .first()
+        )
+        if existing:
+            if existing.is_selected:
+                if existing.is_main:
+                    message = "Главное изображение нельзя снять."
+                    if is_ajax:
+                        return JsonResponse({"status": "error", "message": message}, status=400)
+                    messages.error(request, message)
+                else:
+                    existing.is_selected = False
+                    existing.save(update_fields=["is_selected"])
+            else:
+                existing.is_selected = True
+                existing.save(update_fields=["is_selected"])
+            if is_ajax:
+                return JsonResponse(
+                    {
+                        "status": "success",
+                        "asset_id": asset.id,
+                        "image": {
+                            "id": existing.id,
+                            "is_selected": existing.is_selected,
+                            "is_main": existing.is_main,
+                        },
+                    }
+                )
+            return redirect(self._build_success_url(step="rewrite"))
+
         # Create a StoryImage linked to this asset
         img = StoryImage.objects.create(
             story=self.object,
             library_asset=asset,
-            # Copy file to story_images to ensure stability if library asset changes/deletes? 
-            # Or reference directly? The model has image_file.
-            # Usually we duplicate the file or reference it. 
-            # For now, let's duplicate the reference to the file field.
-            image_file=asset.image_file, 
+            image_file=asset.image_file,
             prompt=asset.prompt,
             source_kind=StoryImage.SourceKind.LIBRARY,
             is_selected=True,
         )
         self.object.set_main_image(img)
-        messages.success(request, "Изображение из библиотеки прикреплено.")
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "asset_id": asset.id,
+                    "image": {
+                        "id": img.id,
+                        "is_selected": img.is_selected,
+                        "is_main": img.is_main,
+                    },
+                }
+            )
         return redirect(self._build_success_url(step="rewrite"))
 
     def _handle_rewrite(self, request):
@@ -439,26 +503,44 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
                 }
             )
 
-        messages.success(request, "Медиа прикреплено: будет отправлено после текста.")
         return redirect(self._build_success_url(step="rewrite"))
 
     def _handle_set_main_image(self, request):
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
         image_id = request.POST.get("image_id")
         if not image_id or not str(image_id).isdigit():
-            messages.error(request, "Некорректное изображение.")
+            message = "Некорректное изображение."
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": message}, status=400)
+            messages.error(request, message)
             return redirect(self._build_success_url(step="rewrite"))
         image = get_object_or_404(
             self.object.images,
             pk=int(image_id),
         )
         self.object.set_main_image(image)
-        messages.success(request, "Основное изображение обновлено.")
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "image": {
+                        "id": image.id,
+                        "is_selected": image.is_selected,
+                        "is_main": image.is_main,
+                    },
+                    "main_image_id": image.id,
+                }
+            )
         return redirect(self._build_success_url(step="rewrite"))
 
     def _handle_toggle_image(self, request):
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
         image_id = request.POST.get("image_id")
         if not image_id or not str(image_id).isdigit():
-            messages.error(request, "Некорректное изображение.")
+            message = "Некорректное изображение."
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": message}, status=400)
+            messages.error(request, message)
             return redirect(self._build_success_url(step="rewrite"))
         image = get_object_or_404(
             self.object.images,
@@ -466,10 +548,24 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
         )
         selected = request.POST.get("selected") == "1"
         if image.is_main and not selected:
-            messages.error(request, "Главное изображение всегда публикуется.")
+            message = "Главное изображение всегда публикуется."
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": message}, status=400)
+            messages.error(request, message)
             return redirect(self._build_success_url(step="rewrite"))
         image.is_selected = selected
         image.save(update_fields=["is_selected"])
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "image": {
+                        "id": image.id,
+                        "is_selected": image.is_selected,
+                        "is_main": image.is_main,
+                    },
+                }
+            )
         return redirect(self._build_success_url(step="rewrite"))
 
     def _find_post_media(self, post, *, allow_download: bool = False):

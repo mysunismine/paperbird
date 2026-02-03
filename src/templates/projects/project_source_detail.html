@@ -12,6 +12,8 @@
           <div class="d-flex align-items-center mb-2">
             {% if source.type == "telegram" %}
               <i class="bi bi-telegram h2 text-info me-3"></i>
+            {% elif source.type == "manual" %}
+              <i class="bi bi-pencil-square h2 text-warning me-3"></i>
             {% else %}
               <i class="bi bi-globe2 h2 text-success me-3"></i>
             {% endif %}
@@ -107,6 +109,8 @@
               <dt class="col-sm-4">Peer ID</dt>
               <dd class="col-sm-8">{{ source.telegram_id|default:"-" }}</dd>
             </dl>
+          {% elif source.type == "manual" %}
+            <div class="text-muted">Ручной ввод текста, без внешних источников.</div>
           {% else %}
             <h3 class="h6">Параметры пресета</h3>
             <pre class="bg-light p-3 rounded small"><code>{{ source.preset_payload|json_script:"preset-data" }}</code></pre>

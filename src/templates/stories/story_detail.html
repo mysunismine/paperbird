@@ -194,11 +194,6 @@
                 Из постов
               </button>
             </li>
-            <li class="nav-item" role="presentation">
-              <button class="nav-link" id="media-selected-tab" data-bs-toggle="tab" data-bs-target="#media-selected" type="button" role="tab">
-                Выбранные
-              </button>
-            </li>
           </ul>
 
           <div class="tab-content pt-3">
@@ -209,39 +204,58 @@
                 <div class="row row-cols-2 row-cols-md-4 g-3">
                     {% for asset in library_assets %}
                     <div class="col">
-                        {% if asset.id in attached_asset_ids %}
-                            <div class="card h-100 shadow-sm border-success bg-success-subtle">
-                                <div class="position-relative">
-                                    <img src="{{ asset.image_file.url }}" class="card-img-top" style="aspect-ratio: 1; object-fit: cover;">
-                                    <div class="position-absolute top-0 end-0 p-1">
-                                        <span class="badge text-bg-success rounded-circle p-2"><i class="bi bi-check-lg"></i></span>
-                                    </div>
-                                </div>
-                                <div class="card-body p-2">
-                                    <p class="small text-truncate mb-2" title="{{ asset.prompt }}">{{ asset.title|default:"Без названия" }}</p>
-                                    <button class="btn btn-sm btn-success w-100 disabled" disabled>
-                                        <i class="bi bi-check2"></i> Выбрано
-                                    </button>
-                                </div>
-                            </div>
-                        {% else %}
-                            <div class="card h-100 shadow-sm">
-                                <div class="position-relative">
-                                    <img src="{{ asset.image_file.url }}" class="card-img-top" style="aspect-ratio: 1; object-fit: cover;">
-                                </div>
-                                <div class="card-body p-2">
-                                    <p class="small text-truncate mb-2" title="{{ asset.prompt }}">{{ asset.title|default:"Без названия" }}</p>
-                                    <form method="post">
-                                        {% csrf_token %}
-                                        <input type="hidden" name="action" value="attach_library_asset">
-                                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                        <button class="btn btn-sm btn-outline-primary w-100" type="submit">
-                                            Выбрать
-                                        </button>
-                                    </form>
+                        <div
+                          class="card h-100 shadow-sm{% if asset.attached_image %} {% if asset.attached_image.is_selected %}border-success bg-success-subtle{% else %}border-secondary{% endif %}{% endif %}"
+                          data-role="library-card"
+                          data-asset-id="{{ asset.id }}"
+                          {% if asset.attached_image %}data-image-id="{{ asset.attached_image.image_id }}"{% endif %}
+                        >
+                            <div class="position-relative">
+                                <img src="{{ asset.image_file.url }}" class="card-img-top" style="aspect-ratio: 1; object-fit: cover;">
+                                <div class="position-absolute top-0 end-0 p-1 d-flex gap-1" data-role="media-actions">
+                                    {% if asset.attached_image %}
+                                      <form method="post" data-action="set-main-image" data-image-id="{{ asset.attached_image.image_id }}">
+                                          {% csrf_token %}
+                                          <input type="hidden" name="action" value="set_main_image">
+                                          <input type="hidden" name="image_id" value="{{ asset.attached_image.image_id }}">
+                                          <button class="btn btn-sm {% if asset.attached_image.is_main %}btn-warning text-white{% else %}btn-light text-secondary{% endif %} rounded-circle shadow-sm" style="width: 28px; height: 28px; padding: 0;" type="submit" title="Сделать главным" data-role="main-star">
+                                              <i class="bi {% if asset.attached_image.is_main %}bi-star-fill{% else %}bi-star{% endif %}"></i>
+                                          </button>
+                                      </form>
+                                    {% endif %}
+                                    <span class="badge text-bg-success rounded-circle p-2 {% if not asset.attached_image or not asset.attached_image.is_selected %}d-none{% endif %}" data-role="selected-check">
+                                      <i class="bi bi-check-lg"></i>
+                                    </span>
                                 </div>
                             </div>
-                        {% endif %}
+                            <div class="card-body p-2">
+                                <p class="small text-truncate mb-2" title="{{ asset.prompt }}">{{ asset.title|default:"Без названия" }}</p>
+                                {% if asset.attached_image %}
+                                  <form method="post" data-action="toggle-image">
+                                      {% csrf_token %}
+                                      <input type="hidden" name="action" value="toggle_image">
+                                      <input type="hidden" name="image_id" value="{{ asset.attached_image.image_id }}">
+                                      <input type="hidden" name="selected" value="{% if asset.attached_image.is_selected %}0{% else %}1{% endif %}">
+                                      <button class="btn btn-sm {% if asset.attached_image.is_selected %}btn-outline-danger{% else %}btn-outline-success{% endif %} w-100" type="submit" data-role="toggle-button">
+                                          {% if asset.attached_image.is_selected %}
+                                              <i class="bi bi-x-lg me-1"></i> Убрать
+                                          {% else %}
+                                              <i class="bi bi-check-lg me-1"></i> Вернуть
+                                          {% endif %}
+                                      </button>
+                                  </form>
+                                {% else %}
+                                  <form method="post" data-action="library-toggle">
+                                      {% csrf_token %}
+                                      <input type="hidden" name="action" value="attach_library_asset">
+                                      <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                      <button class="btn btn-sm btn-outline-primary w-100" type="submit" data-role="toggle-button">
+                                          Выбрать
+                                      </button>
+                                  </form>
+                                {% endif %}
+                            </div>
+                        </div>
                     </div>
                     {% endfor %}
                 </div>
@@ -256,14 +270,21 @@
                 <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
                   {% for item in source_media %}
                     <div class="col">
-                      <div class="card h-100 shadow-sm">
-                        <img src="{{ item.url }}" class="card-img-top" alt="Медиа поста" style="aspect-ratio: 4/3; object-fit: cover;">
+                      <div class="card h-100 shadow-sm" data-role="source-card" data-post-id="{{ item.post.id }}">
+                        <div class="position-relative">
+                          <img src="{{ item.url }}" class="card-img-top" alt="Медиа поста" style="aspect-ratio: 4/3; object-fit: cover;">
+                          <div class="position-absolute top-0 end-0 p-1 d-flex gap-1" data-role="media-actions">
+                            <span class="badge text-bg-success rounded-circle p-2 d-none" data-role="selected-check">
+                              <i class="bi bi-check-lg"></i>
+                            </span>
+                          </div>
+                        </div>
                         <div class="card-body p-2 text-center">
                           <form method="post" class="d-flex flex-column gap-1" data-action="attach-media">
                             {% csrf_token %}
                             <input type="hidden" name="action" value="attach_media">
                             <input type="hidden" name="media_post_id" value="{{ item.post.id }}">
-                            <button class="btn btn-sm btn-outline-primary" type="submit">
+                            <button class="btn btn-sm btn-outline-primary" type="submit" data-role="toggle-button">
                               <i class="bi bi-plus-lg me-1"></i>
                               Добавить
                             </button>
@@ -281,52 +302,8 @@
               {% endif %}
             </div>
 
-            <!-- Selected Tab (Currently Attached) -->
-            <div class="tab-pane fade" id="media-selected" role="tabpanel">
-              <div id="source-images-container">
-                {% if generated_images or source_images %} 
-                  <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3" id="source-images-grid">
-                    {% for image in story.images.all %}
-                      <div class="col">
-                        <div class="card h-100 shadow-sm {% if image.is_main %}border-warning{% endif %}">
-                          <div class="position-relative">
-                              <img src="{{ image.image_file.url }}" class="card-img-top" alt="Изображение сюжета" style="aspect-ratio: 4/3; object-fit: cover;">
-                              <div class="position-absolute top-0 end-0 p-2">
-                                  <form method="post">
-                                      {% csrf_token %}
-                                      <input type="hidden" name="action" value="set_main_image">
-                                      <input type="hidden" name="image_id" value="{{ image.id }}">
-                                      <button class="btn btn-sm {% if image.is_main %}btn-warning text-white{% else %}btn-light text-secondary{% endif %} rounded-circle shadow-sm" style="width: 32px; height: 32px; padding: 0;" type="submit" title="Сделать главным">
-                                          <i class="bi {% if image.is_main %}bi-star-fill{% else %}bi-star{% endif %}"></i>
-                                      </button>
-                                  </form>
-                              </div>
-                          </div>
-                          <div class="card-body p-2 d-flex flex-column gap-1">
-                            <form method="post">
-                              {% csrf_token %}
-                              <input type="hidden" name="action" value="toggle_image">
-                              <input type="hidden" name="image_id" value="{{ image.id }}">
-                              <input type="hidden" name="selected" value="{% if image.is_selected %}0{% else %}1{% endif %}">
-                              <button class="btn btn-sm {% if image.is_selected %}btn-outline-danger{% else %}btn-outline-success{% endif %} w-100" type="submit">
-                                {% if image.is_selected %}
-                                    <i class="bi bi-x-lg me-1"></i> Убрать
-                                {% else %}
-                                    <i class="bi bi-check-lg me-1"></i> Вернуть
-                                {% endif %}
-                              </button>
-                            </form>
-                          </div>
-                        </div>
-                      </div>
-                    {% endfor %}
-                  </div>
-                {% else %}
-                    <div class="alert alert-warning">Ничего не выбрано.</div>
-                {% endif %}
-              </div>
-            </div>
           </div>
+
         </div>
       </div>
     </div>
@@ -468,81 +445,209 @@
         }
       }
 
-      // --- AJAX Media Attach ---
-      document.querySelectorAll('form[data-action="attach-media"]').forEach(form => {
-        form.addEventListener('submit', function(e) {
-          e.preventDefault();
-          const submitButton = form.querySelector('button[type="submit"]');
-          const originalButtonHtml = submitButton.innerHTML;
+      const applySelectionState = (card, isSelected) => {
+        if (!card) return;
+        card.classList.toggle('border-success', isSelected);
+        card.classList.toggle('bg-success-subtle', isSelected);
+        card.classList.toggle('border-secondary', !isSelected);
+        const badge = card.querySelector('[data-role="selected-check"]');
+        if (badge) {
+          badge.classList.toggle('d-none', !isSelected);
+        }
+        const toggleButton = card.querySelector('[data-role="toggle-button"]');
+        if (toggleButton) {
+          if (isSelected) {
+            toggleButton.classList.remove('btn-outline-primary', 'btn-outline-success');
+            toggleButton.classList.add('btn-outline-danger');
+            toggleButton.innerHTML = '<i class="bi bi-x-lg me-1"></i> Убрать';
+          } else {
+            toggleButton.classList.remove('btn-outline-danger');
+            toggleButton.classList.add('btn-outline-success');
+            toggleButton.innerHTML = '<i class="bi bi-check-lg me-1"></i> Вернуть';
+          }
+        }
+      };
+
+      const updateMainStar = (mainImageId) => {
+        document.querySelectorAll('[data-action="set-main-image"]').forEach(form => {
+          const button = form.querySelector('[data-role="main-star"]');
+          const imageId = form.dataset.imageId;
+          if (!button || !imageId) return;
+          const isMain = imageId === String(mainImageId);
+          const icon = button.querySelector('i');
+          button.classList.toggle('btn-warning', isMain);
+          button.classList.toggle('text-white', isMain);
+          button.classList.toggle('btn-light', !isMain);
+          button.classList.toggle('text-secondary', !isMain);
+          if (icon) {
+            icon.classList.toggle('bi-star-fill', isMain);
+            icon.classList.toggle('bi-star', !isMain);
+          }
+          const card = button.closest('[data-role="library-card"], [data-role="source-card"]');
+          if (card) {
+            card.classList.toggle('border-warning', isMain);
+          }
+        });
+      };
+
+      const postForm = (form, onSuccess) => {
+        const submitButton = form.querySelector('button[type="submit"]');
+        const originalButtonHtml = submitButton ? submitButton.innerHTML : null;
+        if (submitButton) {
           submitButton.disabled = true;
           submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+        }
 
-          const formData = new FormData(form);
-          
-          fetch(window.location.href, {
-            method: 'POST',
-            body: new URLSearchParams(formData),
-            headers: {
-              'X-Requested-With': 'XMLHttpRequest',
-              'X-CSRFToken': formData.get('csrfmiddlewaretoken')
-            }
-          })
+        const formData = new FormData(form);
+
+        fetch(window.location.href, {
+          method: 'POST',
+          body: new URLSearchParams(formData),
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+          }
+        })
           .then(response => response.json())
           .then(data => {
             if (data.status === 'success') {
-              // Add the new image to the list
-              const container = document.getElementById('source-images-container');
-              let grid = document.getElementById('source-images-grid');
-              if (!grid) {
-                  container.innerHTML = `
-                    <h4 class="h6 mt-4">Выбранные из источников</h4>
-                    <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3" id="source-images-grid"></div>
-                  `;
-                  grid = document.getElementById('source-images-grid');
-              }
-              
-              const newImageCard = `
-                <div class="col">
-                  <div class="card h-100 shadow-sm">
-                    <img src="${data.image.url}" class="card-img-top" alt="Изображение сюжета" style="aspect-ratio: 4/3; object-fit: cover;">
-                    <div class="card-body p-2 d-flex flex-column gap-1">
-                      ${data.image.is_main ? '<span class="badge text-bg-primary align-self-start">Основное</span>' : ''}
-                      <form method="post">
-                        <input type="hidden" name="csrfmiddlewaretoken" value="${formData.get('csrfmiddlewaretoken')}">
-                        <input type="hidden" name="action" value="toggle_image">
-                        <input type="hidden" name="image_id" value="${data.image.id}">
-                        <input type="hidden" name="selected" value="0">
-                        <button class="btn btn-sm btn-outline-secondary w-100" type="submit">Убрать из публикации</button>
-                      </form>
-                      <form method="post">
-                        <input type="hidden" name="csrfmiddlewaretoken" value="${formData.get('csrfmiddlewaretoken')}">
-                        <input type="hidden" name="action" value="set_main_image">
-                        <input type="hidden" name="image_id" value="${data.image.id}">
-                        <button class="btn btn-sm btn-outline-primary w-100" type="submit">Сделать главным</button>
-                      </form>
-                    </div>
-                  </div>
-                </div>
-              `;
-              grid.insertAdjacentHTML('beforeend', newImageCard);
-
-              // Disable the original 'Add' button's form
-              form.closest('.col').remove();
-
+              onSuccess(data, form);
             } else {
-              // Very basic error handling
-              alert('Ошибка: ' + data.message);
-              submitButton.disabled = false;
-              submitButton.innerHTML = originalButtonHtml;
+              alert('Ошибка: ' + (data.message || 'Не удалось выполнить действие.'));
+              if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.innerHTML = originalButtonHtml;
+              }
             }
           })
           .catch(error => {
-            console.error('Attach media error:', error);
+            console.error('Media action error:', error);
             alert('Произошла сетевая ошибка.');
-            submitButton.disabled = false;
-            submitButton.innerHTML = originalButtonHtml;
+            if (submitButton) {
+              submitButton.disabled = false;
+              submitButton.innerHTML = originalButtonHtml;
+            }
+          });
+      };
+
+      document.querySelectorAll('form[data-action="attach-media"]').forEach(form => {
+        form.addEventListener('submit', function(e) {
+          e.preventDefault();
+          postForm(form, (data, currentForm) => {
+            const card = currentForm.closest('[data-role="source-card"]');
+            if (!card) return;
+            card.dataset.imageId = data.image.id;
+            applySelectionState(card, data.image.is_selected);
+
+            const actionInput = currentForm.querySelector('input[name="action"]');
+            if (actionInput) actionInput.value = 'toggle_image';
+            let imageIdInput = currentForm.querySelector('input[name="image_id"]');
+            if (!imageIdInput) {
+              imageIdInput = document.createElement('input');
+              imageIdInput.type = 'hidden';
+              imageIdInput.name = 'image_id';
+              currentForm.appendChild(imageIdInput);
+            }
+            imageIdInput.value = data.image.id;
+
+            let selectedInput = currentForm.querySelector('input[name="selected"]');
+            if (!selectedInput) {
+              selectedInput = document.createElement('input');
+              selectedInput.type = 'hidden';
+              selectedInput.name = 'selected';
+              currentForm.appendChild(selectedInput);
+            }
+            selectedInput.value = data.image.is_selected ? '0' : '1';
+            currentForm.dataset.action = 'toggle-image';
+
+            const actions = card.querySelector('[data-role="media-actions"]');
+            if (actions && !actions.querySelector('[data-action="set-main-image"]')) {
+              const csrf = currentForm.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
+              const starForm = document.createElement('form');
+              starForm.method = 'post';
+              starForm.dataset.action = 'set-main-image';
+              starForm.dataset.imageId = data.image.id;
+              starForm.innerHTML = `
+                <input type="hidden" name="csrfmiddlewaretoken" value="${csrf}">
+                <input type="hidden" name="action" value="set_main_image">
+                <input type="hidden" name="image_id" value="${data.image.id}">
+                <button class="btn btn-sm btn-light text-secondary rounded-circle shadow-sm" style="width: 28px; height: 28px; padding: 0;" type="submit" title="Сделать главным" data-role="main-star">
+                  <i class="bi bi-star"></i>
+                </button>
+              `;
+              actions.prepend(starForm);
+              starForm.addEventListener('submit', handleSetMain);
+            }
           });
         });
+      });
+
+      const handleToggle = (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        postForm(form, (data, currentForm) => {
+          const card = currentForm.closest('[data-role="library-card"], [data-role="source-card"]');
+          if (!card) return;
+          card.dataset.imageId = data.image.id;
+          applySelectionState(card, data.image.is_selected);
+          const selectedInput = currentForm.querySelector('input[name="selected"]');
+          if (selectedInput) {
+            selectedInput.value = data.image.is_selected ? '0' : '1';
+          }
+          if (data.image.is_main) {
+            updateMainStar(data.image.id);
+          }
+          if (currentForm.dataset.action === 'library-toggle') {
+            currentForm.dataset.action = 'toggle-image';
+            const actionInput = currentForm.querySelector('input[name="action"]');
+            if (actionInput) actionInput.value = 'toggle_image';
+            let imageIdInput = currentForm.querySelector('input[name="image_id"]');
+            if (!imageIdInput) {
+              imageIdInput = document.createElement('input');
+              imageIdInput.type = 'hidden';
+              imageIdInput.name = 'image_id';
+              currentForm.appendChild(imageIdInput);
+            }
+            imageIdInput.value = data.image.id;
+
+            const actions = card.querySelector('[data-role="media-actions"]');
+            if (actions && !actions.querySelector('[data-action="set-main-image"]')) {
+              const csrf = currentForm.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
+              const starForm = document.createElement('form');
+              starForm.method = 'post';
+              starForm.dataset.action = 'set-main-image';
+              starForm.dataset.imageId = data.image.id;
+              starForm.innerHTML = `
+                <input type="hidden" name="csrfmiddlewaretoken" value="${csrf}">
+                <input type="hidden" name="action" value="set_main_image">
+                <input type="hidden" name="image_id" value="${data.image.id}">
+                <button class="btn btn-sm btn-warning text-white rounded-circle shadow-sm" style="width: 28px; height: 28px; padding: 0;" type="submit" title="Сделать главным" data-role="main-star">
+                  <i class="bi bi-star-fill"></i>
+                </button>
+              `;
+              actions.prepend(starForm);
+              starForm.addEventListener('submit', handleSetMain);
+            }
+          }
+        });
+      };
+
+      const handleSetMain = (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        postForm(form, (data) => {
+          updateMainStar(data.main_image_id);
+        });
+      };
+
+      document.querySelectorAll('form[data-action="toggle-image"]').forEach(form => {
+        form.addEventListener('submit', handleToggle);
+      });
+      document.querySelectorAll('form[data-action="library-toggle"]').forEach(form => {
+        form.addEventListener('submit', handleToggle);
+      });
+      document.querySelectorAll('form[data-action="set-main-image"]').forEach(form => {
+        form.addEventListener('submit', handleSetMain);
       });
 
     })();

@@ -256,11 +256,12 @@ class WebPreset(models.Model):
 
 
 class Source(models.Model):
-    """Источник данных: Telegram канал или веб-сайт с пресетом."""
+    """Источник данных: Telegram канал, веб-сайт или ручной ввод."""
 
     class Type(models.TextChoices):
         TELEGRAM = "telegram", "Telegram"
         WEB = "web", "Web"
+        MANUAL = "manual", "Свой текст"
 
     project = models.ForeignKey(
         Project,
@@ -551,7 +552,7 @@ class PostQuerySet(models.QuerySet):
 
 
 class Post(models.Model):
-    """Сохранённый пост из источника (Telegram или Web)."""
+    """Сохранённый пост из источника (Telegram, Web или ручной ввод)."""
 
     class Status(models.TextChoices):
         NEW = "new", "Новый"
@@ -567,6 +568,7 @@ class Post(models.Model):
     class Origin(models.TextChoices):
         TELEGRAM = "telegram", "Telegram"
         WEB = "web", "Web"
+        MANUAL = "manual", "Свой текст"
 
     project = models.ForeignKey(
         Project,
@@ -811,6 +813,34 @@ class Post(models.Model):
             defaults=defaults,
         )
         return post
+
+    @classmethod
+    def create_manual(
+        cls,
+        *,
+        project: Project,
+        source: Source,
+        title: str,
+        body: str,
+    ) -> Post:
+        """Создаёт пост из ручного текста."""
+
+        merged_message = cls.merge_title_and_body(title, body).strip()
+        text_hash = cls.make_hash(merged_message) if merged_message else ""
+        language = detect_language(merged_message)
+        return cls.objects.create(
+            project=project,
+            source=source,
+            origin_type=cls.Origin.MANUAL,
+            message=merged_message,
+            raw={"title": title, "body": body},
+            external_metadata={"title": title},
+            posted_at=timezone.now(),
+            has_media=False,
+            text_hash=text_hash,
+            content_hash=text_hash,
+            language=language,
+        )
 
     @classmethod
     def create_or_update_web(

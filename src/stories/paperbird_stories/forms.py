@@ -251,7 +251,11 @@ class StoryImageGenerateForm(forms.Form):
     )
     style = forms.ChoiceField(
         label="Стиль (OpenAI)",
-        choices=[("", "По умолчанию"), ("vivid", "Яркий (Vivid)"), ("natural", "Естественный (Natural)")],
+        choices=[
+            ("", "По умолчанию"),
+            ("vivid", "Яркий (Vivid)"),
+            ("natural", "Естественный (Natural)"),
+        ],
         widget=forms.Select(attrs={"class": "form-select"}),
         required=False,
     )

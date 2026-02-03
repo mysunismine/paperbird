@@ -91,6 +91,69 @@ class MediaLibraryTests(TestCase):
         self.assertTrue(payload["has_next"])
         self.assertEqual(payload["next_page"], 2)
 
+    def test_library_filters_by_media_type(self) -> None:
+        """Фильтр типа медиа ограничивает выдачу."""
+        image_asset = self._upload("photo.jpg", title="Photo")
+        video_asset = self._upload("clip.mp4", title="Clip")
+        gif_asset = self._upload("loop.gif", title="Loop")
+
+        response = self.client.get(
+            reverse("media_library:library"),
+            {"project": self.project.id, "type": "video"},
+        )
+        page = response.context["page_obj"].object_list
+        self.assertIn(video_asset, page)
+        self.assertNotIn(image_asset, page)
+        self.assertNotIn(gif_asset, page)
+
+        response = self.client.get(
+            reverse("media_library:library"),
+            {"project": self.project.id, "type": "gif"},
+        )
+        page = response.context["page_obj"].object_list
+        self.assertIn(gif_asset, page)
+        self.assertNotIn(image_asset, page)
+        self.assertNotIn(video_asset, page)
+
+    def test_assets_json_endpoint_filters_by_media_type(self) -> None:
+        """JSON-эндпоинт учитывает фильтр типа медиа."""
+        image_asset = self._upload("photo.jpg", title="Photo")
+        video_asset = self._upload("clip.mp4", title="Clip")
+
+        response = self.client.get(
+            reverse("media_library:library_assets"),
+            {"project": self.project.id, "type": "image"},
+        )
+        items = response.json()["items"]
+        ids = {item["id"] for item in items}
+        self.assertIn(image_asset.id, ids)
+        self.assertNotIn(video_asset.id, ids)
+
+    def test_bulk_update_assets(self) -> None:
+        """Массовое обновление названий и тегов."""
+        asset_one = self._upload("photo.jpg", title="Photo", tags=["one"])
+        asset_two = self._upload("clip.mp4", title="Clip", tags=[])
+
+        response = self.client.post(
+            reverse("media_library:library"),
+            {
+                "action": "bulk_update",
+                "project": self.project.id,
+                "asset_ids": [asset_one.id, asset_two.id],
+                "bulk_title": "Common",
+                "bulk_tags": "alpha, beta",
+                "append_tags": "1",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+        asset_one.refresh_from_db()
+        asset_two.refresh_from_db()
+        self.assertEqual(asset_one.title, "Common")
+        self.assertEqual(asset_two.title, "Common")
+        self.assertEqual(asset_one.tags, ["one", "alpha", "beta"])
+        self.assertEqual(asset_two.tags, ["alpha", "beta"])
+
     def test_tag_suggestions_endpoint_excludes_selected(self) -> None:
         """Подсказки тегов исключают уже выбранные и фильтруются по префиксу."""
         self._upload("cat.jpg", title="Cat", tags=["cat", "camera", "car"])
