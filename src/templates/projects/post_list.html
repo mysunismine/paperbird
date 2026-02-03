@@ -65,6 +65,21 @@
     </div>
   {% endif %}
 
+  <div class="mb-3">
+    <ul class="nav nav-pills">
+      <li class="nav-item">
+        <a class="nav-link active" aria-current="page" href="{% url 'feed-detail' project.id %}">
+          <i class="bi bi-newspaper me-1"></i>Лента
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="{% url 'projects:chat-feed' project.id %}">
+          <i class="bi bi-chat-dots me-1"></i>Чаты
+        </a>
+      </li>
+    </ul>
+  </div>
+
   {# Sticky Filter Bar #}
   <div class="sticky-top bg-light py-3 mb-4 rounded border" style="top: 1rem; z-index: 100;">
     <form method="get" id="filters-form" novalidate>

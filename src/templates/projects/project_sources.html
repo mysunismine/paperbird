@@ -16,102 +16,192 @@
     </div>
   </div>
 
-  <div class="card shadow-sm">
-    <div class="card-body">
-      <h2 class="h5 mb-3">Подключённые источники</h2>
-      {% if blocked_sources %}
-        <div class="alert alert-warning" role="alert">
-          Мы перестали получать новости из некоторых веб-источников. Возможно, доступ
-          временно заблокирован: {% for blocked in blocked_sources %}<strong>{{ blocked.title }}</strong>{% if not forloop.last %}, {% endif %}{% endfor %}.
-        </div>
-      {% endif %}
-      {% if sources %}
-        <div class="list-group">
-          {% for source in sources %}
-            {# Each list item is now a flex container to separate the main link from the actions #}
-            <div class="list-group-item d-flex justify-content-between align-items-start">
-              {# MAIN LINK to the detail page #}
-              <a href="{% url 'projects:source-detail' project.pk source.pk %}" class="text-decoration-none text-body flex-grow-1">
-                <div class="d-flex w-100 align-items-start">
-                  {% if source.type == "telegram" %}
-                    <i class="bi bi-telegram h3 text-info me-3"></i>
-                  {% elif source.type == "manual" %}
-                    <i class="bi bi-pencil-square h3 text-warning me-3"></i>
-                  {% else %}
-                    <i class="bi bi-globe2 h3 text-success me-3"></i>
-                  {% endif %}
-                  <div>
-                    <h3 class="h6 mb-1">{{ source.title|default:"(Без названия)" }}</h3>
-                    {% if source.type == "web" and source.web_last_status == "blocked" %}
-                      <span class="badge text-bg-danger mb-2">Возможная блокировка</span>
-                    {% elif source.type == "web" and source.web_last_status == "failed" %}
-                      <span class="badge text-bg-warning mb-2">Ошибка</span>
-                    {% endif %}
-                    <p class="small text-muted mb-1">
-                      {% if source.type == "telegram" %}
-                        Канал: {{ source.username|default:source.invite_link }}
-                      {% elif source.type == "manual" %}
-                        Редакторский текст
-                      {% else %}
-                        Пресет: {{ source.web_preset.title|default:source.web_preset.name }}
-                      {% endif %}
-                    </p>
-                    <p class="small text-muted mb-0">Добавлен: {{ source.created_at|date:"d.m.Y" }}</p>
-                  </div>
-                </div>
-              </a>
+  <ul class="nav nav-pills mb-3">
+    <li class="nav-item">
+      <a class="nav-link {% if active_tab == 'list' %}active{% endif %}" href="{% url 'projects:sources' project.pk %}?tab=list">
+        <i class="bi bi-diagram-3 me-1"></i>Источники
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if active_tab == 'service' %}active{% endif %}" href="{% url 'projects:sources' project.pk %}?tab=service">
+        <i class="bi bi-wrench-adjustable-circle me-1"></i>Сервис
+      </a>
+    </li>
+  </ul>
 
-              {# ACTIONS DROPDOWN (kept separate) #}
-              <div class="ms-3">
-                <div class="dropdown">
-                  <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Действия">
-                    <i class="bi bi-three-dots-vertical"></i>
-                  </button>
-                  <ul class="dropdown-menu dropdown-menu-end">
-                    <li>
-                      <a class="dropdown-item" href="{% url 'projects:source-edit' project.pk source.pk %}">
-                        <i class="bi bi-pencil me-2"></i>Изменить
-                      </a>
-                    </li>
-                    <li>
-                      <button type="button" class="dropdown-item text-danger" data-bs-toggle="modal" data-bs-target="#deleteSourceModal{{ source.pk }}">
-                        <i class="bi bi-trash me-2"></i>Удалить
-                      </button>
-                    </li>
-                  </ul>
-                </div>
-              </div>
+  {% if active_tab == 'service' %}
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h5 mb-3">Диагностика источников</h2>
+        <div class="row g-3 mb-4">
+          <div class="col-md-4">
+            <div class="border rounded p-3 h-100">
+              <div class="text-muted small">Telegram: каналы</div>
+              <div class="fs-4 fw-semibold">{{ telegram_summary.channel }}</div>
             </div>
+          </div>
+          <div class="col-md-4">
+            <div class="border rounded p-3 h-100">
+              <div class="text-muted small">Telegram: чаты</div>
+              <div class="fs-4 fw-semibold">{{ telegram_summary.chat }}</div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="border rounded p-3 h-100">
+              <div class="text-muted small">Telegram: неизвестно</div>
+              <div class="fs-4 fw-semibold">{{ telegram_summary.unknown }}</div>
+            </div>
+          </div>
+        </div>
 
-            {# DELETE MODAL for each source #}
-            <div class="modal fade" id="deleteSourceModal{{ source.pk }}" tabindex="-1" aria-labelledby="deleteSourceModalLabel{{ source.pk }}" aria-hidden="true">
-              <div class="modal-dialog">
-                <div class="modal-content">
-                  <div class="modal-header">
-                    <h1 class="modal-title fs-5" id="deleteSourceModalLabel{{ source.pk }}">Подтвердите удаление</h1>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        <form method="post" class="mb-4">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="refresh_telegram" />
+          <button class="btn btn-outline-primary" type="submit">
+            <i class="bi bi-arrow-clockwise me-1"></i>Обновить метаданные Telegram
+          </button>
+        </form>
+
+        <h3 class="h6 text-uppercase text-muted">Проблемные Telegram-источники</h3>
+        {% if unknown_telegram %}
+          <div class="list-group mb-4">
+            {% for source in unknown_telegram %}
+              <div class="list-group-item d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="fw-semibold">{{ source.title|default:"(Без названия)" }}</div>
+                  <div class="text-muted small">
+                    {{ source.username|default:source.invite_link|default:source.telegram_id|default:"Нет идентификатора" }}
                   </div>
-                  <div class="modal-body">
-                    Вы уверены, что хотите удалить источник <strong>«{{ source.title }}»</strong>?
-                  </div>
-                  <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                    <form method="post" class="d-inline" action="{% url 'projects:sources-delete' project.pk source.pk %}">
-                      {% csrf_token %}
-                      <button type="submit" class="btn btn-danger">Да, удалить</button>
-                    </form>
+                  <div class="text-muted small mt-1">
+                    Тип Telegram-источника не распознан. Укажите @username или invite-link.
                   </div>
                 </div>
+                <a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:source-edit' project.pk source.pk %}">
+                  Исправить
+                </a>
               </div>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="text-center p-4">
-          <h3 class="h5">Источники ещё не добавлены</h3>
-          <p class="text-muted mb-3">Нажмите кнопку «Добавить источник», чтобы начать сбор постов.</p>
-        </div>
-      {% endif %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-muted">Неизвестных Telegram-источников нет.</p>
+        {% endif %}
+
+        {% if missing_identifier %}
+          <h3 class="h6 text-uppercase text-muted">Источники без идентификатора</h3>
+          <div class="list-group">
+            {% for source in missing_identifier %}
+              <div class="list-group-item d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="fw-semibold">{{ source.title|default:"(Без названия)" }}</div>
+                  <div class="text-muted small">Нет @username, Telegram ID или invite-link.</div>
+                </div>
+                <a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:source-edit' project.pk source.pk %}">
+                  Исправить
+                </a>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
     </div>
-  </div>
+  {% else %}
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h5 mb-3">Подключённые источники</h2>
+        {% if blocked_sources %}
+          <div class="alert alert-warning" role="alert">
+            Мы перестали получать новости из некоторых веб-источников. Возможно, доступ
+            временно заблокирован: {% for blocked in blocked_sources %}<strong>{{ blocked.title }}</strong>{% if not forloop.last %}, {% endif %}{% endfor %}.
+          </div>
+        {% endif %}
+        {% if sources %}
+          <div class="list-group">
+            {% for source in sources %}
+              {# Each list item is now a flex container to separate the main link from the actions #}
+              <div class="list-group-item d-flex justify-content-between align-items-start">
+                {# MAIN LINK to the detail page #}
+                <a href="{% url 'projects:source-detail' project.pk source.pk %}" class="text-decoration-none text-body flex-grow-1">
+                  <div class="d-flex w-100 align-items-start">
+                    {% if source.type == "telegram" %}
+                      <i class="bi bi-telegram h3 text-info me-3"></i>
+                    {% elif source.type == "manual" %}
+                      <i class="bi bi-pencil-square h3 text-warning me-3"></i>
+                    {% else %}
+                      <i class="bi bi-globe2 h3 text-success me-3"></i>
+                    {% endif %}
+                    <div>
+                      <h3 class="h6 mb-1">{{ source.title|default:"(Без названия)" }}</h3>
+                      {% if source.type == "web" and source.web_last_status == "blocked" %}
+                        <span class="badge text-bg-danger mb-2">Возможная блокировка</span>
+                      {% elif source.type == "web" and source.web_last_status == "failed" %}
+                        <span class="badge text-bg-warning mb-2">Ошибка</span>
+                      {% endif %}
+                      <p class="small text-muted mb-1">
+                        {% if source.type == "telegram" %}
+                          Канал: {{ source.username|default:source.invite_link }}
+                        {% elif source.type == "manual" %}
+                          Редакторский текст
+                        {% else %}
+                          Пресет: {{ source.web_preset.title|default:source.web_preset.name }}
+                        {% endif %}
+                      </p>
+                      <p class="small text-muted mb-0">Добавлен: {{ source.created_at|date:"d.m.Y" }}</p>
+                    </div>
+                  </div>
+                </a>
+
+                {# ACTIONS DROPDOWN (kept separate) #}
+                <div class="ms-3">
+                  <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Действия">
+                      <i class="bi bi-three-dots-vertical"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li>
+                        <a class="dropdown-item" href="{% url 'projects:source-edit' project.pk source.pk %}">
+                          <i class="bi bi-pencil me-2"></i>Изменить
+                        </a>
+                      </li>
+                      <li>
+                        <button type="button" class="dropdown-item text-danger" data-bs-toggle="modal" data-bs-target="#deleteSourceModal{{ source.pk }}">
+                          <i class="bi bi-trash me-2"></i>Удалить
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {# DELETE MODAL for each source #}
+              <div class="modal fade" id="deleteSourceModal{{ source.pk }}" tabindex="-1" aria-labelledby="deleteSourceModalLabel{{ source.pk }}" aria-hidden="true">
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h1 class="modal-title fs-5" id="deleteSourceModalLabel{{ source.pk }}">Подтвердите удаление</h1>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                      Вы уверены, что хотите удалить источник <strong>«{{ source.title }}»</strong>?
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                      <form method="post" class="d-inline" action="{% url 'projects:sources-delete' project.pk source.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-danger">Да, удалить</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-center p-4">
+            <h3 class="h5">Источники ещё не добавлены</h3>
+            <p class="text-muted mb-3">Нажмите кнопку «Добавить источник», чтобы начать сбор постов.</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
 {% endblock %}

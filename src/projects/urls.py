@@ -10,6 +10,8 @@ from .views import (
     ProjectCreateView,
     ProjectDeleteView,
     ProjectExportView,
+    ProjectChatFeedView,
+    ProjectImportView,
     ProjectListView,
     ProjectPromptExportView,
     ProjectPromptImportView,
@@ -27,6 +29,8 @@ app_name = "projects"
 urlpatterns = [
     path("", ProjectListView.as_view(), name="list"),
     path("create/", ProjectCreateView.as_view(), name="create"),
+    path("import/", ProjectImportView.as_view(), name="import"),
+    path("<int:pk>/chats/", ProjectChatFeedView.as_view(), name="chat-feed"),
     path("<int:pk>/settings/", ProjectSettingsView.as_view(), name="settings"),
     path("<int:pk>/delete/", ProjectDeleteView.as_view(), name="delete"),
     path("<int:pk>/export/", ProjectExportView.as_view(), name="export"),

@@ -103,6 +103,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         queryset = (
             Post.objects.filter(project=self.project)
             .select_related("source")
+            .exclude(source__telegram_kind=Source.TelegramKind.CHAT)
             .order_by("-collected_at", "-posted_at")
         )
         filtered = apply_post_filters(queryset, options)

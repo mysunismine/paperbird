@@ -263,6 +263,11 @@ class Source(models.Model):
         WEB = "web", "Web"
         MANUAL = "manual", "Редакторский текст"
 
+    class TelegramKind(models.TextChoices):
+        UNKNOWN = "unknown", "Не определён"
+        CHANNEL = "channel", "Канал"
+        CHAT = "chat", "Чат"
+
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
@@ -274,6 +279,12 @@ class Source(models.Model):
         max_length=20,
         choices=Type.choices,
         default=Type.TELEGRAM,
+    )
+    telegram_kind = models.CharField(
+        "Тип Telegram-источника",
+        max_length=20,
+        choices=TelegramKind.choices,
+        default=TelegramKind.UNKNOWN,
     )
     title = models.CharField("Название", max_length=255, blank=True)
     telegram_id = models.BigIntegerField(

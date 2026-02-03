@@ -117,6 +117,7 @@ def refresh_source_metadata_task(task: WorkerTask) -> dict[str, Any]:
         title = " ".join(filter(None, [first_name, last_name]))
     username = getattr(entity, "username", None) or source.username
     telegram_id = getattr(entity, "id", None) or source.telegram_id
+    telegram_kind = _detect_telegram_kind(entity)
 
     updates: dict[str, Any] = {}
     if title and source.title != title:
@@ -125,10 +126,29 @@ def refresh_source_metadata_task(task: WorkerTask) -> dict[str, Any]:
         updates["username"] = username.lower()
     if telegram_id and source.telegram_id != telegram_id:
         updates["telegram_id"] = telegram_id
+    if telegram_kind and source.telegram_kind != telegram_kind:
+        updates["telegram_kind"] = telegram_kind
     if updates:
         Source.objects.filter(pk=source.pk).update(**updates)
 
     return {"status": "ok", "updated": bool(updates)}
+
+
+def _detect_telegram_kind(entity) -> str:
+    """Определяет тип Telegram-источника (канал/чат)."""
+
+    try:
+        from telethon.tl.types import Channel as TelethonChannel, Chat as TelethonChat
+    except Exception:  # pragma: no cover - defensive
+        return Source.TelegramKind.UNKNOWN
+
+    if isinstance(entity, TelethonChat):
+        return Source.TelegramKind.CHAT
+    if isinstance(entity, TelethonChannel):
+        if getattr(entity, "megagroup", False):
+            return Source.TelegramKind.CHAT
+        return Source.TelegramKind.CHANNEL
+    return Source.TelegramKind.UNKNOWN
 
 
 def collect_project_posts_task(task: WorkerTask) -> dict[str, Any]:

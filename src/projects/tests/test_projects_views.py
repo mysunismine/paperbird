@@ -3,6 +3,7 @@ import json
 from datetime import timedelta
 from http import HTTPStatus
 from unittest.mock import ANY, patch
+from unittest import skipUnless
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
@@ -24,7 +25,7 @@ from projects.models import Post, Project, ProjectPromptConfig, Source, WebPrese
 from projects.services.prompt_config import ensure_prompt_config
 from stories.paperbird_stories.services import StoryFactory
 
-from . import User, make_preset_payload
+from . import HAS_JSONSCHEMA, User, make_preset_payload
 
 
 class ProjectListViewTests(TestCase):
@@ -58,8 +59,14 @@ class ProjectListViewTests(TestCase):
         self.assertContains(response, "Лента постов")
         self.assertContains(response, "Источники")
         self.assertContains(response, "Настройки")
+        self.assertContains(response, "Импортировать")
         self.assertContains(response, "Создать проект")
         self.assertNotContains(response, "Создать сюжет")
+
+    def test_chat_feed_page(self) -> None:
+        response = self.client.get(reverse("projects:chat-feed", args=[self.project_main.pk]))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertContains(response, "Чаты проекта")
 
 
 class ProjectCreateViewTests(TestCase):
@@ -356,6 +363,95 @@ class ProjectExportViewTests(TestCase):
 
         payload = yaml.safe_load(response.content)
         self.assertEqual(payload["project"]["name"], "Экспорт")
+
+
+class ProjectImportViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("importer", password="secret")
+        self.client.force_login(self.user)
+
+    @skipUnless(HAS_JSONSCHEMA, "jsonschema not available")
+    def test_import_creates_project_with_sources_and_prompts(self) -> None:
+        preset_payload = make_preset_payload("import_feed")
+        payload = {
+            "schema_version": 1,
+            "project": {
+                "name": "Импорт",
+                "description": "Описание",
+                "publish_target": "@import",
+                "locale": "ru_RU",
+                "time_zone": "UTC",
+                "rewrite_model": REWRITE_DEFAULT_MODEL,
+                "image_model": IMAGE_DEFAULT_MODEL,
+                "image_size": IMAGE_DEFAULT_SIZE,
+                "image_quality": IMAGE_DEFAULT_QUALITY,
+                "retention_days": 30,
+                "collector_enabled": False,
+                "collector_telegram_interval": 300,
+                "collector_web_interval": 600,
+                "is_active": True,
+            },
+            "prompt_config": {
+                "system_role": "Новый системный промпт",
+                "task_instruction": "Новая задача",
+                "documents_intro": "Документы",
+                "style_requirements": "Стиль",
+                "output_format": "Формат",
+                "output_example": "Пример",
+                "editor_comment_note": "Комментарий",
+                "image_prompt_template": "Шаблон",
+            },
+            "web_presets": [
+                {
+                    "name": preset_payload["name"],
+                    "version": preset_payload["version"],
+                    "config": preset_payload,
+                }
+            ],
+            "sources": [
+                {
+                    "type": "telegram",
+                    "title": "Telegram",
+                    "username": "news",
+                    "retention_days": 5,
+                    "is_active": True,
+                },
+                {
+                    "type": "web",
+                    "title": "Web",
+                    "web_preset": {
+                        "name": preset_payload["name"],
+                        "version": preset_payload["version"],
+                    },
+                    "web_preset_snapshot": preset_payload,
+                    "retention_days": 7,
+                    "is_active": False,
+                },
+                {
+                    "type": "manual",
+                    "title": "Редакторский текст",
+                    "retention_days": 7,
+                    "is_active": True,
+                },
+            ],
+        }
+        upload = SimpleUploadedFile(
+            "project.json",
+            json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            content_type="application/json",
+        )
+        response = self.client.post(
+            reverse("projects:import"),
+            data={"project_file": upload},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        project = Project.objects.get(name="Импорт")
+        self.assertEqual(project.publish_target, "@import")
+        self.assertEqual(project.prompt_config.system_role, "Новый системный промпт")
+        self.assertEqual(Source.objects.filter(project=project).count(), 3)
+        web_source = Source.objects.get(project=project, type=Source.Type.WEB)
+        self.assertEqual(web_source.web_preset.name, preset_payload["name"])
 
 
 class ProjectSourcesViewTests(TestCase):

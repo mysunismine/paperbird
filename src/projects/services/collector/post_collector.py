@@ -15,6 +15,8 @@ from django.db import transaction
 from django.utils import timezone
 from telethon.tl.custom.message import Message as TelethonMessage
 from telethon.tl.types import (
+    Channel as TelethonChannel,
+    Chat as TelethonChat,
     MessageMediaDocument as TelethonMessageMediaDocument,
     MessageMediaPhoto as TelethonMessageMediaPhoto,
 )
@@ -93,6 +95,12 @@ class PostCollector:
                         )
                         continue
                     entity = await client.get_entity(target)
+                    kind = self._detect_telegram_kind(entity)
+                    if kind and source.telegram_kind != kind:
+                        source.telegram_kind = kind
+                        await sync_to_async(source.save)(
+                            update_fields=["telegram_kind", "updated_at"],
+                        )
                     last_message_id = source.last_synced_id or 0
                     async for message in client.iter_messages(
                         entity,
@@ -147,6 +155,18 @@ class PostCollector:
                     posted_at__lt=cutoff_value,
                 ).delete()
             )()
+
+    @staticmethod
+    def _detect_telegram_kind(entity) -> str | None:
+        """Определяет тип Telegram-источника (канал/чат)."""
+
+        if isinstance(entity, TelethonChat):
+            return Source.TelegramKind.CHAT
+        if isinstance(entity, TelethonChannel):
+            if getattr(entity, "megagroup", False):
+                return Source.TelegramKind.CHAT
+            return Source.TelegramKind.CHANNEL
+        return Source.TelegramKind.UNKNOWN
 
     async def _process_message(self, *, message: TelethonMessage, source: Source) -> bool:
         """Обрабатывает одно сообщение из Telegram."""

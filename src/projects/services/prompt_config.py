@@ -265,7 +265,12 @@ def _render_documents(
     for index, post in enumerate(posts, start=1):
         body = (post.message or "").strip() or "(пустой текст)"
         link = _preferred_link(post)
-        label = "РЕДАКТОРСКИЙ ТЕКСТ" if post.origin_type == Post.Origin.MANUAL else "НОВОСТЬ"
+        label = "НОВОСТЬ"
+        if post.origin_type == Post.Origin.MANUAL:
+            label = "РЕДАКТОРСКИЙ ТЕКСТ"
+        elif getattr(post, "source", None) and post.source.type == "telegram":
+            if getattr(post.source, "telegram_kind", "") == "chat":
+                label = "ДИАЛОГ"
         if link:
             blocks.append(f"{label} #{index}:\n{body}\nСсылка на источник: {link}")
         else:

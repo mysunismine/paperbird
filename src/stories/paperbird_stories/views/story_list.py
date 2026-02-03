@@ -32,14 +32,16 @@ class StoryCreateView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         post_ids_raw = request.POST.getlist("posts")
         project_id = request.POST.get("project")
+        redirect_to = request.POST.get("redirect_to") or ""
+        chat_id = request.POST.get("chat") or ""
         if not post_ids_raw:
             messages.error(request, "Выберите посты для сюжета")
-            return self._redirect_back(project_id)
+            return self._redirect_back(project_id, redirect_to, chat_id)
         try:
             selected_ids = [int(value) for value in post_ids_raw]
         except ValueError:
             messages.error(request, "Некорректный список постов")
-            return self._redirect_back(project_id)
+            return self._redirect_back(project_id, redirect_to, chat_id)
 
         project = get_object_or_404(
             Project.objects.accessible_by(request.user),
@@ -51,7 +53,7 @@ class StoryCreateView(LoginRequiredMixin, View):
         )
         if len(posts) == 0:
             messages.error(request, "Не удалось найти выбранные посты")
-            return self._redirect_back(project.pk)
+            return self._redirect_back(project.pk, redirect_to, chat_id)
         found_ids = {post.pk for post in posts}
         missing_ids = {pk for pk in selected_ids if pk not in found_ids}
         if missing_ids:
@@ -59,7 +61,7 @@ class StoryCreateView(LoginRequiredMixin, View):
                 request,
                 "Некоторые выбранные посты больше недоступны. Обновите ленту и выберите заново.",
             )
-            return self._redirect_back(project.pk)
+            return self._redirect_back(project.pk, redirect_to, chat_id)
         order_map = {pk: index for index, pk in enumerate(selected_ids)}
         posts.sort(key=lambda post: order_map.get(post.pk, 0))
         try:
@@ -69,14 +71,31 @@ class StoryCreateView(LoginRequiredMixin, View):
             )
         except StoryCreationError as exc:
             messages.error(request, str(exc))
-            return self._redirect_back(project.pk)
+            return self._redirect_back(project.pk, redirect_to, chat_id)
         messages.success(request, "Сюжет создан. Добавьте комментарий и запустите рерайт.")
         return redirect("stories:detail", pk=story.pk)
 
-    def _redirect_back(self, project_id: int | str | None):
+    def _redirect_back(
+        self,
+        project_id: int | str | None,
+        redirect_to: str,
+        chat_id: str,
+    ):
         if project_id and str(project_id).isdigit():
+            if redirect_to == "chat":
+                if chat_id and str(chat_id).isdigit():
+                    project_value = int(project_id)
+                    chat_value = int(chat_id)
+                    return redirect(
+                        f"/projects/{project_value}/chats/?chat={chat_value}"
+                    )
+                return redirect("projects:chat-feed", int(project_id))
             return redirect("feed-detail", int(project_id))
-        first_project = Project.objects.accessible_by(self.request.user).order_by("id").first()
+        first_project = (
+            Project.objects.accessible_by(self.request.user)
+            .order_by("id")
+            .first()
+        )
         if first_project:
             return redirect("feed-detail", first_project.id)
         return redirect("projects:list")

@@ -8,7 +8,12 @@ from .manual import (
     ManualPostUpdateView,
     ManualPostVersionDetailView,
 )
-from .projects import ProjectCreateView, ProjectListView
+from .projects import (
+    ProjectChatFeedView,
+    ProjectCreateView,
+    ProjectImportView,
+    ProjectListView,
+)
 from .prompts import ProjectPromptExportView, ProjectPromptImportView, ProjectPromptsView
 from .settings import ProjectDeleteView, ProjectSettingsView
 from .sources import (
@@ -22,6 +27,8 @@ from .sources import (
 __all__ = [
     "ProjectCollectorQueueView",
     "ProjectCreateView",
+    "ProjectChatFeedView",
+    "ProjectImportView",
     "ProjectExportView",
     "ProjectListView",
     "ProjectPostDetailView",

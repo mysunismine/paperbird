@@ -10,10 +10,16 @@
         Создайте проект, подключите источники и проверяйте, как собираются посты.
       </p>
     </div>
-    <a class="btn btn-primary" href="{% url 'projects:create' %}">
-      <i class="bi bi-plus-lg me-1"></i>
-      Создать проект
-    </a>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{% url 'projects:import' %}">
+        <i class="bi bi-upload me-1"></i>
+        Импортировать
+      </a>
+      <a class="btn btn-primary" href="{% url 'projects:create' %}">
+        <i class="bi bi-plus-lg me-1"></i>
+        Создать проект
+      </a>
+    </div>
   </div>
 
   {% if projects %}

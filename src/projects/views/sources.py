@@ -35,7 +35,10 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
 
     def post(self, request, *args, **kwargs):
         """Поддерживает удаление источника со страницы списка."""
-        if request.POST.get("action") != "delete":
+        action = request.POST.get("action")
+        if action == "refresh_telegram":
+            return self._refresh_telegram_sources()
+        if action != "delete":
             messages.error(request, "Неизвестное действие.")
             return redirect("projects:sources", pk=self.project.pk)
 
@@ -50,6 +53,21 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
         messages.success(request, "Источник удалён.")
         return redirect("projects:sources", pk=self.project.pk)
 
+    def _refresh_telegram_sources(self):
+        telegram_sources = self.project.sources.filter(type=Source.Type.TELEGRAM)
+        if not telegram_sources.exists():
+            messages.info(self.request, "В проекте нет Telegram-источников.")
+            return redirect("projects:sources", pk=self.project.pk)
+        from projects.services.source_metadata import enqueue_source_refresh
+
+        for source in telegram_sources:
+            enqueue_source_refresh(source)
+        messages.success(
+            self.request,
+            f"Обновление метаданных запланировано для {telegram_sources.count()} источников.",
+        )
+        return redirect("projects:sources", pk=self.project.pk)
+
     def get_context_data(self, **kwargs):
         """Формирует контекст для шаблона."""
         context = super().get_context_data(**kwargs)
@@ -59,11 +77,35 @@ class ProjectSourcesView(LoginRequiredMixin, TemplateView):
             web_last_status="blocked",
             web_blocked_until__gt=now,
         )
+        telegram_sources = self.project.sources.filter(type=Source.Type.TELEGRAM)
+        unknown_telegram = telegram_sources.filter(
+            telegram_kind=Source.TelegramKind.UNKNOWN
+        )
+        missing_identifier = telegram_sources.filter(
+            username="",
+            invite_link="",
+            telegram_id__isnull=True,
+        )
+        active_tab = (self.request.GET.get("tab") or "list").strip().lower()
+        if active_tab not in {"list", "service"}:
+            active_tab = "list"
         context.update(
             {
                 "project": self.project,
                 "sources": self.project.sources.order_by("type", "title", "telegram_id"),
                 "blocked_sources": blocked_sources,
+                "telegram_summary": {
+                    "channel": telegram_sources.filter(
+                        telegram_kind=Source.TelegramKind.CHANNEL
+                    ).count(),
+                    "chat": telegram_sources.filter(
+                        telegram_kind=Source.TelegramKind.CHAT
+                    ).count(),
+                    "unknown": unknown_telegram.count(),
+                },
+                "unknown_telegram": unknown_telegram.order_by("title", "id"),
+                "missing_identifier": missing_identifier.order_by("title", "id"),
+                "active_tab": active_tab,
                 "create_url": reverse_lazy(
                     "projects:source-create",
                     kwargs={"project_pk": self.project.pk},

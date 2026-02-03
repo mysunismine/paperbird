@@ -38,6 +38,7 @@ def build_project_export(project: Project) -> dict[str, Any]:
         source_payloads.append(
             {
                 "type": source.type,
+                "telegram_kind": source.telegram_kind,
                 "title": source.title,
                 "telegram_id": source.telegram_id,
                 "username": source.username,
