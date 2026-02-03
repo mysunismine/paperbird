@@ -51,7 +51,7 @@
                       {% if source.type == "telegram" %}
                         Канал: {{ source.username|default:source.invite_link }}
                       {% elif source.type == "manual" %}
-                        Ручной ввод текста
+                        Редакторский текст
                       {% else %}
                         Пресет: {{ source.web_preset.title|default:source.web_preset.name }}
                       {% endif %}

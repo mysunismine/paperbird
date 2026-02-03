@@ -1,13 +1,23 @@
 {% extends "base.html" %}
 
-{% block title %}Новый текст — {{ project.name }} — Paperbird{% endblock %}
+{% block title %}
+  {% if is_edit %}Редактировать текст{% else %}Новый текст{% endif %} — {{ project.name }} — Paperbird
+{% endblock %}
 
 {% block content %}
   <div class="row justify-content-center">
     <div class="col-lg-8">
       <div class="mb-4 text-center">
-        <h1 class="h3 mb-1">Добавить свой текст</h1>
-        <p class="text-muted mb-0">Текст появится в ленте как отдельный пост.</p>
+        <h1 class="h3 mb-1">
+          {% if is_edit %}Редактировать редакторский текст{% else %}Добавить редакторский текст{% endif %}
+        </h1>
+        <p class="text-muted mb-0">
+          {% if is_edit %}
+            Изменения сохранятся как новая версия.
+          {% else %}
+            Текст появится в ленте как отдельный элемент.
+          {% endif %}
+        </p>
       </div>
 
       <div class="card shadow-sm">
@@ -39,7 +49,9 @@
               <a class="btn btn-outline-secondary" href="{% url 'feed-detail' project.id %}">
                 Назад к ленте
               </a>
-              <button class="btn btn-primary" type="submit">Сохранить</button>
+              <button class="btn btn-primary" type="submit">
+                {% if is_edit %}Сохранить изменения{% else %}Сохранить{% endif %}
+              </button>
             </div>
           </form>
         </div>

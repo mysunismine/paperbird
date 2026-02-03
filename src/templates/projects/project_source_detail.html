@@ -110,7 +110,7 @@
               <dd class="col-sm-8">{{ source.telegram_id|default:"-" }}</dd>
             </dl>
           {% elif source.type == "manual" %}
-            <div class="text-muted">Ручной ввод текста, без внешних источников.</div>
+            <div class="text-muted">Редакторский текст, без внешних источников.</div>
           {% else %}
             <h3 class="h6">Параметры пресета</h3>
             <pre class="bg-light p-3 rounded small"><code>{{ source.preset_payload|json_script:"preset-data" }}</code></pre>

@@ -13,7 +13,7 @@ from django.views.generic import TemplateView
 
 from core.models import WorkerTask
 from core.services import enqueue_task  # noqa: F401
-from projects.models import Post, Project, Source, WebPreset
+from projects.models import Post, PostVersion, Project, Source, WebPreset
 from projects.services.collector_scheduler import ensure_collector_tasks
 from projects.services.post_filters import (
     PostFilterOptions,
@@ -77,6 +77,12 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
             for value in query.getlist("sources")
             if value.isdigit()
         }
+        origin_filter = (query.get("origin") or "").strip().lower()
+        origin_types: set[str] = set()
+        if origin_filter == "manual":
+            origin_types = {Post.Origin.MANUAL}
+        elif origin_filter == "news":
+            origin_types = {Post.Origin.TELEGRAM, Post.Origin.WEB}
         return PostFilterOptions(
             statuses=statuses,
             search=query.get("search", ""),
@@ -87,6 +93,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
             has_media=_parse_bool(query.get("has_media")),
             source_ids=source_ids,
             languages=set(),
+            origin_types=origin_types,
         )
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
@@ -110,6 +117,7 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
                 "projects": self._projects,
                 "posts": posts,
                 "options": options,
+                "origin_filter": (self.request.GET.get("origin") or "").strip().lower(),
                 "status_choices": Post.Status.choices,
                 "total_posts": queryset.count(),
                 "last_refreshed": timezone.now(),
@@ -262,6 +270,11 @@ class ProjectPostDetailView(LoginRequiredMixin, TemplateView):
                 "project": self.project,
                 "post": self.post,
                 "media_items": self.post.media_items,
+                "versions": (
+                    PostVersion.objects.filter(post=self.post).select_related("created_by")
+                    if self.post.origin_type == Post.Origin.MANUAL
+                    else []
+                ),
             }
         )
         return context

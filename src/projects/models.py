@@ -261,7 +261,7 @@ class Source(models.Model):
     class Type(models.TextChoices):
         TELEGRAM = "telegram", "Telegram"
         WEB = "web", "Web"
-        MANUAL = "manual", "Свой текст"
+        MANUAL = "manual", "Редакторский текст"
 
     project = models.ForeignKey(
         Project,
@@ -568,7 +568,7 @@ class Post(models.Model):
     class Origin(models.TextChoices):
         TELEGRAM = "telegram", "Telegram"
         WEB = "web", "Web"
-        MANUAL = "manual", "Свой текст"
+        MANUAL = "manual", "Редакторский текст"
 
     project = models.ForeignKey(
         Project,
@@ -765,6 +765,30 @@ class Post(models.Model):
             return combined
         return self.message or ""
 
+    @property
+    def manual_title(self) -> str:
+        """Заголовок ручного/редакторского текста (если доступен)."""
+
+        if isinstance(self.raw, dict):
+            title = self.raw.get("title")
+            if isinstance(title, str):
+                return title
+        metadata = self.external_metadata if isinstance(self.external_metadata, dict) else {}
+        title = metadata.get("title")
+        if isinstance(title, str):
+            return title
+        return ""
+
+    @property
+    def manual_body(self) -> str:
+        """Тело ручного/редакторского текста (если доступно)."""
+
+        if isinstance(self.raw, dict):
+            body = self.raw.get("body")
+            if isinstance(body, str):
+                return body
+        return self.message or ""
+
     @staticmethod
     def make_hash(value: str | bytes | None) -> str:
         """Возвращает SHA256 хэш строки или байтов."""
@@ -822,13 +846,14 @@ class Post(models.Model):
         source: Source,
         title: str,
         body: str,
+        created_by=None,
     ) -> Post:
         """Создаёт пост из ручного текста."""
 
         merged_message = cls.merge_title_and_body(title, body).strip()
         text_hash = cls.make_hash(merged_message) if merged_message else ""
         language = detect_language(merged_message)
-        return cls.objects.create(
+        post = cls.objects.create(
             project=project,
             source=source,
             origin_type=cls.Origin.MANUAL,
@@ -840,6 +865,53 @@ class Post(models.Model):
             text_hash=text_hash,
             content_hash=text_hash,
             language=language,
+        )
+        PostVersion.objects.create(
+            post=post,
+            title=title,
+            body=body,
+            message=merged_message,
+            created_by=created_by,
+        )
+        return post
+
+    def update_manual(
+        self,
+        *,
+        title: str,
+        body: str,
+        updated_by=None,
+    ) -> None:
+        """Обновляет ручной/редакторский текст, сохраняя версию."""
+
+        if self.origin_type != self.Origin.MANUAL:
+            raise ValueError("Редактирование доступно только для редакторских текстов.")
+        PostVersion.objects.create(
+            post=self,
+            title=self.manual_title,
+            body=self.manual_body,
+            message=self.message,
+            created_by=updated_by,
+        )
+        merged_message = self.merge_title_and_body(title, body).strip()
+        text_hash = self.make_hash(merged_message) if merged_message else ""
+        language = detect_language(merged_message)
+        self.message = merged_message
+        self.raw = {"title": title, "body": body}
+        self.external_metadata = {"title": title}
+        self.text_hash = text_hash
+        self.content_hash = text_hash
+        self.language = language
+        self.save(
+            update_fields=[
+                "message",
+                "raw",
+                "external_metadata",
+                "text_hash",
+                "content_hash",
+                "language",
+                "updated_at",
+            ]
         )
 
     @classmethod
@@ -919,6 +991,37 @@ class Post(models.Model):
     def mark_deleted(self) -> None:
         self.status = self.Status.DELETED
         self.save(update_fields=["status", "updated_at"])
+
+
+class PostVersion(models.Model):
+    """Версия ручного/редакторского текста."""
+
+    post = models.ForeignKey(
+        Post,
+        on_delete=models.CASCADE,
+        related_name="versions",
+        verbose_name="Пост",
+    )
+    title = models.CharField("Заголовок", max_length=255, blank=True)
+    body = models.TextField("Текст", blank=True)
+    message = models.TextField("Полный текст", blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="post_versions",
+        verbose_name="Автор",
+    )
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Версия поста"
+        verbose_name_plural = "Версии постов"
+        ordering = ("-created_at", "-id")
+
+    def __str__(self) -> str:
+        return f"Версия поста #{self.post_id}"
 
 
 class SourceSyncLog(models.Model):

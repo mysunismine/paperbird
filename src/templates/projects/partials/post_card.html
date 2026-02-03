@@ -30,6 +30,9 @@
         <i class="bi bi-globe2 text-success me-2"></i>
       {% endif %}
       <span class="fw-semibold text-body-secondary small">{{ post.source.title|default:post.source.username }}</span>
+      {% if post.source.type == "manual" %}
+        <span class="badge text-bg-warning-subtle text-warning-emphasis ms-2">Редакторский текст</span>
+      {% endif %}
       <span class="text-muted small ms-auto">{{ post.posted_at|date:"d.m.Y H:i" }}</span>
     </div>
     <p class="card-text">{{ post.display_message|truncatewords_html:70|linebreaksbr }}</p>
@@ -49,6 +52,11 @@
       <a href="{% url 'feed-post-detail' project.id post.id %}" class="btn btn-sm btn-outline-secondary" title="Детали">
         <i class="bi bi-zoom-in"></i>
       </a>
+      {% if post.source.type == "manual" %}
+        <a href="{% url 'projects:manual-post-edit' project.id post.id %}" class="btn btn-sm btn-outline-secondary" title="Редактировать">
+          <i class="bi bi-pencil"></i>
+        </a>
+      {% endif %}
     </div>
   </div>
 </div>

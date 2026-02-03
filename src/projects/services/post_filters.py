@@ -61,6 +61,7 @@ class PostFilterOptions:
     has_media: bool | None = None
     source_ids: set[int] = field(default_factory=set)
     languages: set[str] = field(default_factory=set)
+    origin_types: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         """Обрабатывает параметры после инициализации."""
@@ -73,6 +74,7 @@ class PostFilterOptions:
             raise ValueError("Дата начала фильтрации позже даты окончания")
         self.source_ids = {source_id for source_id in self.source_ids if source_id}
         self.languages = {lang for lang in self.languages if lang}
+        self.origin_types = {origin for origin in self.origin_types if origin}
 
     @property
     def search_terms(self) -> list[str]:
@@ -105,6 +107,15 @@ def apply_post_filters(queryset: QuerySet[Post], options: PostFilterOptions) -> 
 
     if options.source_ids:
         filtered = filtered.filter(source_id__in=options.source_ids)
+
+    if options.origin_types:
+        valid_origins = set(Post.Origin.values)
+        unknown_origins = options.origin_types - valid_origins
+        if unknown_origins:
+            raise ValueError(
+                f"Неизвестные типы источников постов: {sorted(unknown_origins)}"
+            )
+        filtered = filtered.filter(origin_type__in=options.origin_types)
 
     if options.date_from:
         filtered = filtered.filter(posted_at__gte=options.date_from)

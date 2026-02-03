@@ -4,6 +4,8 @@ from django.urls import path
 
 from .views import (
     ManualPostCreateView,
+    ManualPostUpdateView,
+    ManualPostVersionDetailView,
     ProjectCollectorQueueView,
     ProjectCreateView,
     ProjectDeleteView,
@@ -65,5 +67,15 @@ urlpatterns = [
         "<int:project_pk>/manual/",
         ManualPostCreateView.as_view(),
         name="manual-post",
+    ),
+    path(
+        "<int:project_pk>/manual/<int:post_pk>/edit/",
+        ManualPostUpdateView.as_view(),
+        name="manual-post-edit",
+    ),
+    path(
+        "<int:project_pk>/manual/<int:post_pk>/versions/<int:version_pk>/",
+        ManualPostVersionDetailView.as_view(),
+        name="manual-post-version",
     ),
 ]

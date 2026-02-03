@@ -30,7 +30,7 @@ PROMPT_SECTION_HINTS: dict[str, str] = {
     "task_instruction": "Формулируйте задачу и ожидаемые действия модели.",
     "documents_intro": (
         "Расскажите, как работать с источниками. Токен {{POSTS}} заменится на список "
-        "новостей."
+        "новостей и редакторских текстов."
     ),
     "style_requirements": "Дайте тон, требования к языку и форматированию.",
     "output_format": "Опишите JSON схему. Можно добавить блоки ``` для удобства.",
@@ -47,7 +47,10 @@ PROMPT_SECTION_HINTS: dict[str, str] = {
 PROMPT_TEMPLATE_TOKENS: dict[str, str] = {
     "{{PROJECT_NAME}}": "Название проекта",
     "{{PROJECT_DESCRIPTION}}": "Описание проекта",
-    "{{POSTS}}": "Список новостей вида «НОВОСТЬ #1: ...»",
+    "{{POSTS}}": (
+        "Список источников вида «НОВОСТЬ #1: ...» / "
+        "«РЕДАКТОРСКИЙ ТЕКСТ #1: ...»"
+    ),
     "{{TITLE}}": "Заголовок сюжета",
     "{{STORY_TITLE}}": "Заголовок сюжета (для промпта изображения)",
     "{{STORY_SUMMARY}}": "Краткое описание сюжета (для промпта изображения)",
@@ -262,10 +265,11 @@ def _render_documents(
     for index, post in enumerate(posts, start=1):
         body = (post.message or "").strip() or "(пустой текст)"
         link = _preferred_link(post)
+        label = "РЕДАКТОРСКИЙ ТЕКСТ" if post.origin_type == Post.Origin.MANUAL else "НОВОСТЬ"
         if link:
-            blocks.append(f"НОВОСТЬ #{index}:\n{body}\nСсылка на источник: {link}")
+            blocks.append(f"{label} #{index}:\n{body}\nСсылка на источник: {link}")
         else:
-            blocks.append(f"НОВОСТЬ #{index}:\n{body}")
+            blocks.append(f"{label} #{index}:\n{body}")
     return "\n\n".join(blocks)
 
 

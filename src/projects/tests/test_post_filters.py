@@ -63,6 +63,18 @@ class PostFilterServiceTests(TestCase):
             has_media=False,
             raw={},
         )
+        self.source_manual = Source.objects.create(
+            project=self.project,
+            type=Source.Type.MANUAL,
+            title="Редакторский текст",
+        )
+        self.post_manual = Post.create_manual(
+            project=self.project,
+            source=self.source_manual,
+            title="Колонка",
+            body="Редакторский комментарий",
+            created_by=self.user,
+        )
 
     def test_filter_by_status_and_media(self) -> None:
         options = PostFilterOptions(
@@ -100,6 +112,18 @@ class PostFilterServiceTests(TestCase):
         )
         queryset = apply_post_filters(Post.objects.filter(project=self.project), options)
         self.assertCountEqual(list(queryset), [self.post_new, self.post_used])
+
+    def test_filter_by_origin_type(self) -> None:
+        options = PostFilterOptions(origin_types={Post.Origin.MANUAL})
+        queryset = apply_post_filters(Post.objects.filter(project=self.project), options)
+        self.assertEqual(list(queryset), [self.post_manual])
+
+        options = PostFilterOptions(origin_types={Post.Origin.TELEGRAM, Post.Origin.WEB})
+        queryset = apply_post_filters(Post.objects.filter(project=self.project), options)
+        self.assertCountEqual(
+            list(queryset),
+            [self.post_new, self.post_used, self.post_other_source],
+        )
 
     def test_keyword_hits_summary(self) -> None:
         options = PostFilterOptions(include_keywords={"презентации", "поддержки"})

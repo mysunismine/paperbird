@@ -81,6 +81,14 @@
             <option value="false" {% if options.has_media is False %}selected{% endif %}>Только текст</option>
           </select>
         </div>
+        <div style="min-width: 220px;">
+          <label class="form-label fw-semibold small" for="origin">Тип</label>
+          <select class="form-select" id="origin" name="origin">
+            <option value="" {% if not origin_filter %}selected{% endif %}>Все источники</option>
+            <option value="news" {% if origin_filter == "news" %}selected{% endif %}>Новости (Telegram/Веб)</option>
+            <option value="manual" {% if origin_filter == "manual" %}selected{% endif %}>Редакторские тексты</option>
+          </select>
+        </div>
         <div class="d-flex gap-2">
           <button class="btn btn-primary" type="submit">Применить</button>
           <a class="btn btn-outline-secondary" href="{% url 'feed-detail' project.id %}">Сбросить</a>
@@ -95,7 +103,7 @@
       <div class="d-flex gap-2 align-items-center">
         <span id="selected-counter" class="text-muted small">Выбрано: 0</span>
         <a class="btn btn-outline-primary" href="{% url 'projects:manual-post' project.pk %}">
-          <i class="bi bi-pencil-square me-1"></i>Добавить текст
+          <i class="bi bi-pencil-square me-1"></i>Добавить редакторский текст
         </a>
         <form id="create-story-form" action="{% url 'stories:create-from-posts' %}" method="post" class="d-inline">
           {% csrf_token %}

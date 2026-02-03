@@ -24,7 +24,7 @@ class ManualPostForm(forms.Form):
             attrs={
                 "class": "form-control",
                 "rows": 10,
-                "placeholder": "Вставьте текст новости или заметки",
+                "placeholder": "Вставьте редакторский текст",
             }
         ),
     )
