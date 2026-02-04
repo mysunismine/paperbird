@@ -5,7 +5,10 @@ __pycache__/
 
 # Environments
 .venv/
+.venv313/
 .env
+.env.*
+!.env.example
 .django_secret_key
 .envrc
 
@@ -23,6 +26,7 @@ coverage.xml
 htmlcov/
 .mypy_cache/
 .cache/
+.codeassistant/
 
 # OS / editors
 .DS_Store
@@ -33,6 +37,8 @@ htmlcov/
 
 # Local env overrides
 infra/.env
+infra/.env.*
+!infra/.env.example
 infra/docker-compose.override.yml
 
 # Telethon sessions / logs

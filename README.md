@@ -134,6 +134,19 @@ source .venv/bin/activate
 flake8
 ```
 
+## Автоматическая защита репозитория
+Чтобы секреты и служебные файлы не попадали в git, включите pre-commit hooks:
+```bash
+source .venv/bin/activate
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+Что проверяется автоматически:
+- приватные ключи и high-entropy секреты;
+- запрещенные локальные файлы (`.env*`, `.django_secret_key`, `.codeassistant/*`, ключи `*.pem`, `*.key` и т.д.);
+- конфликтные маркеры merge, крупные файлы, базовая hygiene-валидация.
+
 ## Структура директории
 - `src/` — исходники приложения
   - `src/paperbird/` — настройки проекта Django
