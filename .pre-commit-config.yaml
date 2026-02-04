@@ -6,20 +6,24 @@ repos:
       - id: check-added-large-files
         args: ["--maxkb=1024"]
       - id: detect-private-key
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
       - id: check-yaml
 
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:
       - id: detect-secrets
-        args: ["--exclude-files", "(^docs/|^src/.*/tests?/|^infra/.env.example$)"]
+        args:
+          [
+            "--baseline",
+            ".secrets.baseline",
+            "--exclude-files",
+            "(^|.*/)src/.*/tests?/|(^|.*/)infra/.env.example$",
+          ]
 
   - repo: local
     hooks:
       - id: forbid-sensitive-files
         name: forbid-sensitive-files
         entry: python tools/forbid_sensitive_files.py
-        language: system
+        language: python
         pass_filenames: true

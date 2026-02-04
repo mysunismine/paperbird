@@ -24,8 +24,8 @@ Content-Type: application/json
 **Response**
 ```json
 {
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "access_token": "<jwt_access_token_example>",
+  "refresh_token": "<jwt_refresh_token_example>"
 }
 ```
 **Error**

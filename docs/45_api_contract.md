@@ -42,7 +42,7 @@
 - **Пример успешного ответа:**
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "token": "<jwt_access_token_example>"
 }
 ```
 - **Возможные ошибки:**

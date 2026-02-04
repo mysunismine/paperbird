@@ -69,4 +69,5 @@
   - файлы окружения (`.env`, `.env.*`, кроме `*.example`);
   - локальные ключи/сертификаты (`*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.crt`);
   - `.django_secret_key`, `.codeassistant/*`, SSH private keys.
+- Для контролируемых false positive используется `.secrets.baseline` (обновление baseline: `git ls-files -z | xargs -0 detect-secrets scan -n > .secrets.baseline`).
 - Дополнительно на GitHub запускается workflow `Repository Hygiene`, который повторно прогоняет pre-commit на PR и push в `main`.
