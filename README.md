@@ -32,6 +32,14 @@
    cp infra/.env.example infra/.env
    ```
    Обратите внимание на `DJANGO_SECRET_KEY`, `POSTGRES_*`, а также `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `OPENAI_API_KEY`, `YANDEX_API_KEY`, `GEMINI_API_KEY` и `GEMINI_IMAGE_MODEL`. Telethon ключи и строковую сессию можно получить в [кабинете разработчика Telegram](https://my.telegram.org/), а ключи OpenAI/Gemini/Yandex — в кабинетах соответствующих провайдеров.
+   Для приватных артефактов (экспорты проектов, промпты, пресеты) используйте отдельный приватный checkout рядом с проектом:
+   ```bash
+   # Пример структуры:
+   # /Users/<you>/Dev/paperbird
+   # /Users/<you>/Dev/paperbird-private
+   PAPERBIRD_PRIVATE_DIR=../paperbird-private
+   PAPERBIRD_PRIVATE_ARTIFACTS_DIR=../paperbird-private/artifacts
+   ```
 
 ## Запуск проекта
 
@@ -48,6 +56,8 @@ python manage.py runserver
 ```bash
 python manage.py collect_posts --all-users --limit 50 --follow --interval 30
 python manage.py run_worker collector
+python manage.py export_private_artifacts <username> --format json
+python manage.py import_private_artifacts <username>
 ```
 
 ### Через Docker

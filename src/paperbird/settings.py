@@ -20,6 +20,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 SRC_DIR = BASE_DIR / "src"
 
 
+def _resolve_path_env(value: str | None, *, default: Path) -> Path:
+    """Resolve path from env value. Relative paths are resolved from BASE_DIR."""
+    if not value:
+        return default
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = BASE_DIR / path
+    return path
+
+
 def _load_env_file() -> None:
     """Populate os.environ from infra/.env if it exists."""
     env_path = BASE_DIR / "infra" / ".env"
@@ -203,6 +213,14 @@ STATICFILES_DIRS = [SRC_DIR / "static"]
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+PAPERBIRD_PRIVATE_DIR = _resolve_path_env(
+    os.getenv("PAPERBIRD_PRIVATE_DIR"),
+    default=BASE_DIR.parent / "paperbird-private",
+)
+PAPERBIRD_PRIVATE_ARTIFACTS_DIR = _resolve_path_env(
+    os.getenv("PAPERBIRD_PRIVATE_ARTIFACTS_DIR"),
+    default=PAPERBIRD_PRIVATE_DIR / "artifacts",
+)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field

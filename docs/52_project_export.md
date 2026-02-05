@@ -24,3 +24,28 @@
 2. Скачать JSON или YAML экспорт.
 3. Сохранить файл в защищенном месте (без доступа для посторонних).
 4. Для восстановления или переноса использовать соответствующий импорт (если реализован).
+
+## Приватный checkout для артефактов
+Чтобы держать публичный репозиторий сервиса открытым, а личные артефакты закрытыми,
+используйте отдельный приватный репозиторий рядом с `paperbird`.
+
+Пример структуры:
+- `../paperbird` (публичный код сервиса)
+- `../paperbird-private` (приватные артефакты)
+
+Настройка через `.env`:
+- `PAPERBIRD_PRIVATE_DIR=../paperbird-private`
+- `PAPERBIRD_PRIVATE_ARTIFACTS_DIR=../paperbird-private/artifacts`
+
+Экспорт артефактов проекта в приватный checkout:
+```bash
+python manage.py export_private_artifacts <username> --format json
+python manage.py export_private_artifacts <username> --project <id> --format yaml
+```
+
+Импорт из приватного checkout:
+```bash
+python manage.py import_private_artifacts <username>
+python manage.py import_private_artifacts <username> --project-dir <folder-name>
+python manage.py import_private_artifacts <username> --project-dir <folder-name> --file project-export.yaml
+```

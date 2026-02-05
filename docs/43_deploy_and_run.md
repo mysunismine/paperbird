@@ -41,6 +41,8 @@
 DJANGO_SECRET_KEY=<секретный_ключ_приложения>
 DJANGO_DEBUG=False
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,yourdomain.com
+PAPERBIRD_PRIVATE_DIR=../paperbird-private
+PAPERBIRD_PRIVATE_ARTIFACTS_DIR=../paperbird-private/artifacts
 
 POSTGRES_DB=paperbird
 POSTGRES_USER=paperbird
@@ -88,6 +90,7 @@ EMAIL_USE_TLS=True
 - `DJANGO_SECRET_KEY` — секретный ключ Django.  
 - `DJANGO_DEBUG` — режим отладки (True/False).  
 - `DJANGO_ALLOWED_HOSTS` — список разрешённых хостов через запятую.  
+- `PAPERBIRD_PRIVATE_*` — путь к приватному checkout для артефактов проекта.  
 - `POSTGRES_*` — параметры подключения к PostgreSQL.  
 - `TELEGRAM_*` — данные Telethon для сбора и публикации.  
 - `OPENAI_*` — ключ и настройки моделей OpenAI (рерайт и изображения).  
