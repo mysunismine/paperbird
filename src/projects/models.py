@@ -268,6 +268,10 @@ class Source(models.Model):
         CHANNEL = "channel", "Канал"
         CHAT = "chat", "Чат"
 
+    class WebEngine(models.TextChoices):
+        PRESET = "preset", "Preset"
+        WATERCRAWL = "watercrawl", "Watercrawl"
+
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
@@ -318,6 +322,17 @@ class Source(models.Model):
         default=dict,
         blank=True,
         help_text="Конфигурация, с которой работает источник (фиксируется при импорте).",
+    )
+    web_engine = models.CharField(
+        "Движок веб-сбора",
+        max_length=20,
+        choices=WebEngine.choices,
+        default=WebEngine.PRESET,
+    )
+    source_url = models.URLField(
+        "URL сайта-источника",
+        blank=True,
+        help_text="Корневой URL для универсального веб-парсинга без пресетов.",
     )
     web_last_synced_at = models.DateTimeField("Последний веб-сбор", blank=True, null=True)
     web_last_status = models.CharField("Статус последнего веб-сбора", max_length=20, blank=True)
@@ -425,7 +440,7 @@ class Source(models.Model):
 
     def __str__(self) -> str:
         return self.title or self.username or (
-            str(self.telegram_id) if self.telegram_id else "Источник"
+            str(self.telegram_id) if self.telegram_id else self.source_url or "Источник"
         )
 
     def _normalize_keywords(self, values: Iterable[str]) -> list[str]:
@@ -435,10 +450,18 @@ class Source(models.Model):
         self.include_keywords = self._normalize_keywords(self.include_keywords)
         self.exclude_keywords = self._normalize_keywords(self.exclude_keywords)
         if self.type == self.Type.WEB:
-            if not self.web_preset_id:
-                raise ValidationError("Для веб-источника нужно прикрепить пресет.")
-            if not self.web_preset_snapshot:
-                self.web_preset_snapshot = self.web_preset.config
+            if self.web_engine == self.WebEngine.PRESET:
+                if not self.web_preset_id:
+                    raise ValidationError("Для preset-режима нужно прикрепить пресет.")
+                if not self.web_preset_snapshot:
+                    self.web_preset_snapshot = self.web_preset.config
+            elif self.web_engine == self.WebEngine.WATERCRAWL:
+                if not (self.source_url or "").strip():
+                    raise ValidationError("Для watercrawl-режима нужно указать URL сайта.")
+                self.web_preset = None
+                self.web_preset_snapshot = {}
+            else:
+                raise ValidationError("Неизвестный движок веб-сбора.")
         super().clean()
 
     def active_web_preset(self) -> dict:

@@ -45,6 +45,8 @@ class SourceBaseForm(forms.ModelForm):
             "telegram_id",
             "username",
             "invite_link",
+            "web_engine",
+            "source_url",
             "web_preset",
             "preset_payload",
             "preset_file",
@@ -75,6 +77,10 @@ class SourceBaseForm(forms.ModelForm):
             ),
             "invite_link": forms.TextInput(
                 attrs={"class": "form-control", "placeholder": "https://t.me/+..."}
+            ),
+            "web_engine": forms.Select(attrs={"class": "form-select"}),
+            "source_url": forms.URLInput(
+                attrs={"class": "form-control", "placeholder": "https://example.com/news"}
             ),
             "web_preset": forms.Select(attrs={"class": "form-select"}),
             "deduplicate_text": forms.CheckboxInput(attrs={"class": "form-check-input"}),
@@ -110,6 +116,8 @@ class SourceBaseForm(forms.ModelForm):
             "telegram_id": "Telegram ID",
             "username": "Ссылка или @username",
             "invite_link": "Инвайт-ссылка",
+            "web_engine": "Режим веб-сбора",
+            "source_url": "URL сайта-источника",
             "web_preset": "Пресет веб-парсера",
             "deduplicate_text": "Дедупликация текста",
             "deduplicate_media": "Дедупликация медиа",
@@ -143,7 +151,9 @@ class SourceBaseForm(forms.ModelForm):
         self.fields["username"].required = False
         self.fields["invite_link"].required = False
         self.fields["telegram_id"].required = False
+        self.fields["web_engine"].required = False
         self.fields["web_preset"].required = False
+        self.fields["source_url"].required = False
 
         # CSS classes and data attributes for JS
         self.fields["type"].widget.attrs["data-role"] = "source-type"
@@ -156,8 +166,15 @@ class SourceBaseForm(forms.ModelForm):
 
         # --- Web fields
         self.fields["web_preset"].widget.attrs["class"] += " source-web-field"
+        self.fields["web_engine"].widget.attrs["class"] += " source-web-field"
+        self.fields["source_url"].widget.attrs["class"] += (
+            " source-web-field source-web-watercrawl-field"
+        )
         self.fields["preset_payload"].widget.attrs["class"] += " source-web-field"
+        self.fields["preset_payload"].widget.attrs["class"] += " source-web-preset-field"
         self.fields["preset_file"].widget.attrs["class"] += " source-web-field"
+        self.fields["preset_file"].widget.attrs["class"] += " source-web-preset-field"
+        self.fields["web_preset"].widget.attrs["class"] += " source-web-preset-field"
         self.fields["web_retry_max_attempts"].widget.attrs["class"] += " source-web-field"
         self.fields["web_retry_base_delay"].widget.attrs["class"] += " source-web-field"
         self.fields["web_retry_max_delay"].widget.attrs["class"] += " source-web-field"
@@ -168,6 +185,7 @@ class SourceBaseForm(forms.ModelForm):
 
         # Initial values and querysets
         self.fields["web_preset"].queryset = WebPreset.objects.order_by("name", "version")
+        self.fields["web_engine"].initial = Source.WebEngine.PRESET
         if not self.initial.get("retention_days"):
             self.fields["retention_days"].initial = project.retention_days
         if not self.initial.get("web_retry_max_attempts"):
@@ -258,21 +276,38 @@ class SourceBaseForm(forms.ModelForm):
             cleaned["preset_payload"] = payload_text
 
         if source_type == Source.Type.WEB:
+            web_engine = cleaned.get("web_engine") or Source.WebEngine.PRESET
             preset = cleaned.get("web_preset")
             payload = self.cleaned_data.get("preset_payload")
-            if payload:
-                try:
-                    preset = self._get_registry().import_payload(payload)
-                except PresetValidationError as exc:
-                    self.add_error("preset_payload", str(exc))
-                    raise forms.ValidationError("Пресет не прошёл валидацию.") from exc
-            if not preset:
-                raise forms.ValidationError("Выберите пресет или импортируйте JSON-файл.")
+            source_url = (cleaned.get("source_url") or "").strip()
+            if web_engine == Source.WebEngine.PRESET:
+                if payload:
+                    try:
+                        preset = self._get_registry().import_payload(payload)
+                    except PresetValidationError as exc:
+                        self.add_error("preset_payload", str(exc))
+                        raise forms.ValidationError("Пресет не прошёл валидацию.") from exc
+                if not preset:
+                    raise forms.ValidationError("Выберите пресет или импортируйте JSON-файл.")
+                cleaned["source_url"] = ""
+            elif web_engine == Source.WebEngine.WATERCRAWL:
+                if not source_url:
+                    self.add_error("source_url", "Укажите URL сайта для Watercrawl.")
+                    raise forms.ValidationError("Для Watercrawl нужен URL сайта.")
+                preset = None
+                cleaned["web_preset"] = None
+                cleaned["preset_payload"] = ""
+                cleaned["preset_file"] = None
+            else:
+                raise forms.ValidationError("Выберите корректный режим веб-сбора.")
             cleaned["web_preset"] = preset
+            cleaned["web_engine"] = web_engine
             cleaned["username"] = ""
             cleaned["invite_link"] = ""
             cleaned["telegram_id"] = None
         else:  # Telegram
+            cleaned["web_engine"] = Source.WebEngine.PRESET
+            cleaned["source_url"] = ""
             if not username and not invite and telegram_id is None:
                 raise forms.ValidationError("Укажите @username, ссылку на канал или инвайт-ссылку.")
             cleaned["web_preset"] = None
@@ -296,6 +331,9 @@ class SourceBaseForm(forms.ModelForm):
             source.username = ""
             source.invite_link = ""
             source.telegram_id = None
+        if source.type == Source.Type.WEB and source.web_engine == Source.WebEngine.WATERCRAWL:
+            source.web_preset = None
+            source.web_preset_snapshot = {}
         if not (source.title or "").strip():
             source.title = self._generate_title(source)
         if commit:
@@ -306,6 +344,8 @@ class SourceBaseForm(forms.ModelForm):
 
     def _generate_title(self, source: Source) -> str:
         if source.type == Source.Type.WEB:
+            if source.web_engine == Source.WebEngine.WATERCRAWL and source.source_url:
+                return source.source_url
             if source.web_preset and source.web_preset.title:
                 return source.web_preset.title
             if source.web_preset:

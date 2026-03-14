@@ -9,17 +9,32 @@
     const fileInput = document.querySelector('[data-role="preset-file-input"]') || document.querySelector('#id_preset_file');
     const feedbackContainer = document.getElementById("preset-import-feedback");
     const payloadField = document.getElementById("id_preset_payload");
+    const webEngineField = document.getElementById("id_web_engine");
 
     function toggleSections() {
       const current = typeSelect.value;
+      const webEngine = webEngineField ? webEngineField.value : "preset";
       sections.forEach((section) => {
         const target = section.getAttribute("data-source-section");
         const shouldShow = !target || target === current;
         section.classList.toggle("d-none", !shouldShow);
       });
+      document.querySelectorAll(".source-web-preset-field").forEach((field) => {
+        const group = field.closest(".mb-3");
+        if (!group) return;
+        group.classList.toggle("d-none", current !== "web" || webEngine !== "preset");
+      });
+      document.querySelectorAll(".source-web-watercrawl-field").forEach((field) => {
+        const group = field.closest(".mb-3");
+        if (!group) return;
+        group.classList.toggle("d-none", current !== "web" || webEngine !== "watercrawl");
+      });
     }
 
     typeSelect.addEventListener("change", toggleSections);
+    if (webEngineField) {
+      webEngineField.addEventListener("change", toggleSections);
+    }
     toggleSections();
 
     if (importButton && fileInput && payloadField && feedbackContainer) {

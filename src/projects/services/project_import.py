@@ -8,7 +8,7 @@ from typing import Any
 
 from django.db import transaction
 
-from projects.models import Project, ProjectPromptConfig, Source, WebPreset
+from projects.models import Project, Source, WebPreset
 from projects.services.prompt_config import ensure_prompt_config
 from projects.services.web_preset_registry import PresetValidationError, WebPresetRegistry
 
@@ -129,18 +129,29 @@ def import_project_payload(*, owner, payload: dict[str, Any]) -> ImportResult:
 
             web_preset = None
             web_preset_snapshot = source_payload.get("web_preset_snapshot")
+            web_engine = source_payload.get("web_engine") or Source.WebEngine.PRESET
+            source_url = (source_payload.get("source_url") or "").strip()
             if source_type == Source.Type.WEB:
-                preset_ref = source_payload.get("web_preset") or {}
-                if not isinstance(preset_ref, dict):
-                    raise ProjectImportError("Некорректный формат web_preset.")
-                preset_key = (preset_ref.get("name"), preset_ref.get("version"))
-                if not all(preset_key):
-                    raise ProjectImportError("Для веб-источника нужен web_preset.")
-                web_preset = preset_map.get(preset_key)
-                if not web_preset:
-                    raise ProjectImportError("Не найден пресет для веб-источника.")
-                if not isinstance(web_preset_snapshot, dict):
-                    web_preset_snapshot = web_preset.config
+                if web_engine not in Source.WebEngine.values:
+                    raise ProjectImportError("Некорректный web_engine для веб-источника.")
+                if web_engine == Source.WebEngine.PRESET:
+                    preset_ref = source_payload.get("web_preset") or {}
+                    if not isinstance(preset_ref, dict):
+                        raise ProjectImportError("Некорректный формат web_preset.")
+                    preset_key = (preset_ref.get("name"), preset_ref.get("version"))
+                    if not all(preset_key):
+                        raise ProjectImportError("Для веб-источника нужен web_preset.")
+                    web_preset = preset_map.get(preset_key)
+                    if not web_preset:
+                        raise ProjectImportError("Не найден пресет для веб-источника.")
+                    if not isinstance(web_preset_snapshot, dict):
+                        web_preset_snapshot = web_preset.config
+                    source_url = ""
+                else:
+                    web_preset = None
+                    web_preset_snapshot = {}
+                    if not source_url:
+                        raise ProjectImportError("Для watercrawl-источника нужен source_url.")
 
             include_keywords = source_payload.get("include_keywords")
             exclude_keywords = source_payload.get("exclude_keywords")
@@ -162,6 +173,8 @@ def import_project_payload(*, owner, payload: dict[str, Any]) -> ImportResult:
                 invite_link=source_payload.get("invite_link") or "",
                 web_preset=web_preset,
                 web_preset_snapshot=web_preset_snapshot or {},
+                web_engine=web_engine,
+                source_url=source_url,
                 web_retry_max_attempts=source_payload.get("web_retry_max_attempts"),
                 web_retry_base_delay=source_payload.get("web_retry_base_delay"),
                 web_retry_max_delay=source_payload.get("web_retry_max_delay"),

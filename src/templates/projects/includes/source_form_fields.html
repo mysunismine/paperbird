@@ -25,6 +25,8 @@
 <div class="source-type-section" data-source-section="web">
   <h4 class="h5 mt-4">Параметры Web</h4>
   <hr class="mt-2 mb-4" />
+  {% include form_field_template with field=form.web_engine %}
+  {% include form_field_template with field=form.source_url %}
   {% include form_field_template with field=form.preset_payload %}
   <div class="mb-3">
     <div class="d-flex flex-wrap align-items-center gap-3">

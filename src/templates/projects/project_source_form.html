@@ -132,8 +132,10 @@
     const formFieldsSection = document.getElementById('form-fields-section');
     const typeCards = document.querySelectorAll('.type-selector .card');
     const backButton = document.getElementById('back-button');
+    const webEngineField = document.getElementById('id_web_engine');
 
     function toggleFieldsVisibility(sourceType) {
+      const webEngine = webEngineField ? webEngineField.value : 'preset';
       const allFields = formFieldsSection.querySelectorAll('.mb-3');
       allFields.forEach(fieldContainer => {
         const field = fieldContainer.querySelector('[name]');
@@ -141,11 +143,25 @@
 
         const isTelegramField = field.classList.contains('source-telegram-field');
         const isWebField = field.classList.contains('source-web-field');
+        const isPresetField = field.classList.contains('source-web-preset-field');
+        const isWatercrawlField = field.classList.contains('source-web-watercrawl-field');
         
         if (isTelegramField) {
           fieldContainer.style.display = sourceType === 'telegram' ? '' : 'none';
         } else if (isWebField) {
-          fieldContainer.style.display = sourceType === 'web' ? '' : 'none';
+          if (sourceType !== 'web') {
+            fieldContainer.style.display = 'none';
+            return;
+          }
+          if (isPresetField) {
+            fieldContainer.style.display = webEngine === 'preset' ? '' : 'none';
+            return;
+          }
+          if (isWatercrawlField) {
+            fieldContainer.style.display = webEngine === 'watercrawl' ? '' : 'none';
+            return;
+          }
+          fieldContainer.style.display = '';
         }
       });
     }
@@ -176,6 +192,9 @@
     });
 
     backButton.addEventListener('click', showTypeSelector);
+    if (webEngineField) {
+      webEngineField.addEventListener('change', () => toggleFieldsVisibility(typeSelectInput.value));
+    }
 
     // Hide the real select input
     if (typeSelectInput) {

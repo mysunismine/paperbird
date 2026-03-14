@@ -52,6 +52,8 @@ def build_project_export(project: Project) -> dict[str, Any]:
                     else None
                 ),
                 "web_preset_snapshot": source.web_preset_snapshot,
+                "web_engine": source.web_engine,
+                "source_url": source.source_url,
                 "web_retry_max_attempts": source.web_retry_max_attempts,
                 "web_retry_base_delay": source.web_retry_base_delay,
                 "web_retry_max_delay": source.web_retry_max_delay,

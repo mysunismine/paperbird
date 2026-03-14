@@ -271,6 +271,12 @@ GEMINI_IMAGE_ASPECT_RATIO = os.getenv("GEMINI_IMAGE_ASPECT_RATIO", "").strip()
 GEMINI_IMAGE_SIZE = os.getenv("GEMINI_IMAGE_SIZE", "").strip()
 GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "30"))
 
+# --- Интеграция Watercrawl --------------------------------------------------
+
+WATERCRAWL_API_URL = os.getenv("WATERCRAWL_API_URL", "").strip()
+WATERCRAWL_API_KEY = os.getenv("WATERCRAWL_API_KEY", "").strip()
+WATERCRAWL_TIMEOUT_SEC = float(os.getenv("WATERCRAWL_TIMEOUT_SEC", "30"))
+
 
 LOGGING = {
     "version": 1,

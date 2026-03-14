@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.db import models
 from django.utils import timezone
 
 from core.models import WorkerTask
@@ -52,7 +53,12 @@ def ensure_collector_tasks(project: Project, *, delay: int = 0) -> None:
     has_web_sources = project.sources.filter(
         is_active=True,
         type=Source.Type.WEB,
-        web_preset__status=WebPreset.Status.ACTIVE,
+    ).filter(
+        models.Q(web_engine=Source.WebEngine.WATERCRAWL)
+        | models.Q(
+            web_engine=Source.WebEngine.PRESET,
+            web_preset__status=WebPreset.Status.ACTIVE,
+        )
     ).exists()
     if has_web_sources:
         _schedule(

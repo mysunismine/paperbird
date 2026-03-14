@@ -6,7 +6,7 @@ import asyncio
 from datetime import timedelta
 from typing import Any
 
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from core.logging import event_logger, logging_context
@@ -20,7 +20,7 @@ from projects.services.telethon_client import (
     TelethonCredentialsMissingError,
     resolve_telegram_target,
 )
-from projects.services.web_collector import WebCollector
+from projects.services.web_collector import WatercrawlCollector, WebCollector
 from projects.services.web_collector.fetcher import HttpBlockedError
 from projects.services.web_preset_registry import PresetValidationError
 
@@ -251,7 +251,12 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
     sources_qs = project.sources.filter(
         is_active=True,
         type=Source.Type.WEB,
-        web_preset__status=WebPreset.Status.ACTIVE,
+    ).filter(
+        models.Q(web_engine=Source.WebEngine.WATERCRAWL)
+        | models.Q(
+            web_engine=Source.WebEngine.PRESET,
+            web_preset__status=WebPreset.Status.ACTIVE,
+        )
     ).select_related("web_preset")
 
     if source_id:
@@ -332,7 +337,8 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
             )
         return {"status": "scheduled", "sources": enqueued, "rescheduled": should_schedule}
 
-    collector = WebCollector()
+    preset_collector = WebCollector()
+    watercrawl_collector = WatercrawlCollector()
     summary = {"created": 0, "updated": 0, "skipped": 0}
     logger.info(
         "collector_web_sources_selected",
@@ -361,9 +367,13 @@ def collect_project_web_sources_task(task: WorkerTask) -> dict[str, Any]:
                 source_id=source.pk,
                 project_id=project.pk,
                 preset_id=source.web_preset_id,
+                engine=source.web_engine,
             )
             try:
-                stats = collector.collect(source)
+                if source.web_engine == Source.WebEngine.WATERCRAWL:
+                    stats = watercrawl_collector.collect(source)
+                else:
+                    stats = preset_collector.collect(source)
             except PresetValidationError as exc:
                 log.finish(status="failed", error=str(exc))
                 WebPreset.objects.filter(pk=source.web_preset_id).update(

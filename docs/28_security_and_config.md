@@ -40,6 +40,7 @@
   - `api_id`, `api_hash`, токены.
   - `OPENAI_API_KEY`, `YANDEX_API_KEY`, `GEMINI_API_KEY`.
   - `OPENAI_IMAGE_*`, `YANDEX_IMAGE_*`, `GEMINI_IMAGE_*`.
+  - `WATERCRAWL_API_URL`, `WATERCRAWL_API_KEY`, `WATERCRAWL_TIMEOUT_SEC`.
   - Таймауты подключения и запросов.
   - Интервалы опроса и лимиты запросов.
   - Настройки публикации и логирования.

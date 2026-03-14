@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest import skipUnless
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from core.models import WorkerTask
@@ -14,6 +14,7 @@ from projects.forms import SourceCreateForm
 from projects.models import Post, Project, Source, WebFetchCache, WebPreset
 from projects.services.web_collector import WebCollector, parse_datetime
 from projects.services.web_collector.fetcher import HttpFetcher
+from projects.services.web_collector.watercrawl import WatercrawlCollector
 from projects.services.web_preset_registry import PresetValidationError, WebPresetRegistry
 from projects.workers import collect_project_web_sources_task
 
@@ -89,6 +90,50 @@ class WebSourceFormTests(TestCase):
         self.assertTrue(source.web_preset_snapshot)
         self.assertEqual(source.web_preset.name, "site_feed")
         mock_refresh.assert_not_called()
+
+    @patch("projects.forms.source.enqueue_source_refresh")
+    def test_watercrawl_source_created_without_preset(self, mock_refresh) -> None:
+        user = User.objects.create_user("wc", password="secret")
+        project = Project.objects.create(owner=user, name="Watercrawl feed")
+        form = SourceCreateForm(
+            data={
+                "type": Source.Type.WEB,
+                "web_engine": Source.WebEngine.WATERCRAWL,
+                "source_url": "https://example.com/blog",
+                "title": "",
+                "web_preset": "",
+                "preset_payload": "",
+                "deduplicate_text": "on",
+                "deduplicate_media": "on",
+                "retention_days": 7,
+            },
+            project=project,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        source = form.save()
+        self.assertEqual(source.type, Source.Type.WEB)
+        self.assertEqual(source.web_engine, Source.WebEngine.WATERCRAWL)
+        self.assertEqual(source.source_url, "https://example.com/blog")
+        self.assertIsNone(source.web_preset)
+        self.assertEqual(source.web_preset_snapshot, {})
+        mock_refresh.assert_not_called()
+
+    def test_watercrawl_requires_source_url(self) -> None:
+        user = User.objects.create_user("wc2", password="secret")
+        project = Project.objects.create(owner=user, name="Watercrawl feed 2")
+        form = SourceCreateForm(
+            data={
+                "type": Source.Type.WEB,
+                "web_engine": Source.WebEngine.WATERCRAWL,
+                "source_url": "",
+                "web_preset": "",
+                "preset_payload": "",
+                "retention_days": 7,
+            },
+            project=project,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("source_url", form.errors)
 
 
 class WebCollectorUtilsTests(TestCase):
@@ -346,6 +391,43 @@ class WebFetcherCacheTests(TestCase):
         self.assertEqual(headers["If-Modified-Since"], "Mon, 10 Mar 2025 12:00:00 GMT")
 
 
+@skipUnless(HAS_HTTPX, "httpx не установлена")
+class WatercrawlCollectorTests(TestCase):
+    @override_settings(WATERCRAWL_API_URL="https://api.example.test/crawl")
+    @patch("projects.services.web_collector.watercrawl.httpx.post")
+    def test_collect_creates_posts_from_watercrawl_documents(self, mock_post) -> None:
+        user = User.objects.create_user("wc-collector", password="secret")
+        project = Project.objects.create(owner=user, name="WC project")
+        source = Source.objects.create(
+            project=project,
+            type=Source.Type.WEB,
+            title="WC source",
+            web_engine=Source.WebEngine.WATERCRAWL,
+            source_url="https://example.com/blog",
+            is_active=True,
+        )
+        mock_post.return_value = SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                "data": {
+                    "results": [
+                        {
+                            "url": "https://example.com/blog/post-1",
+                            "title": "Post 1",
+                            "markdown": "Body 1",
+                            "published_at": "2026-03-10T10:00:00+00:00",
+                        }
+                    ]
+                }
+            },
+        )
+        collector = WatercrawlCollector()
+        stats = collector.collect(source)
+        self.assertEqual(stats["created"], 1)
+        post = Post.objects.get(source=source)
+        self.assertIn("Body 1", post.message)
+
+
 class CollectProjectWebSourcesTaskTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("webber", password="secret")
@@ -376,6 +458,16 @@ class CollectProjectWebSourcesTaskTests(TestCase):
             title="Worker source",
             web_preset=preset,
             web_preset_snapshot=preset_data,
+            is_active=True,
+        )
+
+    def _add_watercrawl_source(self) -> Source:
+        return Source.objects.create(
+            project=self.project,
+            type=Source.Type.WEB,
+            title="Watercrawl source",
+            web_engine=Source.WebEngine.WATERCRAWL,
+            source_url="https://example.com/news",
             is_active=True,
         )
 
@@ -430,6 +522,19 @@ class CollectProjectWebSourcesTaskTests(TestCase):
             .exclude(pk=task.pk)
             .exists()
         )
+
+    @patch("projects.workers.WatercrawlCollector.collect")
+    def test_task_uses_watercrawl_engine(self, mock_collect) -> None:
+        source = self._add_watercrawl_source()
+        mock_collect.return_value = {"created": 2, "updated": 1, "skipped": 0}
+        task = WorkerTask.objects.create(
+            queue=WorkerTask.Queue.COLLECTOR_WEB,
+            payload={"project_id": self.project.id, "source_id": source.id, "interval": 60},
+        )
+        result = collect_project_web_sources_task(task)
+        self.assertEqual(result["created"], 2)
+        self.assertEqual(result["updated"], 1)
+        mock_collect.assert_called_once()
 
     @patch("projects.workers.enqueue_task")
     def test_source_retry_overrides_applied(self, mock_enqueue) -> None:

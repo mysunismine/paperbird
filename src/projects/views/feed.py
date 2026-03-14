@@ -6,6 +6,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import models
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -240,7 +241,12 @@ class ProjectPostListView(LoginRequiredMixin, TemplateView):
         return self.project.sources.filter(
             is_active=True,
             type=Source.Type.WEB,
-            web_preset__status=WebPreset.Status.ACTIVE,
+        ).filter(
+            models.Q(web_engine=Source.WebEngine.WATERCRAWL)
+            | models.Q(
+                web_engine=Source.WebEngine.PRESET,
+                web_preset__status=WebPreset.Status.ACTIVE,
+            )
         ).exists()
 
 
