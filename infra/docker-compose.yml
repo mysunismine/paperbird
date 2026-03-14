@@ -12,6 +12,15 @@ x-app-base: &app-base
   depends_on:
     postgres:
       condition: service_healthy
+    watercrawl:
+      condition: service_started
+  environment:
+    POSTGRES_HOST: postgres
+    WATERCRAWL_API_URL: ${WATERCRAWL_API_URL:-http://watercrawl:8080/crawl}
+    WATERCRAWL_API_KEY: ${WATERCRAWL_API_KEY:-}
+    WATERCRAWL_TIMEOUT_SEC: ${WATERCRAWL_TIMEOUT_SEC:-30}
+  networks:
+    - paperbird-internal
 
 services:
   postgres:
@@ -32,20 +41,33 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    networks:
+      - paperbird-internal
 
-  web:
+  watercrawl:
+    image: ${WATERCRAWL_IMAGE:-watercrawl/watercrawl:latest}
+    container_name: paperbird-watercrawl
+    restart: unless-stopped
+    environment:
+      PORT: ${WATERCRAWL_PORT:-8080}
+    expose:
+      - "${WATERCRAWL_PORT:-8080}"
+    networks:
+      - paperbird-internal
+
+  paperbird:
     <<: *app-base
-    container_name: paperbird-web
+    container_name: paperbird-app
     command: python manage.py runserver 0.0.0.0:8000
     environment:
       RUN_MIGRATIONS: "1"
-      POSTGRES_HOST: postgres
     ports:
       - "8000:8000"
 
   collectors:
     <<: *app-base
     container_name: paperbird-collector
+    profiles: ["workers"]
     command:
       - python
       - manage.py
@@ -54,11 +76,11 @@ services:
       - "--sleep=${COLLECTOR_SLEEP:-5}"
     environment:
       RUN_MIGRATIONS: "0"
-      POSTGRES_HOST: postgres
 
   collectors_web:
     <<: *app-base
     container_name: paperbird-collector-web
+    profiles: ["workers"]
     command:
       - python
       - manage.py
@@ -67,8 +89,11 @@ services:
       - "--sleep=${COLLECTOR_WEB_SLEEP:-30}"
     environment:
       RUN_MIGRATIONS: "0"
-      POSTGRES_HOST: postgres
 
 volumes:
   postgres-data:
     name: paperbird-postgres-data
+
+networks:
+  paperbird-internal:
+    name: paperbird-internal

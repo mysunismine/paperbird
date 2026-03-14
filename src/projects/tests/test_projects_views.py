@@ -565,6 +565,23 @@ class ProjectSourceDetailViewTests(TestCase):
         self.assertContains(response, "Мы перестали получать новости из этого источника")
         self.assertContains(response, "HTTP 403 for https://example.com/news")
 
+    @patch("projects.views.feed.enqueue_task")
+    def test_detail_refresh_web_enqueues_task(self, mock_enqueue) -> None:
+        response = self.client.post(
+            reverse(
+                "projects:source-detail",
+                kwargs={"project_pk": self.project.pk, "pk": self.source.pk},
+            ),
+            data={"action": "refresh_web"},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        mock_enqueue.assert_called_once()
+        kwargs = mock_enqueue.call_args.kwargs
+        self.assertEqual(kwargs["payload"]["project_id"], self.project.pk)
+        self.assertEqual(kwargs["payload"]["source_id"], self.source.pk)
+        self.assertContains(response, "Источник поставлен в очередь")
+
 
 class ProjectSourceCreateViewTests(TestCase):
     def setUp(self) -> None:
@@ -684,6 +701,31 @@ class ProjectSourceCreateViewTests(TestCase):
         payload_sent = kwargs["payload"]
         self.assertEqual(payload_sent["project_id"], self.project.pk)
         self.assertEqual(payload_sent["source_id"], created.pk)
+
+    @patch("projects.views.feed.enqueue_task")
+    def test_create_watercrawl_source(self, mock_enqueue) -> None:
+        response = self.client.post(
+            reverse("projects:source-create", kwargs={"project_pk": self.project.pk}),
+            data={
+                "type": Source.Type.WEB,
+                "title": "Авто-лента",
+                "web_engine": Source.WebEngine.WATERCRAWL,
+                "source_url": "https://example.com/news",
+                "web_preset": "",
+                "preset_payload": "",
+                "deduplicate_text": "on",
+                "deduplicate_media": "on",
+                "retention_days": 30,
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        created = Source.objects.get(project=self.project, title="Авто-лента")
+        self.assertEqual(created.web_engine, Source.WebEngine.WATERCRAWL)
+        self.assertEqual(created.source_url, "https://example.com/news")
+        self.assertIsNone(created.web_preset)
+        self.assertEqual(created.web_preset_snapshot, {})
+        mock_enqueue.assert_called_once()
 
     @patch("projects.views.feed.enqueue_task", side_effect=RuntimeError("boom"))
     def test_web_source_enqueue_failure_shows_message(self, mock_enqueue) -> None:

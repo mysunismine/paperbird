@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
+from urllib.parse import urlparse
+
 from django import forms
 
 from projects.models import Project, Source, WebPreset
@@ -132,6 +135,14 @@ class SourceBaseForm(forms.ModelForm):
         }
         help_texts = {
             "type": "Выберите тип источника. От этого зависит, какие поля нужно будет заполнить.",
+            "web_engine": (
+                "Автоматический режим подходит для большинства лент и блогов. "
+                "Режим по пресету оставьте для сложной верстки."
+            ),
+            "source_url": (
+                "Укажите URL ленты новостей или раздела блога, "
+                "откуда забирать материалы."
+            ),
         }
 
     def __init__(self, *args, project: Project, **kwargs):
@@ -184,8 +195,17 @@ class SourceBaseForm(forms.ModelForm):
         self.fields["web_block_cooldown_sec"].widget.attrs["class"] += " source-web-field"
 
         # Initial values and querysets
+        self.fields["web_engine"].choices = [
+            (Source.WebEngine.WATERCRAWL, "Автоматический парсер (Watercrawl)"),
+            (Source.WebEngine.PRESET, "По пресету (ручная настройка)"),
+        ]
         self.fields["web_preset"].queryset = WebPreset.objects.order_by("name", "version")
-        self.fields["web_engine"].initial = Source.WebEngine.PRESET
+        if self.instance.pk and self.instance.type == Source.Type.WEB:
+            self.fields["web_engine"].initial = self.instance.web_engine
+        else:
+            self.fields["web_engine"].initial = (
+                Source.WebEngine.WATERCRAWL if is_create else Source.WebEngine.PRESET
+            )
         if not self.initial.get("retention_days"):
             self.fields["retention_days"].initial = project.retention_days
         if not self.initial.get("web_retry_max_attempts"):
@@ -220,6 +240,32 @@ class SourceBaseForm(forms.ModelForm):
         value = self.cleaned_data.get("retention_days") or self.project.retention_days
         if value < 1:
             raise forms.ValidationError("Срок хранения должен быть не меньше 1 дня")
+        return value
+
+    def clean_source_url(self) -> str:
+        value = (self.cleaned_data.get("source_url") or "").strip()
+        if not value:
+            return ""
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"}:
+            raise forms.ValidationError("Разрешены только URL с http/https.")
+        host = (parsed.hostname or "").strip().lower()
+        if not host:
+            raise forms.ValidationError("Некорректный URL источника.")
+        if host in {"localhost", "127.0.0.1", "::1"}:
+            raise forms.ValidationError("Локальные адреса запрещены.")
+        try:
+            ip_value = ipaddress.ip_address(host)
+        except ValueError:
+            return value
+        if (
+            ip_value.is_private
+            or ip_value.is_loopback
+            or ip_value.is_link_local
+            or ip_value.is_reserved
+            or ip_value.is_multicast
+        ):
+            raise forms.ValidationError("Приватные и служебные IP-адреса запрещены.")
         return value
 
     def clean_username(self) -> str:

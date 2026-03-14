@@ -34,9 +34,17 @@
             <span class="visually-hidden">Другие действия</span>
           </button>
           <ul class="dropdown-menu dropdown-menu-end">
-            <li><a class="dropdown-item" href="#">
-              <i class="bi bi-arrow-clockwise me-2"></i>Проверить сейчас
-            </a></li>
+            {% if source.type == "web" %}
+              <li>
+                <form method="post" class="d-inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="refresh_web">
+                  <button type="submit" class="dropdown-item">
+                    <i class="bi bi-arrow-clockwise me-2"></i>Проверить сейчас
+                  </button>
+                </form>
+              </li>
+            {% endif %}
             <li><a class="dropdown-item" href="#">
               <i class="bi bi-pause-circle me-2"></i>Приостановить
             </a></li>
@@ -112,8 +120,30 @@
           {% elif source.type == "manual" %}
             <div class="text-muted">Редакторский текст, без внешних источников.</div>
           {% else %}
-            <h3 class="h6">Параметры пресета</h3>
-            <pre class="bg-light p-3 rounded small"><code>{{ source.preset_payload|json_script:"preset-data" }}</code></pre>
+            <dl class="row mb-3">
+              <dt class="col-sm-4">Режим</dt>
+              <dd class="col-sm-8">
+                {% if source.web_engine == "watercrawl" %}
+                  Автоматический парсер (Watercrawl)
+                {% else %}
+                  По пресету
+                {% endif %}
+              </dd>
+              {% if source.source_url %}
+                <dt class="col-sm-4">URL источника</dt>
+                <dd class="col-sm-8">
+                  <a href="{{ source.source_url }}" target="_blank" rel="noopener noreferrer">
+                    {{ source.source_url }}
+                  </a>
+                </dd>
+              {% endif %}
+            </dl>
+            {% if source.web_engine == "preset" %}
+              <h3 class="h6">Параметры пресета</h3>
+              <pre class="bg-light p-3 rounded small mb-0"><code>{{ source.web_preset_snapshot }}</code></pre>
+            {% else %}
+              <div class="text-muted">Источник работает в автоматическом режиме через Watercrawl.</div>
+            {% endif %}
           {% endif %}
         </div>
       </div>

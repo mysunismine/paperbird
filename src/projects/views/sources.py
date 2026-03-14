@@ -122,6 +122,50 @@ class ProjectSourceDetailView(LoginRequiredMixin, DetailView):
     template_name = "projects/project_source_detail.html"
     context_object_name = "source"
 
+    def post(self, request, *args, **kwargs):
+        """Поддерживает действия для конкретного источника."""
+        self.object = self.get_object()
+        action = (request.POST.get("action") or "").strip()
+        if action != "refresh_web":
+            messages.error(request, "Неизвестное действие.")
+            return redirect(
+                "projects:source-detail",
+                project_pk=self.object.project_id,
+                pk=self.object.pk,
+            )
+        source = self.object
+        if source.type != Source.Type.WEB:
+            messages.error(request, "Ручной запуск доступен только для веб-источников.")
+            return redirect(
+                "projects:source-detail",
+                project_pk=source.project_id,
+                pk=source.pk,
+            )
+        from projects.views import feed
+
+        try:
+            feed.enqueue_task(
+                WorkerTask.Queue.COLLECTOR_WEB,
+                payload={
+                    "project_id": source.project_id,
+                    "source_id": source.pk,
+                    "interval": max(source.project.collector_web_interval, 60),
+                },
+                scheduled_for=timezone.now(),
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            messages.error(request, f"Не удалось поставить задачу в очередь: {exc}")
+        else:
+            messages.success(
+                request,
+                "Источник поставлен в очередь. Новые материалы скоро появятся в ленте.",
+            )
+        return redirect(
+            "projects:source-detail",
+            project_pk=source.project_id,
+            pk=source.pk,
+        )
+
     def get_queryset(self):
         """Возвращает queryset с предзагрузкой связанных данных."""
         return (
