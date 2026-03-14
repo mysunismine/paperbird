@@ -24,7 +24,7 @@ from telethon.tl.types import (
 from accounts.models import User
 from core.constants import DEFAULT_COLLECT_LIMIT
 from projects.models import Post, Project, Source, SourceSyncLog
-from projects.services.telethon_client import TelethonClientFactory
+from projects.services.telethon_client import TelethonClientFactory, resolve_telegram_target
 
 from .utils import _normalize_raw
 
@@ -94,7 +94,7 @@ class PostCollector:
                             skipped=skipped,
                         )
                         continue
-                    entity = await client.get_entity(target)
+                    entity = await resolve_telegram_target(client, target)
                     kind = self._detect_telegram_kind(entity)
                     if kind and source.telegram_kind != kind:
                         source.telegram_kind = kind

@@ -150,48 +150,16 @@
               <div class="fw-semibold">Удаление проекта</div>
               <p class="mb-0 small text-muted">Это действие необратимо. Все посты, сюжеты и связанные данные будут удалены.</p>
             </div>
-            <button
-              type="button"
-              class="btn btn-danger mt-3 mt-md-0"
-              data-bs-toggle="modal"
-              data-bs-target="#deleteProjectModal"
-            >
-              <i class="bi bi-trash me-1"></i>
-              Удалить проект
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal for Delete Confirmation -->
-    <div
-      class="modal fade"
-      id="deleteProjectModal"
-      tabindex="-1"
-      aria-labelledby="deleteProjectModalLabel"
-      aria-hidden="true"
-    >
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h1 class="modal-title fs-5" id="deleteProjectModalLabel">Подтвердите удаление</h1>
-            <button
-              type="button"
-              class="btn-close"
-              data-bs-dismiss="modal"
-              aria-label="Close"
-            ></button>
-          </div>
-          <div class="modal-body">
-            Вы уверены, что хотите удалить проект
-            <strong>«{{ project.name }}»</strong>? Это действие нельзя будет отменить.
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-            <form method="post" action="{% url 'projects:delete' project.pk %}">
+            <form method="post" action="{% url 'projects:delete' project.pk %}" class="mt-3 mt-md-0">
               {% csrf_token %}
-              <button type="submit" class="btn btn-danger">Да, удалить</button>
+              <button
+                type="submit"
+                class="btn btn-danger"
+                onclick="return confirm('Вы уверены, что хотите удалить проект «{{ project.name|escapejs }}»? Это действие нельзя отменить.');"
+              >
+                <i class="bi bi-trash me-1"></i>
+                Удалить проект
+              </button>
             </form>
           </div>
         </div>

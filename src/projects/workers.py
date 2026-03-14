@@ -18,6 +18,7 @@ from projects.services.retention import purge_expired_posts
 from projects.services.telethon_client import (
     TelethonClientFactory,
     TelethonCredentialsMissingError,
+    resolve_telegram_target,
 )
 from projects.services.web_collector import WebCollector
 from projects.services.web_collector.fetcher import HttpBlockedError
@@ -99,7 +100,7 @@ def refresh_source_metadata_task(task: WorkerTask) -> dict[str, Any]:
     async def runner():
         factory = TelethonClientFactory(user=owner)
         async with factory.connect() as client:
-            return await client.get_entity(target)
+            return await resolve_telegram_target(client, target)
 
     try:
         entity = asyncio.run(runner())

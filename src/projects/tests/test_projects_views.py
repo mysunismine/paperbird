@@ -2,8 +2,8 @@ import hashlib
 import json
 from datetime import timedelta
 from http import HTTPStatus
-from unittest.mock import ANY, patch
 from unittest import skipUnless
+from unittest.mock import ANY, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
@@ -204,6 +204,16 @@ class ProjectSettingsViewTests(TestCase):
             reverse("projects:settings", args=[self.project.pk])
         )
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
+
+    def test_owner_can_delete_project(self) -> None:
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("projects:delete", args=[self.project.pk]),
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertFalse(Project.objects.filter(pk=self.project.pk).exists())
+        self.assertContains(response, "Проект «Новости» удалён.")
 
 
 class ProjectPromptsViewTests(TestCase):

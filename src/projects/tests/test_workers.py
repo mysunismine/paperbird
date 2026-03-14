@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -7,6 +8,8 @@ from projects.models import Project, Source
 from projects.services.telethon_client import (
     TelethonClientFactory,
     TelethonCredentialsMissingError,
+    extract_invite_hash,
+    resolve_telegram_target,
 )
 from projects.workers import refresh_source_metadata_task
 
@@ -92,3 +95,40 @@ class TelethonClientFactoryTests(TestCase):
         factory = TelethonClientFactory(user=self.user)
         factory.build()
         mock_string_session.assert_called_once_with("1Aabc==")
+
+
+class TelegramInviteResolveTests(TestCase):
+    def test_extract_invite_hash_supports_plus_and_joinchat(self) -> None:
+        self.assertEqual(extract_invite_hash("https://t.me/+Ps_kUDH31H5kZTdi"), "Ps_kUDH31H5kZTdi")
+        self.assertEqual(extract_invite_hash("https://t.me/joinchat/AbCdEf123"), "AbCdEf123")
+
+    def test_resolve_telegram_target_uses_import_for_invite_link(self) -> None:
+        entity = SimpleNamespace(id=321, title="Private channel", username=None)
+
+        class FakeClient:
+            async def __call__(self, request):
+                name = request.__class__.__name__
+                if name == "CheckChatInviteRequest":
+                    return SimpleNamespace()
+                if name == "ImportChatInviteRequest":
+                    return SimpleNamespace(chats=[entity])
+                raise AssertionError(name)
+
+            async def get_entity(self, target):
+                raise AssertionError(f"Unexpected fallback get_entity({target})")
+
+        resolved = asyncio.run(resolve_telegram_target(FakeClient(), "https://t.me/+abcdef"))
+        self.assertEqual(resolved.id, 321)
+
+    def test_resolve_telegram_target_fallbacks_to_get_entity(self) -> None:
+        expected = SimpleNamespace(id=1)
+
+        class FakeClient:
+            async def __call__(self, request):
+                raise AssertionError(request)
+
+            async def get_entity(self, target):
+                return expected
+
+        resolved = asyncio.run(resolve_telegram_target(FakeClient(), "technews"))
+        self.assertIs(resolved, expected)
