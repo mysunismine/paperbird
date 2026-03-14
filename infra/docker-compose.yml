@@ -1,5 +1,3 @@
-version: "3.9"
-
 x-app-base: &app-base
   build:
     context: ..
@@ -9,18 +7,23 @@ x-app-base: &app-base
     - ./.env
   volumes:
     - ..:/app
+    - watercrawl-shared:/shared:ro
   depends_on:
     postgres:
       condition: service_healthy
     watercrawl:
-      condition: service_started
-  environment:
-    POSTGRES_HOST: postgres
-    WATERCRAWL_API_URL: ${WATERCRAWL_API_URL:-http://watercrawl:8080/crawl}
-    WATERCRAWL_API_KEY: ${WATERCRAWL_API_KEY:-}
-    WATERCRAWL_TIMEOUT_SEC: ${WATERCRAWL_TIMEOUT_SEC:-30}
+      condition: service_healthy
   networks:
     - paperbird-internal
+
+x-app-env: &app-env
+  POSTGRES_HOST: postgres
+  WATERCRAWL_API_URL: ${WATERCRAWL_API_URL:-http://watercrawl:8080/api/v1/core/crawl-requests/}
+  WATERCRAWL_API_KEY: ${WATERCRAWL_API_KEY:-}
+  WATERCRAWL_API_KEY_FILE: ${WATERCRAWL_API_KEY_FILE:-/shared/watercrawl_api_key}
+  WATERCRAWL_TIMEOUT_SEC: ${WATERCRAWL_TIMEOUT_SEC:-30}
+  WATERCRAWL_JOB_TIMEOUT_SEC: ${WATERCRAWL_JOB_TIMEOUT_SEC:-120}
+  WATERCRAWL_POLL_INTERVAL_SEC: ${WATERCRAWL_POLL_INTERVAL_SEC:-2}
 
 services:
   postgres:
@@ -48,10 +51,99 @@ services:
     image: ${WATERCRAWL_IMAGE:-watercrawl/watercrawl:latest}
     container_name: paperbird-watercrawl
     restart: unless-stopped
+    depends_on:
+      watercrawl-redis:
+        condition: service_healthy
+      watercrawl-postgres:
+        condition: service_healthy
     environment:
+      DATABASE_URL: ${WATERCRAWL_DATABASE_URL:-postgresql://${WATERCRAWL_POSTGRES_USER:-watercrawl}:${WATERCRAWL_POSTGRES_PASSWORD:-watercrawl}@watercrawl-postgres:${WATERCRAWL_POSTGRES_PORT:-5432}/${WATERCRAWL_POSTGRES_DB:-watercrawl}}
+      REDIS_URL: ${WATERCRAWL_REDIS_URL:-redis://watercrawl-redis:6379/1}
+      REDIS_LOCKER_URL: ${WATERCRAWL_REDIS_LOCKER_URL:-redis://watercrawl-redis:6379/0}
+      CELERY_BROKER_URL: ${WATERCRAWL_CELERY_BROKER_URL:-redis://watercrawl-redis:6379/0}
+      CELERY_RESULT_BACKEND: ${WATERCRAWL_CELERY_RESULT_BACKEND:-django-db}
+      STATICFILES_STORAGE: ${WATERCRAWL_STATICFILES_STORAGE:-django.contrib.staticfiles.storage.StaticFilesStorage}
+      DEFAULT_FILE_STORAGE: ${WATERCRAWL_DEFAULT_FILE_STORAGE:-django.core.files.storage.FileSystemStorage}
+      MEDIA_FILE_STORAGE: ${WATERCRAWL_MEDIA_FILE_STORAGE:-django.core.files.storage.FileSystemStorage}
+      STATIC_ROOT: ${WATERCRAWL_STATIC_ROOT:-/data/static}
+      MEDIA_ROOT: ${WATERCRAWL_MEDIA_ROOT:-/data/media}
+      API_ENCRYPTION_KEY: ${WATERCRAWL_API_ENCRYPTION_KEY:-8zSd6JIuC7ovfZ4AoxG_XmhubW6CPnQWW7Qe_4TD1TQ=}
+      WATERCRAWL_BOOTSTRAP_EMAIL: ${WATERCRAWL_BOOTSTRAP_EMAIL:-paperbird@local}
+      WATERCRAWL_BOOTSTRAP_PASSWORD: ${WATERCRAWL_BOOTSTRAP_PASSWORD:-Paperbird12345!}
+      WATERCRAWL_BOOTSTRAP_KEY_NAME: ${WATERCRAWL_BOOTSTRAP_KEY_NAME:-Paperbird}
+      WATERCRAWL_BOOTSTRAP_API_KEY_PATH: ${WATERCRAWL_BOOTSTRAP_API_KEY_PATH:-/shared/watercrawl_api_key}
       PORT: ${WATERCRAWL_PORT:-8080}
+    command: ["sh", "/opt/watercrawl-start.sh"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', int('${WATERCRAWL_PORT:-8080}'))); s.close()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     expose:
       - "${WATERCRAWL_PORT:-8080}"
+    volumes:
+      - ./scripts/watercrawl-start.sh:/opt/watercrawl-start.sh:ro
+      - watercrawl-data:/data
+      - watercrawl-shared:/shared
+    networks:
+      - paperbird-internal
+
+  watercrawl-worker:
+    image: ${WATERCRAWL_IMAGE:-watercrawl/watercrawl:latest}
+    container_name: paperbird-watercrawl-worker
+    restart: unless-stopped
+    depends_on:
+      watercrawl:
+        condition: service_healthy
+      watercrawl-redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${WATERCRAWL_DATABASE_URL:-postgresql://${WATERCRAWL_POSTGRES_USER:-watercrawl}:${WATERCRAWL_POSTGRES_PASSWORD:-watercrawl}@watercrawl-postgres:${WATERCRAWL_POSTGRES_PORT:-5432}/${WATERCRAWL_POSTGRES_DB:-watercrawl}}
+      REDIS_URL: ${WATERCRAWL_REDIS_URL:-redis://watercrawl-redis:6379/1}
+      REDIS_LOCKER_URL: ${WATERCRAWL_REDIS_LOCKER_URL:-redis://watercrawl-redis:6379/0}
+      CELERY_BROKER_URL: ${WATERCRAWL_CELERY_BROKER_URL:-redis://watercrawl-redis:6379/0}
+      CELERY_RESULT_BACKEND: ${WATERCRAWL_CELERY_RESULT_BACKEND:-django-db}
+      API_ENCRYPTION_KEY: ${WATERCRAWL_API_ENCRYPTION_KEY:-8zSd6JIuC7ovfZ4AoxG_XmhubW6CPnQWW7Qe_4TD1TQ=}
+    command: ["celery", "-A", "watercrawl", "worker", "-l", "INFO", "-Q", "celery"]
+    volumes:
+      - watercrawl-data:/data
+      - watercrawl-shared:/shared
+    networks:
+      - paperbird-internal
+
+  watercrawl-redis:
+    image: redis:7-alpine
+    container_name: paperbird-watercrawl-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - paperbird-internal
+
+  watercrawl-postgres:
+    image: postgres:16
+    container_name: paperbird-watercrawl-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${WATERCRAWL_POSTGRES_DB:-watercrawl}
+      POSTGRES_USER: ${WATERCRAWL_POSTGRES_USER:-watercrawl}
+      POSTGRES_PASSWORD: ${WATERCRAWL_POSTGRES_PASSWORD:-watercrawl}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WATERCRAWL_POSTGRES_USER:-watercrawl}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - watercrawl-postgres-data:/var/lib/postgresql/data
     networks:
       - paperbird-internal
 
@@ -60,6 +152,7 @@ services:
     container_name: paperbird-app
     command: python manage.py runserver 0.0.0.0:8000
     environment:
+      <<: *app-env
       RUN_MIGRATIONS: "1"
     ports:
       - "8000:8000"
@@ -75,6 +168,7 @@ services:
       - collector
       - "--sleep=${COLLECTOR_SLEEP:-5}"
     environment:
+      <<: *app-env
       RUN_MIGRATIONS: "0"
 
   collectors_web:
@@ -88,11 +182,18 @@ services:
       - collector_web
       - "--sleep=${COLLECTOR_WEB_SLEEP:-30}"
     environment:
+      <<: *app-env
       RUN_MIGRATIONS: "0"
 
 volumes:
   postgres-data:
     name: paperbird-postgres-data
+  watercrawl-data:
+    name: paperbird-watercrawl-data
+  watercrawl-shared:
+    name: paperbird-watercrawl-shared
+  watercrawl-postgres-data:
+    name: paperbird-watercrawl-postgres-data
 
 networks:
   paperbird-internal:

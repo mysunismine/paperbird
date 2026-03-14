@@ -275,7 +275,14 @@ GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "30"))
 
 WATERCRAWL_API_URL = os.getenv("WATERCRAWL_API_URL", "").strip()
 WATERCRAWL_API_KEY = os.getenv("WATERCRAWL_API_KEY", "").strip()
+WATERCRAWL_API_KEY_FILE = os.getenv("WATERCRAWL_API_KEY_FILE", "").strip()
+if not WATERCRAWL_API_KEY and WATERCRAWL_API_KEY_FILE:
+    key_path = Path(WATERCRAWL_API_KEY_FILE).expanduser()
+    if key_path.exists():
+        WATERCRAWL_API_KEY = key_path.read_text(encoding="utf-8").strip()
 WATERCRAWL_TIMEOUT_SEC = float(os.getenv("WATERCRAWL_TIMEOUT_SEC", "30"))
+WATERCRAWL_JOB_TIMEOUT_SEC = float(os.getenv("WATERCRAWL_JOB_TIMEOUT_SEC", "120"))
+WATERCRAWL_POLL_INTERVAL_SEC = float(os.getenv("WATERCRAWL_POLL_INTERVAL_SEC", "2"))
 
 
 LOGGING = {
